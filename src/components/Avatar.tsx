@@ -1,6 +1,10 @@
-import type { UserRef } from "../state/store";
+type AvatarUser = {
+	username?: string | null;
+	name: string | null;
+	profile_picture_url: string | null;
+};
 
-type Props = { user: UserRef | null; size?: "sm" | "md" };
+type Props = { user: AvatarUser | null; size?: "sm" | "md" };
 
 export function Avatar({ user, size = "sm" }: Props) {
 	const cls = `avatar avatar-${size}`;

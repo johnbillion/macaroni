@@ -1,4 +1,6 @@
-import { useEffect, useRef } from "preact/hooks";
+import { LogicalPosition } from "@tauri-apps/api/dpi";
+import { CheckMenuItem, Menu } from "@tauri-apps/api/menu";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
 import {
 	buildReportsQuery,
@@ -7,10 +9,113 @@ import {
 	loadReports,
 	markReportRead,
 } from "../state/effects";
-import type { AppError } from "../state/store";
+import type { AppError, AssigneeRef, UserRef } from "../state/store";
 import { pillFor } from "../utils/pill";
 import { formatRelativeTime } from "../utils/time";
 import { AssetIdentifier } from "./AssetIdentifier";
+import { Avatar } from "./Avatar";
+import { SeverityMeter } from "./SeverityMeter";
+
+const COLUMN_DEFS = [
+	{ key: "id", label: "ID", defaultVisible: true },
+	{ key: "opened", label: "Opened", defaultVisible: true },
+	{ key: "updated", label: "Updated", defaultVisible: false },
+	{ key: "status", label: "Status", defaultVisible: true },
+	{ key: "severity", label: "Severity", defaultVisible: false },
+	{ key: "asset", label: "Asset", defaultVisible: true },
+	{ key: "title", label: "Title", defaultVisible: true },
+	{ key: "reporter", label: "Reporter", defaultVisible: false },
+	{ key: "assignee", label: "Assignee", defaultVisible: false },
+] as const;
+
+type ColumnKey = (typeof COLUMN_DEFS)[number]["key"];
+
+const DEFAULT_VISIBILITY = Object.fromEntries(
+	COLUMN_DEFS.map((c) => [c.key, c.defaultVisible]),
+) as Record<ColumnKey, boolean>;
+
+const COLUMN_STORAGE_KEY = "macaroni.columns";
+
+function loadColumnVisibility(): Record<ColumnKey, boolean> {
+	try {
+		const raw = localStorage.getItem(COLUMN_STORAGE_KEY);
+		if (!raw) return { ...DEFAULT_VISIBILITY };
+		const parsed = JSON.parse(raw) as Partial<Record<ColumnKey, unknown>>;
+		const out = { ...DEFAULT_VISIBILITY };
+		for (const { key } of COLUMN_DEFS) {
+			if (typeof parsed[key] === "boolean") out[key] = parsed[key] as boolean;
+		}
+		return out;
+	} catch {
+		return { ...DEFAULT_VISIBILITY };
+	}
+}
+
+function useColumnVisibility() {
+	const [visibility, setVisibility] =
+		useState<Record<ColumnKey, boolean>>(loadColumnVisibility);
+	useEffect(() => {
+		localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibility));
+	}, [visibility]);
+	const toggle = (key: ColumnKey) =>
+		setVisibility((v) => ({ ...v, [key]: !v[key] }));
+	return { visibility, toggle };
+}
+
+function ColumnsMenu({
+	visibility,
+	onToggle,
+}: {
+	visibility: Record<ColumnKey, boolean>;
+	onToggle: (key: ColumnKey) => void;
+}) {
+	const btnRef = useRef<HTMLButtonElement>(null);
+	const openMenu = async () => {
+		const items = await Promise.all(
+			COLUMN_DEFS.map((col) =>
+				CheckMenuItem.new({
+					id: col.key,
+					text: col.label,
+					checked: visibility[col.key],
+					action: () => onToggle(col.key),
+				}),
+			),
+		);
+		const menu = await Menu.new({ items });
+		const rect = btnRef.current?.getBoundingClientRect();
+		if (rect) {
+			await menu.popup(new LogicalPosition(rect.left, rect.bottom));
+		} else {
+			await menu.popup();
+		}
+	};
+	return (
+		<div class="columns-menu">
+			<button
+				ref={btnRef}
+				type="button"
+				class="columns-menu-btn"
+				aria-haspopup="true"
+				aria-label="Toggle columns"
+				title="Toggle columns"
+				onClick={openMenu}
+			>
+				⚙
+			</button>
+		</div>
+	);
+}
+
+function renderPerson(person: UserRef | AssigneeRef | null) {
+	if (!person) return null;
+	const label = person.name ?? person.username ?? "";
+	return (
+		<span class="person-cell">
+			<Avatar user={person} size="sm" />
+			<span class="person-name">{label}</span>
+		</span>
+	);
+}
 
 function formatReportError(error: AppError): string {
 	switch (error.kind) {
@@ -31,6 +136,9 @@ export function InboxTable() {
 	const state = useAppState();
 	const dispatch = useDispatch();
 	const inboxRef = useRef<HTMLElement>(null);
+	const { visibility, toggle } = useColumnVisibility();
+	const visibleCount =
+		1 + COLUMN_DEFS.reduce((n, c) => n + (visibility[c.key] ? 1 : 0), 0);
 
 	useEffect(() => {
 		inboxRef.current?.scrollTo({ top: 0 });
@@ -82,11 +190,15 @@ export function InboxTable() {
 						<th class="th-check">
 							<input type="checkbox" class="cb" aria-label="Select all" />
 						</th>
-						<th>ID</th>
-						<th>OPENED</th>
-						<th>STATUS</th>
-						<th class="th-asset">ASSET</th>
-						<th class="th-title">TITLE</th>
+						{visibility.id ? <th>ID</th> : null}
+						{visibility.opened ? <th>OPENED</th> : null}
+						{visibility.updated ? <th>UPDATED</th> : null}
+						{visibility.status ? <th>STATUS</th> : null}
+						{visibility.severity ? <th class="th-severity">SEVERITY</th> : null}
+						{visibility.asset ? <th class="th-asset">ASSET</th> : null}
+						{visibility.title ? <th class="th-title">TITLE</th> : null}
+						{visibility.reporter ? <th class="th-person">REPORTER</th> : null}
+						{visibility.assignee ? <th class="th-person">ASSIGNEE</th> : null}
 					</tr>
 				</thead>
 				<tbody>
@@ -107,26 +219,48 @@ export function InboxTable() {
 										onClick={(e) => e.stopPropagation()}
 									/>
 								</td>
-								<td class="id">#{r.id}</td>
-								<td class="date">{formatRelativeTime(r.created_at)}</td>
-								<td>
-									<span class={`pill ${pill.className}`}>{pill.label}</span>
-								</td>
-								<td class="asset">
-									{r.asset?.asset_identifier ? (
-										<AssetIdentifier identifier={r.asset.asset_identifier} />
-									) : (
-										""
-									)}
-								</td>
-								<td class="title">{r.title}</td>
+								{visibility.id ? <td class="id">#{r.id}</td> : null}
+								{visibility.opened ? (
+									<td class="date">{formatRelativeTime(r.created_at)}</td>
+								) : null}
+								{visibility.updated ? (
+									<td class="date">
+										{r.last_activity_at ? formatRelativeTime(r.last_activity_at) : ""}
+									</td>
+								) : null}
+								{visibility.status ? (
+									<td>
+										<span class={`pill ${pill.className}`}>{pill.label}</span>
+									</td>
+								) : null}
+								{visibility.severity ? (
+									<td class="severity">
+										<SeverityMeter rating={r.severity_rating} />
+									</td>
+								) : null}
+								{visibility.asset ? (
+									<td class="asset">
+										{r.asset?.asset_identifier ? (
+											<AssetIdentifier identifier={r.asset.asset_identifier} />
+										) : (
+											""
+										)}
+									</td>
+								) : null}
+								{visibility.title ? <td class="title">{r.title}</td> : null}
+								{visibility.reporter ? (
+									<td class="person">{renderPerson(r.reporter)}</td>
+								) : null}
+								{visibility.assignee ? (
+									<td class="person">{renderPerson(r.assignee)}</td>
+								) : null}
 							</tr>
 						);
 					})}
 				</tbody>
 				<tfoot>
 					<tr class="footer-row">
-						<td colspan={6}>
+						<td colspan={visibleCount}>
 							<div class="inbox-footer">
 								<span class="footer-total">
 									{items.length} {items.length === 1 ? "report" : "reports"}
@@ -170,6 +304,9 @@ export function InboxTable() {
 				aria-label="Refreshing reports"
 				aria-hidden={!state.reportsRefreshing}
 			/>
+			<div class="inbox-toolbar">
+				<ColumnsMenu visibility={visibility} onToggle={toggle} />
+			</div>
 			{body}
 		</main>
 	);

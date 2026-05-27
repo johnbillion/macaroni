@@ -28,12 +28,22 @@ export type ReportSummary = {
 	state: string;
 	severity_rating: string | null;
 	created_at: string;
+	last_activity_at: string | null;
 	asset: AssetRef | null;
+	reporter: UserRef | null;
+	assignee: AssigneeRef | null;
 };
 
 export type UserRef = {
 	id: string;
 	username: string;
+	name: string | null;
+	profile_picture_url: string | null;
+};
+export type AssigneeRef = {
+	type: "user" | "group" | string;
+	id: string;
+	username: string | null;
 	name: string | null;
 	profile_picture_url: string | null;
 };

@@ -503,6 +503,35 @@ html.dark .theme-toggle {
 	background: var(--bg);
 	position: relative;
 }
+.inbox-toolbar {
+	position: sticky;
+	top: 0;
+	right: 0;
+	height: 0;
+	z-index: 3;
+	pointer-events: none;
+}
+.columns-menu {
+	position: absolute;
+	top: 5px;
+	right: 6px;
+	pointer-events: auto;
+}
+.columns-menu-btn {
+	font-family: inherit;
+	font-size: 13px;
+	line-height: 1;
+	background: var(--bg);
+	color: var(--text-3);
+	border: 1px solid var(--border);
+	padding: 3px 6px;
+	border-radius: 2px;
+	cursor: pointer;
+}
+.columns-menu-btn:hover {
+	color: var(--accent);
+	border-color: var(--border-2);
+}
 .inbox-table {
 	width: 100%;
 	border-collapse: collapse;
@@ -580,6 +609,28 @@ html.dark .theme-toggle {
 .row .asset {
 	color: var(--text-2);
 	font-size: 11px;
+}
+.row .severity {
+	font-variant-numeric: tabular-nums;
+}
+.row .person {
+	color: var(--text-2);
+	font-size: 11px;
+}
+.person-cell {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 140px;
+}
+.person-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.inbox-table th.th-severity,
+.inbox-table th.th-person {
+	white-space: nowrap;
 }
 .inbox-table .end-row td,
 .thread-end {

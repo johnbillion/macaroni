@@ -30,7 +30,10 @@ pub struct ReportSummary {
     pub state: String,
     pub severity_rating: Option<String>,
     pub created_at: String,
+    pub last_activity_at: Option<String>,
     pub asset: Option<AssetRef>,
+    pub reporter: Option<UserRef>,
+    pub assignee: Option<AssigneeRef>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -43,6 +46,16 @@ pub struct ReportPage {
 pub struct UserRef {
     pub id: String,
     pub username: String,
+    pub name: Option<String>,
+    pub profile_picture_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AssigneeRef {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub id: String,
+    pub username: Option<String>,
     pub name: Option<String>,
     pub profile_picture_url: Option<String>,
 }
@@ -285,9 +298,15 @@ impl HackerOneApi for ReqwestClient {
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string(),
+                    last_activity_at: attrs
+                        .get("last_activity_at")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                     asset: rel
                         .and_then(|r| r.get("structured_scope"))
                         .and_then(parse_asset_ref),
+                    reporter: rel.and_then(|r| r.get("reporter")).and_then(parse_user_ref),
+                    assignee: rel.and_then(|r| r.get("assignee")).and_then(parse_assignee_ref),
                 })
             })
             .collect();
@@ -330,6 +349,28 @@ fn parse_user_ref(rel: &serde_json::Value) -> Option<UserRef> {
         }),
         profile_picture_url,
     })
+}
+
+fn parse_assignee_ref(rel: &serde_json::Value) -> Option<AssigneeRef> {
+    let data = rel.get("data")?;
+    let kind = data.get("type")?.as_str()?.to_string();
+    let id = data.get("id")?.as_str()?.to_string();
+    let attrs = data.get("attributes")?;
+    let username = attrs.get("username").and_then(|v| v.as_str()).map(String::from);
+    let name = attrs.get("name").and_then(|v| v.as_str()).and_then(|s| {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    });
+    let profile_picture_url = attrs
+        .get("profile_picture")
+        .and_then(|p| p.get("62x62"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    Some(AssigneeRef { kind, id, username, name, profile_picture_url })
 }
 
 fn parse_weakness_ref(rel: &serde_json::Value) -> Option<WeaknessRef> {
