@@ -21,7 +21,7 @@ export function CredentialsGate() {
 	};
 
 	return (
-		<div class="gate">
+		<div class="gate" data-tauri-drag-region>
 			<form class="gate-card" onSubmit={onSubmit}>
 				<h1>HackerOne credentials</h1>
 				<p class="muted">Stored in your macOS keychain. Required for all API calls.</p>

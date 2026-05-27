@@ -66,6 +66,64 @@ export type ReportDetail = {
 	activities: Activity[];
 };
 
+export type DetailPlacement = "right" | "bottom";
+
+export type PanelKey = "detailRight" | "detailBottom";
+export type PanelSizes = Record<PanelKey, number>;
+export type PanelBounds = { min: number; max: number };
+
+export const PANEL_BOUNDS: Record<PanelKey, PanelBounds> = {
+	detailRight: { min: 280, max: 2400 },
+	detailBottom: { min: 140, max: 1600 },
+};
+
+const SIDEBAR_WIDTH = 220;
+const TOPBAR_HEIGHT = 46;
+const RESIZER_THICKNESS = 6;
+const MAX_FRACTION = 0.8;
+
+export type Viewport = { width: number; height: number };
+
+function readViewport(): Viewport {
+	return {
+		width: typeof window !== "undefined" ? window.innerWidth : 1200,
+		height: typeof window !== "undefined" ? window.innerHeight : 800,
+	};
+}
+
+export function effectiveMaxFor(panel: PanelKey, vp: Viewport): number {
+	const base = PANEL_BOUNDS[panel];
+	const available =
+		panel === "detailRight"
+			? vp.width - SIDEBAR_WIDTH - RESIZER_THICKNESS
+			: vp.height - TOPBAR_HEIGHT - RESIZER_THICKNESS;
+	return Math.max(base.min, Math.min(base.max, Math.floor(available * MAX_FRACTION)));
+}
+
+export function clampPanelForViewport(panel: PanelKey, size: number, vp: Viewport): number {
+	return clampPanelSize(size, { min: PANEL_BOUNDS[panel].min, max: effectiveMaxFor(panel, vp) });
+}
+
+function defaultPanelSizes(vp: Viewport): PanelSizes {
+	return {
+		detailRight: clampPanelForViewport(
+			"detailRight",
+			(vp.width - SIDEBAR_WIDTH - RESIZER_THICKNESS) / 2,
+			vp,
+		),
+		detailBottom: clampPanelForViewport(
+			"detailBottom",
+			(vp.height - TOPBAR_HEIGHT - RESIZER_THICKNESS) / 2,
+			vp,
+		),
+	};
+}
+
+export function clampPanelSize(value: number, bounds: PanelBounds): number {
+	if (!Number.isFinite(value)) return bounds.min;
+	return Math.max(bounds.min, Math.min(bounds.max, Math.round(value)));
+}
+
 export type AppState = {
 	credentials: "unknown" | "missing" | "present";
 	username: string | null;
@@ -80,6 +138,9 @@ export type AppState = {
 	selectedReportId: string | null;
 	detail: Record<string, AsyncState<ReportDetail>>;
 	readReports: Record<string, true>;
+	detailPlacement: DetailPlacement;
+	panelSizes: PanelSizes;
+	viewport: Viewport;
 };
 
 export type Action =
@@ -103,7 +164,34 @@ export type Action =
 	| { type: "DETAIL_SUCCEEDED"; reportId: string; detail: ReportDetail }
 	| { type: "DETAIL_FAILED"; reportId: string; error: AppError }
 	| { type: "READ_IDS_LOADED"; ids: string[] }
-	| { type: "REPORT_MARKED_READ"; reportId: string };
+	| { type: "REPORT_MARKED_READ"; reportId: string }
+	| { type: "DETAIL_PLACEMENT_SET"; placement: DetailPlacement }
+	| { type: "PANEL_SIZE_SET"; panel: PanelKey; size: number }
+	| { type: "VIEWPORT_RESIZED"; width: number; height: number };
+
+function loadDetailPlacement(): DetailPlacement {
+	try {
+		const stored = localStorage.getItem("macaroni.detailPlacement");
+		if (stored === "bottom" || stored === "right") return stored;
+	} catch {}
+	return "right";
+}
+
+function loadPanelSizes(vp: Viewport): PanelSizes {
+	const out: PanelSizes = defaultPanelSizes(vp);
+	try {
+		const raw = localStorage.getItem("macaroni.panelSizes");
+		if (!raw) return out;
+		const parsed = JSON.parse(raw) as Partial<Record<PanelKey, unknown>>;
+		for (const key of Object.keys(PANEL_BOUNDS) as PanelKey[]) {
+			const v = parsed[key];
+			if (typeof v === "number") {
+				out[key] = clampPanelForViewport(key, v, vp);
+			}
+		}
+	} catch {}
+	return out;
+}
 
 export const initialState: AppState = {
 	credentials: "unknown",
@@ -115,6 +203,9 @@ export const initialState: AppState = {
 	selectedReportId: null,
 	detail: {},
 	readReports: {},
+	detailPlacement: loadDetailPlacement(),
+	panelSizes: loadPanelSizes(readViewport()),
+	viewport: readViewport(),
 };
 
 export function reducer(state: AppState, action: Action): AppState {
@@ -128,7 +219,13 @@ export function reducer(state: AppState, action: Action): AppState {
 		case "CREDENTIALS_SAVED":
 			return { ...state, credentials: "present", username: action.username };
 		case "CREDENTIALS_CLEARED":
-			return { ...initialState, credentials: "missing" };
+			return {
+				...initialState,
+				credentials: "missing",
+				detailPlacement: state.detailPlacement,
+				panelSizes: state.panelSizes,
+				viewport: state.viewport,
+			};
 		case "BOOTSTRAP_REQUESTED":
 			return { ...state, bootstrap: { status: "loading" } };
 		case "BOOTSTRAP_SUCCEEDED":
@@ -238,5 +335,23 @@ export function reducer(state: AppState, action: Action): AppState {
 				...state,
 				readReports: { ...state.readReports, [action.reportId]: true },
 			};
+		case "DETAIL_PLACEMENT_SET":
+			return { ...state, detailPlacement: action.placement };
+		case "PANEL_SIZE_SET":
+			return {
+				...state,
+				panelSizes: {
+					...state.panelSizes,
+					[action.panel]: clampPanelForViewport(action.panel, action.size, state.viewport),
+				},
+			};
+		case "VIEWPORT_RESIZED": {
+			const vp: Viewport = { width: action.width, height: action.height };
+			const next: PanelSizes = { ...state.panelSizes };
+			for (const key of Object.keys(state.panelSizes) as PanelKey[]) {
+				next[key] = clampPanelForViewport(key, state.panelSizes[key], vp);
+			}
+			return { ...state, viewport: vp, panelSizes: next };
+		}
 	}
 }

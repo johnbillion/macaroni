@@ -4,6 +4,7 @@ import { bootstrap, loadPrograms } from "../state/effects";
 import { CredentialsGate } from "./CredentialsGate";
 import { DetailPanel } from "./DetailPanel";
 import { InboxTable } from "./InboxTable";
+import { Resizer } from "./Resizer";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
@@ -24,20 +25,59 @@ export function App() {
 		}
 	}, [state.filters.orgId, state.programsByOrg, dispatch]);
 
+	useEffect(() => {
+		const onResize = () => {
+			dispatch({
+				type: "VIEWPORT_RESIZED",
+				width: window.innerWidth,
+				height: window.innerHeight,
+			});
+		};
+		onResize();
+		window.addEventListener("resize", onResize);
+		return () => window.removeEventListener("resize", onResize);
+	}, [dispatch]);
+
+	useEffect(() => {
+		localStorage.setItem("macaroni.panelSizes", JSON.stringify(state.panelSizes));
+	}, [state.panelSizes]);
+
 	if (state.credentials === "unknown") {
-		return <div class="placeholder">Starting…</div>;
+		return (
+			<div class="placeholder" data-tauri-drag-region>
+				Starting…
+			</div>
+		);
 	}
 	if (state.credentials === "missing") {
 		return <CredentialsGate />;
 	}
 
+	const bottom = state.detailPlacement === "bottom";
+	const appClass = bottom ? "app detail-bottom" : "app";
+	const appStyle: Record<string, string> = {
+		"--detail-w": `${state.panelSizes.detailRight}px`,
+		"--detail-h": `${state.panelSizes.detailBottom}px`,
+	};
 	return (
 		<>
 			<Topbar />
-			<div class="app">
+			<div class={appClass} style={appStyle}>
 				<Sidebar />
-				<InboxTable />
-				<DetailPanel />
+				<div class="app-main">
+					<InboxTable />
+					{bottom ? (
+						<Resizer
+							panel="detailBottom"
+							label="Resize detail panel height"
+							orientation="horizontal"
+							invert
+						/>
+					) : (
+						<Resizer panel="detailRight" label="Resize detail panel width" invert />
+					)}
+					<DetailPanel />
+				</div>
 			</div>
 		</>
 	);

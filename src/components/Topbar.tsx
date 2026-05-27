@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { useAppState } from "../state/context";
+import { useAppState, useDispatch } from "../state/context";
 import { Settings } from "./Settings";
 
 function useTheme() {
@@ -18,12 +18,19 @@ function useTheme() {
 
 export function Topbar() {
 	const state = useAppState();
+	const dispatch = useDispatch();
 	const { toggle } = useTheme();
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const programHandle = state.filters.programHandle ?? "—";
+	const placement = state.detailPlacement;
+	const toggleDetailPlacement = () => {
+		const next = placement === "right" ? "bottom" : "right";
+		localStorage.setItem("macaroni.detailPlacement", next);
+		dispatch({ type: "DETAIL_PLACEMENT_SET", placement: next });
+	};
 
 	return (
-		<div class="topbar">
+		<div class="topbar" data-tauri-drag-region>
 			<div class="brand">
 				<div class="brand-mark" />
 				Macaroni
@@ -59,6 +66,19 @@ export function Topbar() {
 					onClick={() => setSettingsOpen(true)}
 				>
 					⚙
+				</button>
+				<button
+					type="button"
+					class="theme-toggle"
+					aria-label="Toggle detail panel position"
+					title={
+						placement === "right"
+							? "Move detail panel to bottom"
+							: "Move detail panel to right"
+					}
+					onClick={toggleDetailPlacement}
+				>
+					{placement === "right" ? "▥" : "▤"}
 				</button>
 				<button
 					type="button"
