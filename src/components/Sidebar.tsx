@@ -192,7 +192,15 @@ function AssetSection({ state }: { state: AsyncState<StructuredScope[]> | undefi
 			</div>
 		);
 	}
-	return <AssetSectionReady scopes={state.data.filter((s) => s.eligible_for_submission)} />;
+	const visible = state.data
+		.filter((s) => s.eligible_for_submission)
+		.slice()
+		.sort((a, b) => assetSortKey(a.asset_identifier).localeCompare(assetSortKey(b.asset_identifier)));
+	return <AssetSectionReady scopes={visible} />;
+}
+
+function assetSortKey(identifier: string): string {
+	return identifier.replace(/^[^\p{L}\p{N}]+/u, "").toLowerCase();
 }
 
 function AssetSectionReady({ scopes }: { scopes: StructuredScope[] }) {
