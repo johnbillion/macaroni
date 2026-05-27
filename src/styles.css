@@ -261,7 +261,15 @@ html.dark .theme-toggle {
 	min-width: 0;
 	min-height: 0;
 }
-.app-main > .inbox {
+.app-main > .inbox-wrap {
+	flex: 1 1 0;
+	min-width: 0;
+	min-height: 0;
+	position: relative;
+	display: flex;
+	flex-direction: column;
+}
+.inbox-wrap > .inbox {
 	flex: 1 1 0;
 	min-width: 0;
 	min-height: 0;
@@ -504,18 +512,10 @@ html.dark .theme-toggle {
 	position: relative;
 }
 .inbox-toolbar {
-	position: sticky;
-	top: 0;
-	right: 0;
-	height: 0;
-	z-index: 3;
-	pointer-events: none;
-}
-.columns-menu {
 	position: absolute;
 	top: 5px;
 	right: 6px;
-	pointer-events: auto;
+	z-index: 4;
 }
 .columns-menu-btn {
 	font-family: inherit;
@@ -723,7 +723,7 @@ html.dark .theme-toggle {
 	letter-spacing: 0.08em;
 }
 .detail-head {
-	padding: 20px 52px 16px 26px;
+	padding: 20px 26px 16px 26px;
 	border-bottom: 1px solid var(--border);
 	position: sticky;
 	top: 0;

@@ -297,17 +297,19 @@ export function InboxTable() {
 	})();
 
 	return (
-		<main class="inbox" ref={inboxRef}>
-			<div
-				class={`loading-bar${state.reportsRefreshing ? " active" : ""}`}
-				role="progressbar"
-				aria-label="Refreshing reports"
-				aria-hidden={!state.reportsRefreshing}
-			/>
+		<div class="inbox-wrap">
+			<main class="inbox" ref={inboxRef}>
+				<div
+					class={`loading-bar${state.reportsRefreshing ? " active" : ""}`}
+					role="progressbar"
+					aria-label="Refreshing reports"
+					aria-hidden={!state.reportsRefreshing}
+				/>
+				{body}
+			</main>
 			<div class="inbox-toolbar">
 				<ColumnsMenu visibility={visibility} onToggle={toggle} />
 			</div>
-			{body}
-		</main>
+		</div>
 	);
 }
