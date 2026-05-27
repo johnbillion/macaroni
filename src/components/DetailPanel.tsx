@@ -6,6 +6,7 @@ import { pillFor } from "../utils/pill";
 import { formatClock, formatRelativeTime } from "../utils/time";
 import { renderActivity } from "./activity/renderActivity";
 import { AssetIdentifier } from "./AssetIdentifier";
+import { Avatar } from "./Avatar";
 import { Markdown } from "./Markdown";
 import { SeverityMeter } from "./SeverityMeter";
 
@@ -123,7 +124,12 @@ export function DetailPanel() {
 						)}
 					</dd>
 					<dt>Reporter</dt>
-					<dd>{reporter}</dd>
+					<dd>
+						<span class="person-cell">
+							<Avatar user={r.reporter} size="sm" />
+							<span class="person-name">{reporter}</span>
+						</span>
+					</dd>
 					<dt>Weakness</dt>
 					<dd>
 						{r.weakness?.name ?? "Unknown"}
