@@ -390,8 +390,7 @@ export function reducer(state: AppState, action: Action): AppState {
 				action.append && state.reports.status === "ready" ? state.reports.data.items : [];
 			const items = [...existing, ...action.items];
 			const stillPresent =
-				state.selectedReportId !== null &&
-				items.some((r) => r.id === state.selectedReportId);
+				state.selectedReportId !== null && items.some((r) => r.id === state.selectedReportId);
 			return {
 				...state,
 				reportsRefreshing: false,

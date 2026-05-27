@@ -70,6 +70,7 @@ export function Topbar() {
 				<button
 					type="button"
 					class="user-pill user-pill-button"
+					aria-label="Settings"
 					title="Settings"
 					onClick={() => setSettingsOpen(true)}
 				>
@@ -100,8 +101,8 @@ export function Topbar() {
 				<button
 					type="button"
 					class="theme-toggle"
-					aria-label="Toggle theme"
-					title="Toggle light/dark"
+					aria-label="Toggle light/dark theme"
+					title="Toggle light/dark theme"
 					onClick={toggle}
 				>
 					◐

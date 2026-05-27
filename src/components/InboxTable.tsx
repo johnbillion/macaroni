@@ -97,7 +97,6 @@ function ColumnsMenu({
 				class="columns-menu-btn"
 				aria-haspopup="true"
 				aria-label="Toggle columns"
-				title="Toggle columns"
 				onClick={openMenu}
 			>
 				⚙

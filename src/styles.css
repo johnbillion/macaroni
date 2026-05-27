@@ -1066,8 +1066,11 @@ html.dark .theme-toggle {
 }
 .kv dd.kv-person {
 	display: inline-flex;
-	align-items: center;
+	align-items: flex-start;
 	gap: 6px;
+}
+.kv dd.kv-person > .avatar {
+	margin-top: calc((1em * 1.4 - 18px) / 2);
 }
 .kv-missing {
 	display: inline-flex;
@@ -1486,12 +1489,6 @@ html.dark .msg.internal .msg-bubble {
 	text-align: center;
 	max-width: 32em;
 }
-
-/* Scrollbars */
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: var(--border-2); }
 
 .msg-bubble.markdown {
 	white-space: normal;

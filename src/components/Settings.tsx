@@ -102,12 +102,7 @@ export function Settings({ open, onClose }: Props) {
 				</label>
 				{error && <div class="error">{error.message}</div>}
 				<div class="settings-actions">
-					<button
-						type="button"
-						class="settings-logout"
-						onClick={onLogOut}
-						disabled={busy}
-					>
+					<button type="button" class="settings-logout" onClick={onLogOut} disabled={busy}>
 						{loggingOut ? "Logging out…" : "Log out"}
 					</button>
 					<button type="submit" disabled={busy || !username || !token}>

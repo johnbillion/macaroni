@@ -4,9 +4,9 @@ import { useAppState } from "../state/context";
 import type { Activity } from "../state/store";
 import { pillFor } from "../utils/pill";
 import { formatClock, formatRelativeTime } from "../utils/time";
-import { renderActivity } from "./activity/renderActivity";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { Avatar } from "./Avatar";
+import { renderActivity } from "./activity/renderActivity";
 import { Markdown } from "./Markdown";
 import { SeverityMeter } from "./SeverityMeter";
 
@@ -21,13 +21,11 @@ function CopyButton({
 	label,
 	copiedLabel = "COPIED!",
 	class: className,
-	title,
 }: {
 	text: string;
 	label: string;
 	copiedLabel?: string;
 	class?: string;
-	title?: string;
 }) {
 	const [copied, setCopied] = useState(false);
 	useEffect(() => {
@@ -39,7 +37,6 @@ function CopyButton({
 		<button
 			type="button"
 			class={className}
-			title={title}
 			onClick={async () => {
 				await navigator.clipboard.writeText(text);
 				setCopied(true);
@@ -103,12 +100,10 @@ export function DetailPanel() {
 						text={r.id}
 						label="COPY ID"
 						class="dh-action dh-action-first"
-						title="Copy report ID"
 					/>
 					<button
 						type="button"
 						class="dh-action"
-						title="Open on hackerone.com"
 						onClick={() => openUrl(`https://hackerone.com/reports/${r.id}`)}
 					>
 						OPEN ↗
@@ -152,7 +147,6 @@ export function DetailPanel() {
 							text={r.vulnerability_information}
 							label="COPY MARKDOWN"
 							class="section-action"
-							title="Copy markdown source"
 						/>
 					)}
 				</div>
@@ -174,9 +168,7 @@ export function DetailPanel() {
 				) : (
 					<div class="thread">
 						{activities.map((a) => renderActivity(a, r.reporter?.id ?? null))}
-						<div class="thread-end">
-							— END —
-						</div>
+						<div class="thread-end">— END —</div>
 					</div>
 				)}
 			</div>
