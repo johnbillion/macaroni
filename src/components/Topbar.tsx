@@ -30,6 +30,12 @@ export function Topbar() {
 		dispatch({ type: "DETAIL_PLACEMENT_SET", placement: next });
 	};
 
+	const unreadLoadedIds =
+		state.reports.status === "ready"
+			? state.reports.data.items.filter((r) => !state.readReports[r.id]).map((r) => r.id)
+			: [];
+	const markAllRead = () => markReportsRead(dispatch, unreadLoadedIds);
+
 	return (
 		<div class="topbar" data-tauri-drag-region>
 			<div class="brand">

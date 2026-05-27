@@ -1,6 +1,8 @@
 import { api } from "../api/client";
-import { ALL_SEVERITY_KEYS, ALL_STATE_KEYS } from "./filters";
+import { ALL_SEVERITY_KEYS, ALL_STATE_KEYS, CLOSED_STATES } from "./filters";
 import type { Action, AppError, AppState } from "./store";
+
+const CLOSED_STATE_KEYS = new Set(CLOSED_STATES.map((s) => s.key));
 
 type Dispatch = (action: Action) => void;
 
@@ -146,6 +148,8 @@ export async function loadReports(
 			dispatch,
 			items.map((i) => i.id),
 		);
+		const closedIds = items.filter((i) => CLOSED_STATE_KEYS.has(i.state)).map((i) => i.id);
+		markReportsRead(dispatch, closedIds);
 		dispatch({
 			type: "REPORTS_SUCCEEDED",
 			items,
