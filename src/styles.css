@@ -817,22 +817,9 @@ html.dark .theme-toggle {
 	color: var(--bg);
 	flex-shrink: 0;
 	object-fit: cover;
-}
-.avatar.avatar-sm {
 	width: 18px;
 	height: 18px;
 	font-size: 9px;
-}
-.avatar.avatar-md {
-	width: 22px;
-	height: 22px;
-	font-size: 10px;
-}
-/* Backwards-compat: bare .avatar (no size class) matches the original md size. */
-.avatar:not(.avatar-sm):not(.avatar-md) {
-	width: 22px;
-	height: 22px;
-	font-size: 10px;
 }
 .dh-byline b {
 	color: var(--info);
@@ -1030,6 +1017,11 @@ html.dark .theme-toggle {
 }
 .kv dd {
 	color: var(--text);
+}
+.kv dd.kv-person {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
 }
 .kv-missing {
 	display: inline-flex;

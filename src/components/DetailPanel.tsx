@@ -84,7 +84,8 @@ export function DetailPanel() {
 	const pill = pillFor(r.state);
 	const submittedClock = r.submitted_at ? formatClock(r.submitted_at) : "";
 	const submittedRelative = r.submitted_at ? formatRelativeTime(r.submitted_at) : "";
-	const reporter = r.reporter?.username ?? "unknown";
+	const reporterUsername = r.reporter?.username ?? r.reporter?.name ?? "unknown";
+	const reporterName = r.reporter?.username ? r.reporter?.name : null;
 	const activities = isHackbotPreSubmissionTrigger(r.activities[0])
 		? r.activities.slice(1)
 		: r.activities;
@@ -124,10 +125,11 @@ export function DetailPanel() {
 						)}
 					</dd>
 					<dt>Reporter</dt>
-					<dd>
-						<span class="person-cell">
-							<Avatar user={r.reporter} size="sm" />
-							<span class="person-name">{reporter}</span>
+					<dd class="kv-person">
+						<Avatar user={r.reporter} />
+						<span>
+							{reporterUsername}
+							{reporterName ? ` (${reporterName})` : ""}
 						</span>
 					</dd>
 					<dt>Weakness</dt>

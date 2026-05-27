@@ -108,10 +108,10 @@ function ColumnsMenu({
 
 function renderPerson(person: UserRef | AssigneeRef | null) {
 	if (!person) return null;
-	const label = person.name ?? person.username ?? "";
+	const label = person.username ?? person.name ?? "";
 	return (
 		<span class="person-cell">
-			<Avatar user={person} size="sm" />
+			<Avatar user={person} />
 			<span class="person-name">{label}</span>
 		</span>
 	);
