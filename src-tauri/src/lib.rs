@@ -38,6 +38,7 @@ pub fn run() {
             commands::credentials_clear,
             commands::list_organizations,
             commands::list_programs,
+            commands::list_structured_scopes,
             commands::list_reports,
             commands::get_report,
             commands::mark_report_read,

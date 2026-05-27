@@ -1,5 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppError, Organization, Program, ReportDetail, ReportSummary } from "../state/store";
+import type {
+	AppError,
+	Organization,
+	Program,
+	ReportDetail,
+	ReportSummary,
+	StructuredScope,
+} from "../state/store";
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
 	try {
@@ -17,6 +24,8 @@ export const api = {
 	credentialsClear: () => call<void>("credentials_clear"),
 	listOrganizations: () => call<Organization[]>("list_organizations"),
 	listPrograms: (orgId: string) => call<Program[]>("list_programs", { orgId }),
+	listStructuredScopes: (programId: string) =>
+		call<StructuredScope[]>("list_structured_scopes", { programId }),
 	listReports: (query: { program_handle: string; states: string[]; page_cursor?: string }) =>
 		call<{ items: ReportSummary[]; next_cursor: string | null }>("list_reports", { query }),
 	getReport: (reportId: string) => call<ReportDetail>("get_report", { reportId }),

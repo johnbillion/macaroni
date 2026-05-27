@@ -58,6 +58,14 @@ pub struct AssetRef {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct StructuredScope {
+    pub id: String,
+    pub asset_identifier: String,
+    pub asset_type: Option<String>,
+    pub eligible_for_submission: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Activity {
     Comment {
@@ -107,6 +115,7 @@ pub trait HackerOneApi: Send + Sync {
     async fn validate(&self) -> AppResult<()>;
     async fn list_organizations(&self) -> AppResult<Vec<Organization>>;
     async fn list_programs(&self, org_id: &str) -> AppResult<Vec<Program>>;
+    async fn list_structured_scopes(&self, program_id: &str) -> AppResult<Vec<StructuredScope>>;
     async fn list_reports(&self, query: ReportQuery) -> AppResult<ReportPage>;
     async fn get_report(&self, report_id: &str) -> AppResult<ReportDetail>;
 }
@@ -190,6 +199,30 @@ impl HackerOneApi for ReqwestClient {
                 Some(Program {
                     id: item.get("id")?.as_str()?.to_string(),
                     handle: item.get("attributes")?.get("handle")?.as_str()?.to_string(),
+                })
+            })
+            .collect())
+    }
+
+    async fn list_structured_scopes(&self, program_id: &str) -> AppResult<Vec<StructuredScope>> {
+        let url =
+            format!("{BASE_URL}/programs/{program_id}/structured_scopes?page%5Bsize%5D=100");
+        let body = self.get_json(&url).await?;
+        let data = body.get("data").and_then(|v| v.as_array()).ok_or_else(|| {
+            AppError::Other { message: "Unexpected response shape from /structured_scopes".into() }
+        })?;
+        Ok(data
+            .iter()
+            .filter_map(|item| {
+                let attrs = item.get("attributes")?;
+                Some(StructuredScope {
+                    id: item.get("id")?.as_str()?.to_string(),
+                    asset_identifier: attrs.get("asset_identifier")?.as_str()?.to_string(),
+                    asset_type: attrs.get("asset_type").and_then(|v| v.as_str()).map(String::from),
+                    eligible_for_submission: attrs
+                        .get("eligible_for_submission")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
                 })
             })
             .collect())

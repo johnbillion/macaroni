@@ -1,6 +1,6 @@
 import { useEffect } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
-import { bootstrap, loadPrograms } from "../state/effects";
+import { bootstrap, loadPrograms, loadStructuredScopes } from "../state/effects";
 import { CredentialsGate } from "./CredentialsGate";
 import { DetailPanel } from "./DetailPanel";
 import { InboxTable } from "./InboxTable";
@@ -24,6 +24,24 @@ export function App() {
 			loadPrograms(dispatch, orgId);
 		}
 	}, [state.filters.orgId, state.programsByOrg, dispatch]);
+
+	useEffect(() => {
+		const orgId = state.filters.orgId;
+		const handle = state.filters.programHandle;
+		if (!orgId || !handle) return;
+		const orgPrograms = state.programsByOrg[orgId];
+		if (orgPrograms?.status !== "ready") return;
+		const program = orgPrograms.data.find((p) => p.handle === handle);
+		if (!program) return;
+		if (state.scopesByProgram[program.id]) return;
+		loadStructuredScopes(dispatch, program.id);
+	}, [
+		state.filters.orgId,
+		state.filters.programHandle,
+		state.programsByOrg,
+		state.scopesByProgram,
+		dispatch,
+	]);
 
 	useEffect(() => {
 		const onResize = () => {

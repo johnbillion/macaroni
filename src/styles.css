@@ -384,7 +384,7 @@ html.dark .theme-toggle {
 
 .facet {
 	display: flex;
-	align-items: center;
+	align-items: flex-start;
 	gap: 8px;
 	padding: 5px 0;
 	font-size: 12px;
@@ -393,11 +393,20 @@ html.dark .theme-toggle {
 .facet:hover {
 	color: var(--accent);
 }
+.facet > .cb {
+	margin-top: calc((1em * 1.4 - 12px) / 2);
+}
+.facet-asset > span {
+	overflow-wrap: anywhere;
+	min-width: 0;
+	text-wrap: pretty;
+}
 .facet .swatch {
 	width: 8px;
 	height: 8px;
 	border-radius: 50%;
 	flex-shrink: 0;
+	margin-top: calc((1em * 1.4 - 8px) / 2);
 }
 .swatch.state-new { background: var(--state-new); }
 .swatch.state-pending { background: var(--state-pending); }

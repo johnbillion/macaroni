@@ -1,6 +1,8 @@
 use crate::credentials::{CredentialStore, Credentials};
 use crate::error::{AppError, AppResult};
-use crate::hackerone::{HackerOneApi, Organization, Program, ReportDetail, ReportPage, ReportQuery};
+use crate::hackerone::{
+    HackerOneApi, Organization, Program, ReportDetail, ReportPage, ReportQuery, StructuredScope,
+};
 use crate::local_db::ReportStore;
 use std::sync::Arc;
 use tauri::State;
@@ -62,6 +64,14 @@ pub async fn list_programs(
     org_id: String,
 ) -> AppResult<Vec<Program>> {
     ctx.api.list_programs(&org_id).await
+}
+
+#[tauri::command]
+pub async fn list_structured_scopes(
+    ctx: State<'_, AppContext>,
+    program_id: String,
+) -> AppResult<Vec<StructuredScope>> {
+    ctx.api.list_structured_scopes(&program_id).await
 }
 
 #[tauri::command]

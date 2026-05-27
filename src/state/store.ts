@@ -14,6 +14,12 @@ export type AsyncState<T> =
 
 export type Organization = { id: string; handle: string };
 export type Program = { id: string; handle: string };
+export type StructuredScope = {
+	id: string;
+	asset_identifier: string;
+	asset_type: string | null;
+	eligible_for_submission: boolean;
+};
 export type ReportSummary = {
 	id: string;
 	title: string;
@@ -129,6 +135,7 @@ export type AppState = {
 	username: string | null;
 	bootstrap: AsyncState<{ orgs: Organization[] }>;
 	programsByOrg: Record<string, AsyncState<Program[]>>;
+	scopesByProgram: Record<string, AsyncState<StructuredScope[]>>;
 	filters: {
 		orgId?: string;
 		programHandle?: string;
@@ -153,6 +160,9 @@ export type Action =
 	| { type: "PROGRAMS_REQUESTED"; orgId: string }
 	| { type: "PROGRAMS_SUCCEEDED"; orgId: string; programs: Program[] }
 	| { type: "PROGRAMS_FAILED"; orgId: string; error: AppError }
+	| { type: "SCOPES_REQUESTED"; programId: string }
+	| { type: "SCOPES_SUCCEEDED"; programId: string; scopes: StructuredScope[] }
+	| { type: "SCOPES_FAILED"; programId: string; error: AppError }
 	| { type: "ORG_SELECTED"; orgId: string }
 	| { type: "PROGRAM_SELECTED"; handle: string }
 	| { type: "STATES_SET"; states: string[] }
@@ -198,6 +208,7 @@ export const initialState: AppState = {
 	username: null,
 	bootstrap: { status: "idle" },
 	programsByOrg: {},
+	scopesByProgram: {},
 	filters: { states: [] },
 	reports: { status: "idle" },
 	selectedReportId: null,
@@ -265,6 +276,30 @@ export function reducer(state: AppState, action: Action): AppState {
 				programsByOrg: {
 					...state.programsByOrg,
 					[action.orgId]: { status: "error", error: action.error },
+				},
+			};
+		case "SCOPES_REQUESTED":
+			return {
+				...state,
+				scopesByProgram: {
+					...state.scopesByProgram,
+					[action.programId]: { status: "loading" },
+				},
+			};
+		case "SCOPES_SUCCEEDED":
+			return {
+				...state,
+				scopesByProgram: {
+					...state.scopesByProgram,
+					[action.programId]: { status: "ready", data: action.scopes },
+				},
+			};
+		case "SCOPES_FAILED":
+			return {
+				...state,
+				scopesByProgram: {
+					...state.scopesByProgram,
+					[action.programId]: { status: "error", error: action.error },
 				},
 			};
 		case "ORG_SELECTED":

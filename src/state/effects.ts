@@ -62,6 +62,16 @@ export async function loadPrograms(dispatch: Dispatch, orgId: string) {
 	}
 }
 
+export async function loadStructuredScopes(dispatch: Dispatch, programId: string) {
+	dispatch({ type: "SCOPES_REQUESTED", programId });
+	try {
+		const scopes = await api.listStructuredScopes(programId);
+		dispatch({ type: "SCOPES_SUCCEEDED", programId, scopes });
+	} catch (e) {
+		dispatch({ type: "SCOPES_FAILED", programId, error: asError(e) });
+	}
+}
+
 export async function loadReportDetail(dispatch: Dispatch, reportId: string) {
 	dispatch({ type: "DETAIL_REQUESTED", reportId });
 	try {
