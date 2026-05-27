@@ -1077,6 +1077,18 @@ html.dark .msg.internal .msg-bubble {
 	line-height: 1;
 }
 
+.msg-reporter-flag {
+	display: inline-flex;
+	align-items: center;
+	padding: 1px 6px;
+	border: 1px solid var(--accent);
+	color: var(--accent);
+	border-radius: 2px;
+	font-size: 9px;
+	letter-spacing: 0.14em;
+	font-weight: 700;
+}
+
 .msg-event-kind {
 	display: inline-flex;
 	align-items: center;

@@ -59,6 +59,7 @@ export function renderActivity(activity: Activity, reporterId: string | null) {
 	}
 
 	const author = activity.actor?.username ?? "system";
+	const isReporter = reporterId !== null && activity.actor?.id === reporterId;
 	const side = isProgramSide(activity, reporterId) ? "out" : "in";
 	const classes = ["msg", side, activity.internal ? "internal" : ""].filter(Boolean).join(" ");
 	const pill = newState ? pillFor(newState) : null;
@@ -69,6 +70,7 @@ export function renderActivity(activity: Activity, reporterId: string | null) {
 				{activity.internal && <span class="msg-internal-flag">INTERNAL</span>}
 				<Avatar user={activity.actor} />
 				<span class="msg-author">{author}</span>
+				{isReporter && <span class="msg-reporter-flag">REPORTER</span>}
 				{pill ? (
 					<>
 						<span class="msg-event-action">changed status to</span>
