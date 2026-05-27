@@ -61,7 +61,7 @@ export function Settings({ open, onClose }: Props) {
 	const busy = submitting || loggingOut;
 
 	return (
-		<dialog ref={ref} class="settings-dialog" onClose={onClose}>
+		<dialog ref={ref} class="app-dialog settings-dialog" onClose={onClose}>
 			<form class="settings-card" onSubmit={onSubmit}>
 				<header class="settings-head">
 					<h1>Settings</h1>

@@ -774,23 +774,40 @@ html.dark .theme-toggle {
 	font-size: 11px;
 	color: var(--text-2);
 }
-.dh-action {
-	background: var(--bg-2);
+/* Action chip — small uppercase mono buttons. Two variants share the base styling:
+   subtle  (.dh-action, .section-action) sit on bg-1 surfaces;
+   overlay (.markdown pre .code-copy, .markdown-image-control) float over content. */
+.dh-action,
+.section-action,
+.markdown pre .code-copy,
+.markdown-image-control {
 	border: 1px solid var(--border);
-	color: var(--text-2);
+	border-radius: 2px;
+	cursor: pointer;
 	font-family: inherit;
 	font-size: 10px;
 	letter-spacing: 0.14em;
 	padding: 3px 8px;
-	border-radius: 2px;
-	cursor: pointer;
+}
+.dh-action:hover,
+.section-action:hover,
+.markdown pre .code-copy:hover,
+.markdown-image-control:hover {
+	color: var(--accent);
+	border-color: var(--border-2);
+}
+.dh-action,
+.section-action {
+	background: var(--bg-2);
+	color: var(--text-2);
+}
+.markdown pre .code-copy,
+.markdown-image-control {
+	background: var(--bg);
+	color: var(--text-3);
 }
 .dh-action-first {
 	margin-left: auto;
-}
-.dh-action:hover {
-	color: var(--accent);
-	border-color: var(--border-2);
 }
 .dh-title {
 	font-family: inherit;
@@ -850,19 +867,6 @@ html.dark .theme-toggle {
 }
 .section-action {
 	margin-left: auto;
-	background: var(--bg-2);
-	border: 1px solid var(--border);
-	color: var(--text-2);
-	font-family: inherit;
-	font-size: 10px;
-	letter-spacing: 0.14em;
-	padding: 3px 8px;
-	border-radius: 2px;
-	cursor: pointer;
-}
-.section-action:hover {
-	color: var(--accent);
-	border-color: var(--border-2);
 }
 
 .body-text {
@@ -945,19 +949,8 @@ html.dark .theme-toggle {
 	position: absolute;
 	top: 6px;
 	right: 6px;
-	background: var(--bg);
-	border: 1px solid var(--border);
-	color: var(--text-3);
-	font-family: inherit;
 	font-size: 9px;
-	letter-spacing: 0.14em;
 	padding: 2px 6px;
-	border-radius: 2px;
-	cursor: pointer;
-}
-.markdown pre .code-copy:hover {
-	color: var(--accent);
-	border-color: var(--border-2);
 }
 .markdown pre code {
 	background: transparent;
@@ -989,6 +982,59 @@ html.dark .theme-toggle {
 }
 .markdown img {
 	max-width: 100%;
+}
+.markdown .markdown-image {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	max-height: 500px;
+	border: 1px solid var(--border);
+	border-radius: 3px;
+	background: var(--bg-2);
+	cursor: zoom-in;
+}
+.markdown-image-wrap {
+	position: relative;
+	display: inline-block;
+	max-width: 100%;
+	margin: 10px 0;
+}
+.markdown-image-controls {
+	position: absolute;
+	top: 15px;
+	right: 15px;
+	display: none;
+	gap: 14px;
+}
+.markdown-image-wrap:hover .markdown-image-controls,
+.markdown-image-dialog:has(img:hover) .markdown-image-controls {
+	display: inline-flex;
+}
+.markdown-image-controls-reverse {
+	flex-direction: row-reverse;
+}
+.markdown-image-control-icon,
+.markdown-image-control-close {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 2px;
+	width: 22px;
+	height: 22px;
+}
+.markdown-image-control-icon svg {
+	width: 12px;
+	height: 12px;
+	display: block;
+}
+.markdown-image-control-close {
+	font-size: 16px;
+	line-height: 1;
+}
+.markdown-image-dialog img {
+	display: block;
+	max-width: 95vw;
+	max-height: 95vh;
 }
 .markdown hr {
 	border: 0;
@@ -1248,8 +1294,8 @@ html.dark .msg.internal .msg-bubble {
 	cursor: not-allowed;
 }
 
-/* Settings dialog */
-.settings-dialog {
+/* Reusable modal dialog frame: centered, content-sized, with darkened backdrop. */
+.app-dialog {
 	position: fixed;
 	inset: 0;
 	margin: auto;
@@ -1258,13 +1304,17 @@ html.dark .msg.internal .msg-bubble {
 	color: var(--text);
 	border-radius: 2px;
 	padding: 0;
-	min-width: 360px;
-	max-width: 480px;
 	width: max-content;
 	height: max-content;
 }
-.settings-dialog::backdrop {
+.app-dialog::backdrop {
 	background: rgba(0, 0, 0, 0.45);
+}
+
+/* Settings dialog */
+.settings-dialog {
+	min-width: 360px;
+	max-width: 480px;
 }
 .settings-card {
 	display: grid;

@@ -83,6 +83,15 @@ pub struct Asset {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct Attachment {
+    pub id: String,
+    pub file_name: String,
+    pub content_type: Option<String>,
+    pub file_size: Option<u64>,
+    pub expiring_url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Activity {
     Comment {
@@ -91,6 +100,7 @@ pub enum Activity {
         message: String,
         internal: bool,
         actor: Option<UserRef>,
+        attachments: Vec<Attachment>,
     },
     Event {
         id: String,
@@ -116,6 +126,7 @@ pub struct ReportDetail {
     pub weakness: Option<WeaknessRef>,
     pub asset: Option<AssetRef>,
     pub activities: Vec<Activity>,
+    pub attachments: Vec<Attachment>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -406,6 +417,30 @@ fn parse_asset_ref(rel: &serde_json::Value) -> Option<AssetRef> {
     })
 }
 
+fn parse_attachment(item: &serde_json::Value) -> Option<Attachment> {
+    let id = item.get("id")?.as_str()?.to_string();
+    let attrs = item.get("attributes")?;
+    Some(Attachment {
+        id,
+        file_name: attrs
+            .get("file_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("attachment")
+            .to_string(),
+        content_type: attrs.get("content_type").and_then(|v| v.as_str()).map(String::from),
+        file_size: attrs.get("file_size").and_then(|v| v.as_u64()),
+        expiring_url: attrs.get("expiring_url").and_then(|v| v.as_str())?.to_string(),
+    })
+}
+
+fn parse_attachments(rel: Option<&serde_json::Value>) -> Vec<Attachment> {
+    rel.and_then(|r| r.get("attachments"))
+        .and_then(|a| a.get("data"))
+        .and_then(|d| d.as_array())
+        .map(|arr| arr.iter().filter_map(parse_attachment).collect())
+        .unwrap_or_default()
+}
+
 fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
     let id = item.get("id")?.as_str()?.to_string();
     let kind = item.get("type")?.as_str()?.to_string();
@@ -413,7 +448,8 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
     let created_at = attrs.get("created_at")?.as_str()?.to_string();
     let internal = attrs.get("internal").and_then(|v| v.as_bool()).unwrap_or(false);
     let message = attrs.get("message").and_then(|v| v.as_str()).map(String::from);
-    let actor = item.get("relationships").and_then(|r| r.get("actor")).and_then(parse_user_ref);
+    let relationships = item.get("relationships");
+    let actor = relationships.and_then(|r| r.get("actor")).and_then(parse_user_ref);
 
     if kind == "activity-comment" {
         Some(Activity::Comment {
@@ -422,6 +458,7 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
             message: message.unwrap_or_default(),
             internal,
             actor,
+            attachments: parse_attachments(relationships),
         })
     } else {
         let kind_short = kind.strip_prefix("activity-").unwrap_or(&kind).to_string();
@@ -473,5 +510,6 @@ fn parse_report_detail(body: &serde_json::Value) -> Option<ReportDetail> {
         weakness: rel.and_then(|r| r.get("weakness")).and_then(parse_weakness_ref),
         asset: rel.and_then(|r| r.get("structured_scope")).and_then(parse_asset_ref),
         activities,
+        attachments: parse_attachments(rel),
     })
 }

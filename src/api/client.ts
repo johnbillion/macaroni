@@ -33,6 +33,8 @@ export const api = {
 		page_cursor?: string;
 	}) => call<{ items: ReportSummary[]; next_cursor: string | null }>("list_reports", { query }),
 	getReport: (reportId: string) => call<ReportDetail>("get_report", { reportId }),
+	saveAttachment: (url: string, suggestedFilename: string) =>
+		call<boolean>("save_attachment", { url, suggestedFilename }),
 	markReportRead: (reportId: string) => call<void>("mark_report_read", { reportId }),
 	markReportsRead: (reportIds: string[]) => call<void>("mark_reports_read", { reportIds }),
 	getReadIds: (reportIds: string[]) => call<string[]>("get_read_ids", { reportIds }),

@@ -115,3 +115,40 @@ pub async fn get_report(
 ) -> AppResult<ReportDetail> {
     ctx.api.get_report(&report_id).await
 }
+
+// Show a native save-file dialog for an attachment and, if the user confirms a path,
+// fetch the bytes from the (presigned) URL on the Rust side and write them to disk.
+// Returns true if a file was written, false if the user cancelled.
+#[tauri::command]
+pub async fn save_attachment(
+    app: tauri::AppHandle,
+    url: String,
+    suggested_filename: String,
+) -> AppResult<bool> {
+    use tauri_plugin_dialog::DialogExt;
+
+    #[cfg(debug_assertions)]
+    println!("[attachments] save dialog for {suggested_filename}");
+
+    let path = app
+        .dialog()
+        .file()
+        .set_file_name(&suggested_filename)
+        .blocking_save_file();
+    let Some(path) = path else {
+        return Ok(false);
+    };
+    let path = path.into_path().map_err(AppError::other)?;
+
+    #[cfg(debug_assertions)]
+    println!("[attachments] GET {url}");
+    let res = reqwest::get(&url).await?;
+    let status = res.status();
+    if !status.is_success() {
+        let body = res.text().await.unwrap_or_default();
+        return Err(AppError::from_status(status.as_u16(), &body));
+    }
+    let bytes = res.bytes().await?;
+    std::fs::write(&path, &bytes).map_err(AppError::other)?;
+    Ok(true)
+}

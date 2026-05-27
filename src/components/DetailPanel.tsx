@@ -157,7 +157,11 @@ export function DetailPanel() {
 					)}
 				</div>
 				{r.vulnerability_information ? (
-					<Markdown source={r.vulnerability_information} class="body-text" />
+					<Markdown
+						source={r.vulnerability_information}
+						attachments={r.attachments}
+						class="body-text"
+					/>
 				) : (
 					<div class="body-text">(no description)</div>
 				)}

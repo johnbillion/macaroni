@@ -43,6 +43,7 @@ export function renderActivity(activity: Activity, reporterId: string | null) {
 	const isComment = activity.type === "comment";
 	const message = isComment ? activity.message : (activity.message ?? "");
 	const hasMessage = message.trim().length > 0;
+	const messageAttachments = activity.type === "comment" ? activity.attachments : undefined;
 	const newState = !isComment ? bugStateFromKind(activity.kind) : null;
 
 	// Non-state-change events with no message body collapse to a one-line tick.
@@ -81,7 +82,9 @@ export function renderActivity(activity: Activity, reporterId: string | null) {
 				) : null}
 				<span class="msg-time">{formatRelativeTime(activity.created_at)}</span>
 			</div>
-			{hasMessage && <Markdown source={message} class="msg-bubble" />}
+			{hasMessage && (
+				<Markdown source={message} attachments={messageAttachments} class="msg-bubble" />
+			)}
 		</div>
 	);
 }

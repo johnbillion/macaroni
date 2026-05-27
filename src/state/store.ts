@@ -50,6 +50,14 @@ export type AssigneeRef = {
 export type WeaknessRef = { id: string; name: string; external_id: string | null };
 export type AssetRef = { id: string; asset_identifier: string; asset_type: string | null };
 
+export type Attachment = {
+	id: string;
+	file_name: string;
+	content_type: string | null;
+	file_size: number | null;
+	expiring_url: string;
+};
+
 export type Activity =
 	| {
 			type: "comment";
@@ -58,6 +66,7 @@ export type Activity =
 			message: string;
 			internal: boolean;
 			actor: UserRef | null;
+			attachments: Attachment[];
 	  }
 	| {
 			type: "event";
@@ -82,6 +91,7 @@ export type ReportDetail = {
 	weakness: WeaknessRef | null;
 	asset: AssetRef | null;
 	activities: Activity[];
+	attachments: Attachment[];
 };
 
 export type DetailPlacement = "right" | "bottom";
