@@ -1,11 +1,80 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
+import type { JSX } from "preact";
 import type { Activity } from "../../state/store";
 import { pillFor } from "../../utils/pill";
 import { formatRelativeTime } from "../../utils/time";
 import { Avatar } from "../Avatar";
 import { Markdown } from "../Markdown";
 
+type EventActivity = Extract<Activity, { type: "event" }>;
+
 function humanizeKind(kind: string): string {
 	return kind.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Render a verb-phrase describing what happened in a non-comment event,
+ * pulling in kind-specific fields (invitee, scope names, weakness, etc.).
+ * Returns null for kinds we don't have a custom phrasing for, so callers
+ * can fall back to a humanized kind label.
+ */
+function describeEvent(activity: EventActivity): JSX.Element | null {
+	switch (activity.kind) {
+		case "external-user-invited":
+			return activity.invitee ? (
+				<>
+					invited <b>{activity.invitee}</b> as a participant
+				</>
+			) : (
+				<>invited a user as a participant</>
+			);
+		case "external-user-joined":
+			return activity.duplicate_report_id ? (
+				<>
+					filed a duplicate
+					(<a
+						href={`https://hackerone.com/reports/${activity.duplicate_report_id}`}
+						target="_blank"
+						rel="noopener noreferrer"
+						onClick={(e) => {
+							e.preventDefault();
+							openUrl(`https://hackerone.com/reports/${activity.duplicate_report_id}`);
+						}}
+					>#{activity.duplicate_report_id}</a>)
+					and was invited to participate in this report
+				</>
+			) : (
+				<>joined this report as a participant</>
+			);
+		case "changed-scope":
+			return activity.old_scope && activity.new_scope ? (
+				<>
+					changed the scope from <b>{activity.old_scope}</b> to <b>{activity.new_scope}</b>
+				</>
+			) : (
+				<>changed the scope</>
+			);
+		case "report-vulnerability-types-updated":
+			return activity.new_weakness ? (
+				<>
+					added weakness <b>"{activity.new_weakness}"</b>
+				</>
+			) : (
+				<>updated the vulnerability types</>
+			);
+		case "group-assigned-to-bug":
+			return activity.group_name ? (
+				<>
+					assigned this report to <b>{activity.group_name}</b>
+				</>
+			) : (
+				<>assigned this report to a group</>
+			);
+		case "report-organization-inboxes-updated":
+			return <>updated the organization inboxes</>;
+		default:
+			return null;
+	}
 }
 
 /**
@@ -26,20 +95,14 @@ function bugStateFromKind(kind: string): string | null {
  *
  * Heuristic — refine here as we learn more about edge cases:
  *   - Internal comments are always program-side (the reporter never sees them).
- *   - Anyone who isn't the original reporter is program-side. State changes
- *     and comments are both attributed via `actor`, and reporters can perform
- *     state changes on their own reports too (e.g. closing as duplicate), so
- *     the actor-vs-reporter check applies to events as well as comments.
- *   - If we don't know who the reporter is, default to reporter-side so we
- *     don't mis-attribute their comments to the program.
+ *   - Anyone who isn't the original reporter is program-side.
  */
-export function isProgramSide(activity: Activity, reporterId: string | null): boolean {
+export function isProgramSide(activity: Activity, reporterId: string): boolean {
 	if (activity.internal) return true;
-	if (!reporterId) return false;
 	return activity.actor?.id !== reporterId;
 }
 
-export function renderActivity(activity: Activity, reporterId: string | null) {
+export function renderActivity(activity: Activity, reporterId: string) {
 	const isComment = activity.type === "comment";
 	const message = isComment ? activity.message : (activity.message ?? "");
 	const hasMessage = message.trim().length > 0;
@@ -47,12 +110,19 @@ export function renderActivity(activity: Activity, reporterId: string | null) {
 	const newState = !isComment ? bugStateFromKind(activity.kind) : null;
 
 	// Non-state-change events with no message body collapse to a one-line tick.
-	if (!isComment && !newState && !hasMessage) {
+	if (activity.type === "event" && !newState && !hasMessage) {
+		const description = describeEvent(activity);
+		const tickClasses = ["event-tick", activity.internal ? "internal" : ""]
+			.filter(Boolean)
+			.join(" ");
 		return (
-			<div key={activity.id} class="event-tick">
-				<span>
-					<b>{humanizeKind(activity.kind)}</b>
-					{activity.actor && <> · {activity.actor.username}</>}
+			<div key={activity.id} class={tickClasses}>
+				<span class="event-tick-text">
+					{activity.internal && <span class="msg-internal-flag">INTERNAL</span>}
+					{activity.actor && <Avatar user={activity.actor} />}
+					{activity.actor && <b>{activity.actor.username}</b>}
+					{activity.actor && " "}
+					{description ?? <b>{humanizeKind(activity.kind)}</b>}
 				</span>
 				<span class="event-time">{formatRelativeTime(activity.created_at)}</span>
 			</div>
@@ -60,7 +130,7 @@ export function renderActivity(activity: Activity, reporterId: string | null) {
 	}
 
 	const author = activity.actor?.username ?? "system";
-	const isReporter = reporterId !== null && activity.actor?.id === reporterId;
+	const isReporter = activity.actor?.id === reporterId;
 	const side = isProgramSide(activity, reporterId) ? "out" : "in";
 	const classes = ["msg", side, activity.internal ? "internal" : ""].filter(Boolean).join(" ");
 	const pill = newState ? pillFor(newState) : null;

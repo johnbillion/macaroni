@@ -81,8 +81,8 @@ export function DetailPanel() {
 	const pill = pillFor(r.state);
 	const submittedClock = r.submitted_at ? formatClock(r.submitted_at) : "";
 	const submittedRelative = r.submitted_at ? formatRelativeTime(r.submitted_at) : "";
-	const reporterUsername = r.reporter?.username ?? r.reporter?.name ?? "unknown";
-	const reporterName = r.reporter?.username ? r.reporter?.name : null;
+	const reporterUsername = r.reporter.username;
+	const reporterName = r.reporter.name;
 	const activities = isHackbotPreSubmissionTrigger(r.activities[0])
 		? r.activities.slice(1)
 		: r.activities;
@@ -167,7 +167,7 @@ export function DetailPanel() {
 					<div class="placeholder">No activity yet.</div>
 				) : (
 					<div class="thread">
-						{activities.map((a) => renderActivity(a, r.reporter?.id ?? null))}
+						{activities.map((a) => renderActivity(a, r.reporter.id))}
 						<div class="thread-end">— END —</div>
 					</div>
 				)}

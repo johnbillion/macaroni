@@ -32,7 +32,7 @@ pub struct ReportSummary {
     pub created_at: String,
     pub last_activity_at: Option<String>,
     pub asset: Option<AssetRef>,
-    pub reporter: Option<UserRef>,
+    pub reporter: UserRef,
     pub assignee: Option<AssigneeRef>,
 }
 
@@ -109,6 +109,18 @@ pub enum Activity {
         message: Option<String>,
         internal: bool,
         actor: Option<UserRef>,
+        /// `email` attr on `activity-external-user-invited` — actually a username string.
+        invitee: Option<String>,
+        /// `duplicate_report_id` attr on `activity-external-user-joined` when the user
+        /// joined as a result of filing a duplicate report.
+        duplicate_report_id: Option<String>,
+        /// `old_scope` / `new_scope` asset identifiers on `activity-changed-scope`.
+        old_scope: Option<String>,
+        new_scope: Option<String>,
+        /// `new_weakness` name on `activity-report-vulnerability-types-updated`.
+        new_weakness: Option<String>,
+        /// `group` name on `activity-group-assigned-to-bug` (sometimes null).
+        group_name: Option<String>,
     },
 }
 
@@ -122,7 +134,7 @@ pub struct ReportDetail {
     pub created_at: String,
     pub submitted_at: Option<String>,
     pub vulnerability_information: String,
-    pub reporter: Option<UserRef>,
+    pub reporter: UserRef,
     pub weakness: Option<WeaknessRef>,
     pub asset: Option<AssetRef>,
     pub activities: Vec<Activity>,
@@ -316,7 +328,7 @@ impl HackerOneApi for ReqwestClient {
                     asset: rel
                         .and_then(|r| r.get("structured_scope"))
                         .and_then(parse_asset_ref),
-                    reporter: rel.and_then(|r| r.get("reporter")).and_then(parse_user_ref),
+                    reporter: rel.and_then(|r| r.get("reporter")).and_then(parse_user_ref)?,
                     assignee: rel.and_then(|r| r.get("assignee")).and_then(parse_assignee_ref),
                 })
             })
@@ -462,6 +474,54 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
         })
     } else {
         let kind_short = kind.strip_prefix("activity-").unwrap_or(&kind).to_string();
+        let invitee = if kind_short == "external-user-invited" {
+            attrs.get("email").and_then(|v| v.as_str()).map(String::from)
+        } else {
+            None
+        };
+        let duplicate_report_id = if kind_short == "external-user-joined" {
+            attrs
+                .get("duplicate_report_id")
+                .and_then(|v| v.as_u64().map(|n| n.to_string()).or_else(|| v.as_str().map(String::from)))
+        } else {
+            None
+        };
+        let scope_identifier = |key: &str| -> Option<String> {
+            relationships?
+                .get(key)?
+                .get("data")?
+                .get("attributes")?
+                .get("asset_identifier")?
+                .as_str()
+                .map(String::from)
+        };
+        let (old_scope, new_scope) = if kind_short == "changed-scope" {
+            (scope_identifier("old_scope"), scope_identifier("new_scope"))
+        } else {
+            (None, None)
+        };
+        let new_weakness = if kind_short == "report-vulnerability-types-updated" {
+            relationships
+                .and_then(|r| r.get("new_weakness"))
+                .and_then(|w| w.get("data"))
+                .and_then(|d| d.get("attributes"))
+                .and_then(|a| a.get("name"))
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        } else {
+            None
+        };
+        let group_name = if kind_short == "group-assigned-to-bug" {
+            relationships
+                .and_then(|r| r.get("group"))
+                .and_then(|g| g.get("data"))
+                .and_then(|d| d.get("attributes"))
+                .and_then(|a| a.get("name"))
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        } else {
+            None
+        };
         Some(Activity::Event {
             id,
             created_at,
@@ -469,6 +529,12 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
             message,
             internal,
             actor,
+            invitee,
+            duplicate_report_id,
+            old_scope,
+            new_scope,
+            new_weakness,
+            group_name,
         })
     }
 }
@@ -506,7 +572,7 @@ fn parse_report_detail(body: &serde_json::Value) -> Option<ReportDetail> {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
-        reporter: rel.and_then(|r| r.get("reporter")).and_then(parse_user_ref),
+        reporter: rel.and_then(|r| r.get("reporter")).and_then(parse_user_ref)?,
         weakness: rel.and_then(|r| r.get("weakness")).and_then(parse_weakness_ref),
         asset: rel.and_then(|r| r.get("structured_scope")).and_then(parse_asset_ref),
         activities,

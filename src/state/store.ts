@@ -30,7 +30,7 @@ export type ReportSummary = {
 	created_at: string;
 	last_activity_at: string | null;
 	asset: AssetRef | null;
-	reporter: UserRef | null;
+	reporter: UserRef;
 	assignee: AssigneeRef | null;
 };
 
@@ -76,6 +76,12 @@ export type Activity =
 			message: string | null;
 			internal: boolean;
 			actor: UserRef | null;
+			invitee: string | null;
+			duplicate_report_id: string | null;
+			old_scope: string | null;
+			new_scope: string | null;
+			new_weakness: string | null;
+			group_name: string | null;
 	  };
 
 export type ReportDetail = {
@@ -87,7 +93,7 @@ export type ReportDetail = {
 	created_at: string;
 	submitted_at: string | null;
 	vulnerability_information: string;
-	reporter: UserRef | null;
+	reporter: UserRef;
 	weakness: WeaknessRef | null;
 	asset: AssetRef | null;
 	activities: Activity[];

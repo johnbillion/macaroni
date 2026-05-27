@@ -908,11 +908,11 @@ html.dark .theme-toggle {
 .markdown h6 {
 	font-size: 13px;
 }
-.markdown a {
+a {
 	color: var(--info);
 	text-decoration: underline;
 }
-.markdown a[target="_blank"]::after {
+a[target="_blank"]::after {
 	content: "";
 	display: inline-block;
 	width: 13px;
@@ -1229,6 +1229,15 @@ html.dark .msg.internal .msg-bubble {
 .event-tick .event-time {
 	margin-left: auto;
 	font-variant-numeric: tabular-nums;
+}
+.event-tick-text {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+.event-tick.internal {
+	color: var(--text-2);
 }
 
 /* Credentials gate */
