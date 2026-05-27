@@ -553,7 +553,8 @@ html.dark .theme-toggle {
 	content: "";
 	position: absolute;
 	left: 0;
-	top: 18px;
+	top: calc(10px + 0.7em);
+	transform: translateY(-50%);
 	width: 6px;
 	height: 6px;
 	background: var(--accent);
