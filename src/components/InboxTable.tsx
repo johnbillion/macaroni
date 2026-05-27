@@ -1,5 +1,12 @@
+import { useEffect, useRef } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
-import { loadReportDetail, markReportRead } from "../state/effects";
+import {
+	buildReportsQuery,
+	loadMoreReports,
+	loadReportDetail,
+	loadReports,
+	markReportRead,
+} from "../state/effects";
 import { pillFor } from "../utils/pill";
 import { formatRelativeTime } from "../utils/time";
 import { AssetIdentifier } from "./AssetIdentifier";
@@ -7,6 +14,11 @@ import { AssetIdentifier } from "./AssetIdentifier";
 export function InboxTable() {
 	const state = useAppState();
 	const dispatch = useDispatch();
+	const inboxRef = useRef<HTMLElement>(null);
+
+	useEffect(() => {
+		inboxRef.current?.scrollTo({ top: 0 });
+	}, [state.reportsReplaceCount]);
 
 	const onSelect = (id: string) => {
 		dispatch({ type: "REPORT_SELECTED", reportId: id });
@@ -36,7 +48,8 @@ export function InboxTable() {
 			return <div class="placeholder">No reports.</div>;
 		}
 
-		const items = state.reports.data.items.slice(0, 100);
+		const items = state.reports.data.items;
+		const hasMore = !!state.reports.data.nextCursor;
 
 		return (
 			<table class="inbox-table">
@@ -88,8 +101,26 @@ export function InboxTable() {
 					})}
 				</tbody>
 				<tfoot>
-					<tr class="end-row">
-						<td colspan={6}>- END -</td>
+					<tr class="footer-row">
+						<td colspan={6}>
+							<div class="inbox-footer">
+								<span class="footer-total">
+									{items.length} {items.length === 1 ? "report" : "reports"}
+								</span>
+								{hasMore ? (
+									<button
+										type="button"
+										class="load-more-btn"
+										onClick={() => loadMoreReports(dispatch, state)}
+										disabled={state.reportsRefreshing}
+									>
+										{state.reportsRefreshing ? "Loading…" : "Load more"}
+									</button>
+								) : (
+									<span class="footer-end">- END -</span>
+								)}
+							</div>
+						</td>
 					</tr>
 				</tfoot>
 			</table>
@@ -97,7 +128,7 @@ export function InboxTable() {
 	})();
 
 	return (
-		<main class="inbox">
+		<main class="inbox" ref={inboxRef}>
 			<div
 				class={`loading-bar${state.reportsRefreshing ? " active" : ""}`}
 				role="progressbar"

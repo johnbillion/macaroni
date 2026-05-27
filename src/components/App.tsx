@@ -1,7 +1,12 @@
 import { useEffect } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
-import { ALL_SEVERITY_KEYS, ALL_STATE_KEYS } from "../state/filters";
-import { bootstrap, loadAssets, loadPrograms, loadReports } from "../state/effects";
+import {
+	bootstrap,
+	buildReportsQuery,
+	loadAssets,
+	loadPrograms,
+	loadReports,
+} from "../state/effects";
 import { CredentialsGate } from "./CredentialsGate";
 import { DetailPanel } from "./DetailPanel";
 import { InboxTable } from "./InboxTable";
@@ -33,40 +38,22 @@ export function App() {
 		loadAssets(dispatch, orgId);
 	}, [state.filters.orgId, state.assetsByOrg, dispatch]);
 
-	// Resolve the in-scope asset universe (used only for the "all-checked = no filter" optimization).
 	const orgId = state.filters.orgId;
 	const handle = state.filters.programHandle;
 	const currentAssets = orgId ? state.assetsByOrg[orgId] : undefined;
-	const eligibleAssetIds =
+	const eligibleAssetKey =
 		currentAssets?.status === "ready"
-			? currentAssets.data.filter((a) => a.in_scope).map((a) => a.id)
-			: undefined;
+			? currentAssets.data.filter((a) => a.in_scope).map((a) => a.id).join(",")
+			: "";
 
 	const statesKey = state.filters.states.join(",");
 	const severitiesKey = state.filters.severities.join(",");
 	const assetsKey = state.filters.assets.join(",");
-	const eligibleAssetKey = eligibleAssetIds?.join(",") ?? "";
 
 	useEffect(() => {
-		if (!handle) return;
-
-		const statesParam =
-			state.filters.states.length === ALL_STATE_KEYS.length ? [] : state.filters.states;
-		const severitiesParam =
-			state.filters.severities.length === ALL_SEVERITY_KEYS.length
-				? []
-				: state.filters.severities.filter((s) => s !== "unrated");
-		const assetsParam =
-			eligibleAssetIds && state.filters.assets.length === eligibleAssetIds.length
-				? []
-				: state.filters.assets;
-
-		loadReports(dispatch, {
-			programHandle: handle,
-			states: statesParam,
-			severities: severitiesParam,
-			assetIds: assetsParam,
-		});
+		const query = buildReportsQuery(state);
+		if (!query) return;
+		loadReports(dispatch, query);
 		// We key on the joined strings so reference identity churn doesn't refetch on every render.
 		// biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
 	}, [handle, statesKey, severitiesKey, assetsKey, eligibleAssetKey, dispatch]);

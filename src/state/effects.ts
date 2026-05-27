@@ -1,5 +1,6 @@
 import { api } from "../api/client";
-import type { Action, AppError } from "./store";
+import { ALL_SEVERITY_KEYS, ALL_STATE_KEYS } from "./filters";
+import type { Action, AppError, AppState } from "./store";
 
 type Dispatch = (action: Action) => void;
 
@@ -114,15 +115,21 @@ export type ReportsQuery = {
 // dropped before dispatch, which is the same observable behaviour as cancellation.
 let reportsRequestId = 0;
 
-export async function loadReports(dispatch: Dispatch, query: ReportsQuery) {
+export async function loadReports(
+	dispatch: Dispatch,
+	query: ReportsQuery,
+	pageCursor?: string,
+) {
 	const myId = ++reportsRequestId;
-	dispatch({ type: "REPORTS_REQUESTED" });
+	const append = pageCursor !== undefined;
+	dispatch({ type: "REPORTS_REQUESTED", append });
 	try {
 		const { items, next_cursor } = await api.listReports({
 			program_handle: query.programHandle,
 			states: query.states,
 			severities: query.severities,
 			asset_ids: query.assetIds,
+			page_cursor: pageCursor,
 		});
 		if (myId !== reportsRequestId) return;
 		hydrateReadIds(
@@ -133,9 +140,46 @@ export async function loadReports(dispatch: Dispatch, query: ReportsQuery) {
 			type: "REPORTS_SUCCEEDED",
 			items,
 			nextCursor: next_cursor ?? undefined,
+			append,
 		});
 	} catch (e) {
 		if (myId !== reportsRequestId) return;
-		dispatch({ type: "REPORTS_FAILED", error: asError(e) });
+		dispatch({ type: "REPORTS_FAILED", error: asError(e), append });
 	}
+}
+
+// Build the query from the current filter state, applying the "fully-checked group == no
+// filter" optimization in the same way as the App-level fetch effect.
+export function buildReportsQuery(state: AppState): ReportsQuery | null {
+	const handle = state.filters.programHandle;
+	if (!handle) return null;
+
+	const orgId = state.filters.orgId;
+	const currentAssets = orgId ? state.assetsByOrg[orgId] : undefined;
+	const eligibleAssetIds =
+		currentAssets?.status === "ready"
+			? currentAssets.data.filter((a) => a.in_scope).map((a) => a.id)
+			: undefined;
+
+	const states =
+		state.filters.states.length === ALL_STATE_KEYS.length ? [] : state.filters.states;
+	const severities =
+		state.filters.severities.length === ALL_SEVERITY_KEYS.length
+			? []
+			: state.filters.severities.filter((s) => s !== "unrated");
+	const assetIds =
+		eligibleAssetIds && state.filters.assets.length === eligibleAssetIds.length
+			? []
+			: state.filters.assets;
+
+	return { programHandle: handle, states, severities, assetIds };
+}
+
+export async function loadMoreReports(dispatch: Dispatch, state: AppState) {
+	if (state.reports.status !== "ready") return;
+	const cursor = state.reports.data.nextCursor;
+	if (!cursor) return;
+	const query = buildReportsQuery(state);
+	if (!query) return;
+	await loadReports(dispatch, query, cursor);
 }

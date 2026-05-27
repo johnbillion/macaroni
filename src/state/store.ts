@@ -147,6 +147,9 @@ export type AppState = {
 	};
 	reports: AsyncState<{ items: ReportSummary[]; nextCursor?: string }>;
 	reportsRefreshing: boolean;
+	// Bumped each time the report list is replaced (filter change), not on append (load-more).
+	// Consumers watch this to react to "fresh list" events — e.g. scrolling back to the top.
+	reportsReplaceCount: number;
 	selectedReportId: string | null;
 	detail: Record<string, AsyncState<ReportDetail>>;
 	readReports: Record<string, true>;
@@ -173,9 +176,9 @@ export type Action =
 	| { type: "STATES_SET"; states: string[] }
 	| { type: "SEVERITIES_SET"; severities: string[] }
 	| { type: "ASSETS_SET"; assets: string[] }
-	| { type: "REPORTS_REQUESTED" }
-	| { type: "REPORTS_SUCCEEDED"; items: ReportSummary[]; nextCursor?: string }
-	| { type: "REPORTS_FAILED"; error: AppError }
+	| { type: "REPORTS_REQUESTED"; append: boolean }
+	| { type: "REPORTS_SUCCEEDED"; items: ReportSummary[]; nextCursor?: string; append: boolean }
+	| { type: "REPORTS_FAILED"; error: AppError; append: boolean }
 	| { type: "REPORT_SELECTED"; reportId: string | null }
 	| { type: "DETAIL_REQUESTED"; reportId: string }
 	| { type: "DETAIL_SUCCEEDED"; reportId: string; detail: ReportDetail }
@@ -223,6 +226,7 @@ export const initialState: AppState = {
 	},
 	reports: { status: "idle" },
 	reportsRefreshing: false,
+	reportsReplaceCount: 0,
 	selectedReportId: null,
 	detail: {},
 	readReports: {},
@@ -356,16 +360,22 @@ export function reducer(state: AppState, action: Action): AppState {
 				reports: state.reports.status === "ready" ? state.reports : { status: "loading" },
 			};
 		case "REPORTS_SUCCEEDED": {
+			const existing =
+				action.append && state.reports.status === "ready" ? state.reports.data.items : [];
+			const items = [...existing, ...action.items];
 			const stillPresent =
 				state.selectedReportId !== null &&
-				action.items.some((r) => r.id === state.selectedReportId);
+				items.some((r) => r.id === state.selectedReportId);
 			return {
 				...state,
 				reportsRefreshing: false,
+				reportsReplaceCount: action.append
+					? state.reportsReplaceCount
+					: state.reportsReplaceCount + 1,
 				selectedReportId: stillPresent ? state.selectedReportId : null,
 				reports: {
 					status: "ready",
-					data: { items: action.items, nextCursor: action.nextCursor },
+					data: { items, nextCursor: action.nextCursor },
 				},
 			};
 		}

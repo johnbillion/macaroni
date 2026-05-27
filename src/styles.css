@@ -590,6 +590,47 @@ html.dark .theme-toggle {
 	letter-spacing: 0.18em;
 	border-bottom: 0;
 }
+.inbox-table .footer-row td {
+	padding: 20px 12px 100px;
+	border-bottom: 0;
+}
+.inbox-footer {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 14px;
+	color: var(--text-2);
+	font-size: 11px;
+}
+.footer-total {
+	color: var(--text);
+	font-weight: 500;
+}
+.footer-end {
+	color: var(--text-3);
+	font-size: 10px;
+	letter-spacing: 0.18em;
+}
+.load-more-btn {
+	font-family: inherit;
+	font-size: 11px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	background: var(--bg);
+	color: var(--text-2);
+	border: 1px solid var(--border-2);
+	padding: 6px 18px;
+	border-radius: 2px;
+	cursor: pointer;
+}
+.load-more-btn:hover:not([disabled]) {
+	color: var(--accent);
+	border-color: var(--accent);
+}
+.load-more-btn[disabled] {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
 .thread-end {
 	align-self: center;
 }
