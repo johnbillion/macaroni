@@ -7,9 +7,25 @@ import {
 	loadReports,
 	markReportRead,
 } from "../state/effects";
+import type { AppError } from "../state/store";
 import { pillFor } from "../utils/pill";
 import { formatRelativeTime } from "../utils/time";
 import { AssetIdentifier } from "./AssetIdentifier";
+
+function formatReportError(error: AppError): string {
+	switch (error.kind) {
+		case "network":
+			return error.message;
+		case "unauthorized":
+			return "Your credentials were rejected. Open Settings to re-enter your API token.";
+		case "forbidden":
+			return "Your API token doesn't have access to these reports.";
+		case "rate_limited":
+			return "Rate limited by HackerOne. Wait a moment and try again.";
+		default:
+			return error.message;
+	}
+}
 
 export function InboxTable() {
 	const state = useAppState();
@@ -30,6 +46,11 @@ export function InboxTable() {
 		}
 	};
 
+	const onRetryReports = () => {
+		const query = buildReportsQuery(state);
+		if (query) loadReports(dispatch, query);
+	};
+
 	const body = (() => {
 		if (state.reports.status === "idle") {
 			return <div class="placeholder">Select a program to load its reports.</div>;
@@ -40,7 +61,10 @@ export function InboxTable() {
 		if (state.reports.status === "error") {
 			return (
 				<div class="placeholder error">
-					{state.reports.error.kind}: {state.reports.error.message}
+					<p>{formatReportError(state.reports.error)}</p>
+					<button type="button" class="retry-btn" onClick={onRetryReports}>
+						Try again
+					</button>
 				</div>
 			);
 		}
@@ -108,14 +132,25 @@ export function InboxTable() {
 									{items.length} {items.length === 1 ? "report" : "reports"}
 								</span>
 								{hasMore ? (
-									<button
-										type="button"
-										class="load-more-btn"
-										onClick={() => loadMoreReports(dispatch, state)}
-										disabled={state.reportsRefreshing}
-									>
-										{state.reportsRefreshing ? "Loading…" : "Load more"}
-									</button>
+									<>
+										{state.reportsLoadMoreError && !state.reportsRefreshing ? (
+											<span class="footer-error">
+												{formatReportError(state.reportsLoadMoreError)}
+											</span>
+										) : null}
+										<button
+											type="button"
+											class="load-more-btn"
+											onClick={() => loadMoreReports(dispatch, state)}
+											disabled={state.reportsRefreshing}
+										>
+											{state.reportsRefreshing
+												? "Loading…"
+												: state.reportsLoadMoreError
+													? "Try again"
+													: "Load more"}
+										</button>
+									</>
 								) : (
 									<span class="footer-end">- END -</span>
 								)}

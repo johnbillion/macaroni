@@ -49,7 +49,14 @@ impl std::error::Error for AppError {}
 
 impl From<reqwest::Error> for AppError {
     fn from(e: reqwest::Error) -> Self {
-        AppError::Network { message: e.to_string() }
+        let message = if e.is_timeout() {
+            "The request timed out. Check your connection and try again.".into()
+        } else if e.is_connect() {
+            "Couldn't reach HackerOne. Check your internet connection.".into()
+        } else {
+            e.to_string()
+        };
+        AppError::Network { message }
     }
 }
 

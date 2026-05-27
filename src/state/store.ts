@@ -147,6 +147,9 @@ export type AppState = {
 	};
 	reports: AsyncState<{ items: ReportSummary[]; nextCursor?: string }>;
 	reportsRefreshing: boolean;
+	// Set when a load-more (append) request fails. The existing list is preserved so the user
+	// can see what was already loaded; the footer surfaces this error with a retry affordance.
+	reportsLoadMoreError: AppError | null;
 	// Bumped each time the report list is replaced (filter change), not on append (load-more).
 	// Consumers watch this to react to "fresh list" events — e.g. scrolling back to the top.
 	reportsReplaceCount: number;
@@ -227,6 +230,7 @@ export const initialState: AppState = {
 	},
 	reports: { status: "idle" },
 	reportsRefreshing: false,
+	reportsLoadMoreError: null,
 	reportsReplaceCount: 0,
 	selectedReportId: null,
 	detail: {},
@@ -358,6 +362,7 @@ export function reducer(state: AppState, action: Action): AppState {
 			return {
 				...state,
 				reportsRefreshing: true,
+				reportsLoadMoreError: null,
 				reports: state.reports.status === "ready" ? state.reports : { status: "loading" },
 			};
 		case "REPORTS_SUCCEEDED": {
@@ -370,6 +375,7 @@ export function reducer(state: AppState, action: Action): AppState {
 			return {
 				...state,
 				reportsRefreshing: false,
+				reportsLoadMoreError: null,
 				reportsReplaceCount: action.append
 					? state.reportsReplaceCount
 					: state.reportsReplaceCount + 1,
@@ -381,9 +387,19 @@ export function reducer(state: AppState, action: Action): AppState {
 			};
 		}
 		case "REPORTS_FAILED":
+			// On load-more (append) failure, keep the existing list intact and surface the
+			// error transiently in the footer so the user can retry without losing context.
+			if (action.append && state.reports.status === "ready") {
+				return {
+					...state,
+					reportsRefreshing: false,
+					reportsLoadMoreError: action.error,
+				};
+			}
 			return {
 				...state,
 				reportsRefreshing: false,
+				reportsLoadMoreError: null,
 				reports: { status: "error", error: action.error },
 			};
 		case "REPORT_SELECTED":

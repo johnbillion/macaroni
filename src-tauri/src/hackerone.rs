@@ -4,6 +4,10 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Duration;
+
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub const BASE_URL: &str = "https://api.hackerone.com/v1";
 
@@ -133,6 +137,8 @@ impl ReqwestClient {
     pub fn new(creds: Arc<dyn CredentialStore>) -> AppResult<Self> {
         let http = reqwest::Client::builder()
             .user_agent("macaroni/0.1")
+            .timeout(REQUEST_TIMEOUT)
+            .connect_timeout(CONNECT_TIMEOUT)
             .build()
             .map_err(AppError::from)?;
         Ok(Self { http, creds })

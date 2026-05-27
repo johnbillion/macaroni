@@ -1359,10 +1359,39 @@ html.dark .msg.internal .msg-bubble {
 }
 .placeholder.error {
 	color: var(--crit);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 14px;
+}
+.placeholder.error p {
+	max-width: 32em;
 }
 .error {
 	color: var(--crit);
 	font-size: 11px;
+}
+.retry-btn {
+	font-family: inherit;
+	font-size: 11px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	background: var(--bg);
+	color: var(--text-2);
+	border: 1px solid var(--border-2);
+	padding: 6px 18px;
+	border-radius: 2px;
+	cursor: pointer;
+}
+.retry-btn:hover {
+	color: var(--accent);
+	border-color: var(--accent);
+}
+.footer-error {
+	color: var(--crit);
+	font-size: 11px;
+	text-align: center;
+	max-width: 32em;
 }
 
 /* Scrollbars */
