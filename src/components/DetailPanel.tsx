@@ -1,0 +1,172 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { useEffect, useState } from "preact/hooks";
+import { useAppState } from "../state/context";
+import type { Activity } from "../state/store";
+import { pillFor } from "../utils/pill";
+import { formatClock, formatRelativeTime } from "../utils/time";
+import { renderActivity } from "./activity/renderActivity";
+import { Markdown } from "./Markdown";
+import { SeverityMeter } from "./SeverityMeter";
+
+function isHackbotPreSubmissionTrigger(a: Activity): boolean {
+	if (a.type !== "comment") return false;
+	if (a.actor?.username?.toLowerCase() !== "hackbot") return false;
+	return /pre-submission[- ]trigger/i.test(a.message);
+}
+
+function CopyButton({
+	text,
+	label,
+	copiedLabel = "COPIED!",
+	class: className,
+	title,
+}: {
+	text: string;
+	label: string;
+	copiedLabel?: string;
+	class?: string;
+	title?: string;
+}) {
+	const [copied, setCopied] = useState(false);
+	useEffect(() => {
+		if (!copied) return;
+		const id = window.setTimeout(() => setCopied(false), 1200);
+		return () => window.clearTimeout(id);
+	}, [copied]);
+	return (
+		<button
+			type="button"
+			class={className}
+			title={title}
+			onClick={async () => {
+				await navigator.clipboard.writeText(text);
+				setCopied(true);
+			}}
+		>
+			{copied ? copiedLabel : label}
+		</button>
+	);
+}
+
+export function DetailPanel() {
+	const state = useAppState();
+	const id = state.selectedReportId;
+
+	if (!id) {
+		return (
+			<aside class="detail">
+				<div class="detail-empty">SELECT A REPORT</div>
+			</aside>
+		);
+	}
+
+	const detail = state.detail[id];
+	if (!detail || detail.status === "idle" || detail.status === "loading") {
+		return (
+			<aside class="detail">
+				<div class="placeholder">Loading report…</div>
+			</aside>
+		);
+	}
+	if (detail.status === "error") {
+		return (
+			<aside class="detail">
+				<div class="placeholder error">
+					{detail.error.kind}: {detail.error.message}
+				</div>
+			</aside>
+		);
+	}
+
+	const r = detail.data;
+	const pill = pillFor(r.state);
+	const submittedClock = r.submitted_at ? formatClock(r.submitted_at) : "";
+	const submittedRelative = r.submitted_at ? formatRelativeTime(r.submitted_at) : "";
+	const reporter = r.reporter?.username ?? "unknown";
+	const activities = isHackbotPreSubmissionTrigger(r.activities[0])
+		? r.activities.slice(1)
+		: r.activities;
+
+	return (
+		<aside class="detail">
+			<div class="detail-head">
+				<div class="dh-meta">
+					<span>#{r.id}</span>
+					<span>
+						SUBMITTED {submittedClock} · {submittedRelative}
+					</span>
+					<span class={`pill ${pill.className}`}>{pill.label}</span>
+					<CopyButton
+						text={r.id}
+						label="COPY ID"
+						class="dh-action dh-action-first"
+						title="Copy report ID"
+					/>
+					<button
+						type="button"
+						class="dh-action"
+						title="Open on hackerone.com"
+						onClick={() => openUrl(`https://hackerone.com/reports/${r.id}`)}
+					>
+						OPEN ↗
+					</button>
+				</div>
+				<h1 class="dh-title">{r.title}</h1>
+				<dl class="kv">
+					<dt>Asset</dt>
+					<dd>
+						{r.asset?.asset_identifier ? (
+							<>{r.asset.asset_identifier}</>
+						) : (
+							<span class="kv-missing">None</span>
+						)}
+					</dd>
+					<dt>Reporter</dt>
+					<dd>{reporter}</dd>
+					<dt>Weakness</dt>
+					<dd>
+						{r.weakness?.name ?? "Unknown"}
+						{r.weakness?.external_id ? ` (${r.weakness.external_id.toUpperCase()})` : ""}
+					</dd>
+					<dt>Severity</dt>
+					<dd>
+						<SeverityMeter rating={r.severity_rating} showLabel />
+					</dd>
+				</dl>
+			</div>
+
+			<div class="section">
+				<div class="section-h">
+					DESCRIPTION
+					{r.vulnerability_information && (
+						<CopyButton
+							text={r.vulnerability_information}
+							label="COPY MARKDOWN"
+							class="section-action"
+							title="Copy markdown source"
+						/>
+					)}
+				</div>
+				{r.vulnerability_information ? (
+					<Markdown source={r.vulnerability_information} class="body-text" />
+				) : (
+					<div class="body-text">(no description)</div>
+				)}
+			</div>
+
+			<div class="section">
+				<div class="section-h">DISCUSSION</div>
+				{activities.length === 0 ? (
+					<div class="placeholder">No activity yet.</div>
+				) : (
+					<div class="thread">
+						{activities.map((a) => renderActivity(a, r.reporter?.id ?? null))}
+						<div class="thread-end">
+							— END —
+						</div>
+					</div>
+				)}
+			</div>
+		</aside>
+	);
+}
