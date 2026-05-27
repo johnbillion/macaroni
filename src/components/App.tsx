@@ -1,4 +1,4 @@
-import { useEffect } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
 import {
 	bootstrap,
@@ -50,10 +50,18 @@ export function App() {
 	const severitiesKey = state.filters.severities.join(",");
 	const assetsKey = state.filters.assets.join(",");
 
+	const firstReportsLoadRef = useRef(true);
 	useEffect(() => {
 		const query = buildReportsQuery(state);
 		if (!query) return;
-		loadReports(dispatch, query);
+		if (firstReportsLoadRef.current) {
+			firstReportsLoadRef.current = false;
+			loadReports(dispatch, query);
+			return;
+		}
+		// Debounce rapid filter toggles so a burst of checkbox clicks only fires one request.
+		const timer = window.setTimeout(() => loadReports(dispatch, query), 1000);
+		return () => window.clearTimeout(timer);
 		// We key on the joined strings so reference identity churn doesn't refetch on every render.
 		// biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
 	}, [handle, statesKey, severitiesKey, assetsKey, eligibleAssetKey, dispatch]);
