@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
+import { markReportsRead } from "../state/effects";
 import { Settings } from "./Settings";
 
 function useTheme() {
@@ -50,6 +51,16 @@ export function Topbar() {
 				</div>
 			</div>
 			<div class="status-cluster">
+				<button
+					type="button"
+					class="theme-toggle"
+					aria-label="Mark all loaded reports as read"
+					title="Mark all loaded reports as read"
+					onClick={markAllRead}
+					disabled={unreadLoadedIds.length === 0}
+				>
+					✓
+				</button>
 				<button
 					type="button"
 					class="user-pill user-pill-button"

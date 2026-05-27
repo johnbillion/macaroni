@@ -93,6 +93,16 @@ export async function markReportRead(dispatch: Dispatch, reportId: string) {
 	}
 }
 
+export async function markReportsRead(dispatch: Dispatch, reportIds: string[]) {
+	if (reportIds.length === 0) return;
+	dispatch({ type: "REPORTS_MARKED_READ", reportIds });
+	try {
+		await api.markReportsRead(reportIds);
+	} catch {
+		// Best-effort — UI already reflects the optimistic update.
+	}
+}
+
 async function hydrateReadIds(dispatch: Dispatch, ids: string[]) {
 	if (ids.length === 0) return;
 	try {

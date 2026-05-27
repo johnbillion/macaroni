@@ -6,6 +6,7 @@ use std::sync::Mutex;
 pub trait ReportStore: Send + Sync {
     fn upsert(&self, ids: &[&str]) -> AppResult<()>;
     fn mark_read(&self, id: &str) -> AppResult<()>;
+    fn mark_read_many(&self, ids: &[&str]) -> AppResult<()>;
     fn list_read(&self, ids: &[&str]) -> AppResult<Vec<String>>;
 }
 
@@ -56,6 +57,24 @@ impl ReportStore for SqliteStore {
         Ok(())
     }
 
+    fn mark_read_many(&self, ids: &[&str]) -> AppResult<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let mut c = self.conn.lock().unwrap();
+        let tx = c.transaction().map_err(AppError::other)?;
+        for id in ids {
+            tx.execute(
+                "INSERT INTO reports (id, read) VALUES (?1, 1)
+                 ON CONFLICT(id) DO UPDATE SET read = 1",
+                params![id],
+            )
+            .map_err(AppError::other)?;
+        }
+        tx.commit().map_err(AppError::other)?;
+        Ok(())
+    }
+
     fn list_read(&self, ids: &[&str]) -> AppResult<Vec<String>> {
         if ids.is_empty() {
             return Ok(vec![]);
@@ -97,6 +116,15 @@ mod tests {
         s.mark_read("b").unwrap();
         let read = s.list_read(&["a", "b", "c"]).unwrap();
         assert_eq!(read, vec!["b".to_string()]);
+    }
+
+    #[test]
+    fn mark_read_many_marks_all() {
+        let s = in_memory();
+        s.mark_read_many(&["a", "b", "c"]).unwrap();
+        let mut read = s.list_read(&["a", "b", "c"]).unwrap();
+        read.sort();
+        assert_eq!(read, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
     }
 
     #[test]

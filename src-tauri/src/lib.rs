@@ -42,6 +42,7 @@ pub fn run() {
             commands::list_reports,
             commands::get_report,
             commands::mark_report_read,
+            commands::mark_reports_read,
             commands::get_read_ids,
         ])
         .run(tauri::generate_context!())
