@@ -62,13 +62,13 @@ export async function loadPrograms(dispatch: Dispatch, orgId: string) {
 	}
 }
 
-export async function loadStructuredScopes(dispatch: Dispatch, programId: string) {
-	dispatch({ type: "SCOPES_REQUESTED", programId });
+export async function loadAssets(dispatch: Dispatch, orgId: string) {
+	dispatch({ type: "ASSETS_REQUESTED", orgId });
 	try {
-		const scopes = await api.listStructuredScopes(programId);
-		dispatch({ type: "SCOPES_SUCCEEDED", programId, scopes });
+		const assets = await api.listAssets(orgId);
+		dispatch({ type: "ASSETS_SUCCEEDED", orgId, assets });
 	} catch (e) {
-		dispatch({ type: "SCOPES_FAILED", programId, error: asError(e) });
+		dispatch({ type: "ASSETS_FAILED", orgId, error: asError(e) });
 	}
 }
 
@@ -102,13 +102,29 @@ async function hydrateReadIds(dispatch: Dispatch, ids: string[]) {
 	}
 }
 
-export async function loadReports(dispatch: Dispatch, programHandle: string, states: string[]) {
+export type ReportsQuery = {
+	programHandle: string;
+	states: string[];
+	severities: string[];
+	assetIds: string[];
+};
+
+// Monotonic counter so a later loadReports call can invalidate any in-flight earlier one.
+// Tauri's invoke doesn't cancel the underlying HTTP request, but the stale response is
+// dropped before dispatch, which is the same observable behaviour as cancellation.
+let reportsRequestId = 0;
+
+export async function loadReports(dispatch: Dispatch, query: ReportsQuery) {
+	const myId = ++reportsRequestId;
 	dispatch({ type: "REPORTS_REQUESTED" });
 	try {
 		const { items, next_cursor } = await api.listReports({
-			program_handle: programHandle,
-			states,
+			program_handle: query.programHandle,
+			states: query.states,
+			severities: query.severities,
+			asset_ids: query.assetIds,
 		});
+		if (myId !== reportsRequestId) return;
 		hydrateReadIds(
 			dispatch,
 			items.map((i) => i.id),
@@ -119,6 +135,7 @@ export async function loadReports(dispatch: Dispatch, programHandle: string, sta
 			nextCursor: next_cursor ?? undefined,
 		});
 	} catch (e) {
+		if (myId !== reportsRequestId) return;
 		dispatch({ type: "REPORTS_FAILED", error: asError(e) });
 	}
 }

@@ -58,11 +58,11 @@ pub struct AssetRef {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct StructuredScope {
+pub struct Asset {
     pub id: String,
-    pub asset_identifier: String,
+    pub identifier: String,
     pub asset_type: Option<String>,
-    pub eligible_for_submission: bool,
+    pub in_scope: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -107,6 +107,10 @@ pub struct ReportQuery {
     #[serde(default)]
     pub states: Vec<String>,
     #[serde(default)]
+    pub severities: Vec<String>,
+    #[serde(default)]
+    pub asset_ids: Vec<String>,
+    #[serde(default)]
     pub page_cursor: Option<String>,
 }
 
@@ -115,7 +119,7 @@ pub trait HackerOneApi: Send + Sync {
     async fn validate(&self) -> AppResult<()>;
     async fn list_organizations(&self) -> AppResult<Vec<Organization>>;
     async fn list_programs(&self, org_id: &str) -> AppResult<Vec<Program>>;
-    async fn list_structured_scopes(&self, program_id: &str) -> AppResult<Vec<StructuredScope>>;
+    async fn list_assets(&self, org_id: &str) -> AppResult<Vec<Asset>>;
     async fn list_reports(&self, query: ReportQuery) -> AppResult<ReportPage>;
     async fn get_report(&self, report_id: &str) -> AppResult<ReportDetail>;
 }
@@ -204,24 +208,25 @@ impl HackerOneApi for ReqwestClient {
             .collect())
     }
 
-    async fn list_structured_scopes(&self, program_id: &str) -> AppResult<Vec<StructuredScope>> {
+    async fn list_assets(&self, org_id: &str) -> AppResult<Vec<Asset>> {
         let url =
-            format!("{BASE_URL}/programs/{program_id}/structured_scopes?page%5Bsize%5D=100");
+            format!("{BASE_URL}/organizations/{org_id}/assets?page%5Bsize%5D=100");
         let body = self.get_json(&url).await?;
         let data = body.get("data").and_then(|v| v.as_array()).ok_or_else(|| {
-            AppError::Other { message: "Unexpected response shape from /structured_scopes".into() }
+            AppError::Other { message: "Unexpected response shape from /assets".into() }
         })?;
         Ok(data
             .iter()
             .filter_map(|item| {
                 let attrs = item.get("attributes")?;
-                Some(StructuredScope {
+                Some(Asset {
                     id: item.get("id")?.as_str()?.to_string(),
-                    asset_identifier: attrs.get("asset_identifier")?.as_str()?.to_string(),
+                    identifier: attrs.get("identifier")?.as_str()?.to_string(),
                     asset_type: attrs.get("asset_type").and_then(|v| v.as_str()).map(String::from),
-                    eligible_for_submission: attrs
-                        .get("eligible_for_submission")
-                        .and_then(|v| v.as_bool())
+                    in_scope: attrs
+                        .get("coverage")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s == "in_scope")
                         .unwrap_or(false),
                 })
             })
@@ -240,10 +245,19 @@ impl HackerOneApi for ReqwestClient {
                 for state in &query.states {
                     params.push(("filter[state][]".to_string(), state.clone()));
                 }
+                for severity in &query.severities {
+                    params.push(("filter[severity][]".to_string(), severity.clone()));
+                }
+                for asset_id in &query.asset_ids {
+                    params.push(("filter[asset_ids][]".to_string(), asset_id.clone()));
+                }
                 let qs = serde_urlencoded::to_string(&params).map_err(AppError::other)?;
                 format!("{BASE_URL}/reports?{qs}")
             }
         };
+
+        #[cfg(debug_assertions)]
+        println!("[reports] GET {url}");
 
         let body = self.get_json(&url).await?;
         let data = body.get("data").and_then(|v| v.as_array()).ok_or_else(|| {

@@ -1,80 +1,18 @@
-import { useEffect, useRef, useState } from "preact/hooks";
-import { useAppState } from "../state/context";
-import type { AsyncState, StructuredScope } from "../state/store";
+import { useEffect, useRef } from "preact/hooks";
+import { useAppState, useDispatch } from "../state/context";
+import {
+	CLOSED_STATES,
+	OPEN_STATES,
+	SEVERITY_FACETS,
+	type StateFacet,
+} from "../state/filters";
+import type { Asset, AsyncState } from "../state/store";
 import { SeverityMeter } from "./SeverityMeter";
 
-type StateFacet = { key: string; label: string; swatch: string };
-
-const OPEN_STATES: StateFacet[] = [
-	{ key: "new", label: "New", swatch: "state-new" },
-	{ key: "needs-info", label: "Needs more info", swatch: "state-needs-info" },
-	{ key: "triaged", label: "Triaged", swatch: "state-triaged" },
-	{ key: "retesting", label: "Retesting", swatch: "state-retesting" },
-	{ key: "pending", label: "Pending program review", swatch: "state-pending" },
-];
-
-const CLOSED_STATES: StateFacet[] = [
-	{ key: "duplicate", label: "Duplicate", swatch: "state-duplicate" },
-	{ key: "informative", label: "Informative", swatch: "state-informative" },
-	{ key: "na", label: "N/A", swatch: "state-na" },
-	{ key: "resolved", label: "Resolved", swatch: "state-resolved" },
-	{ key: "spam", label: "Spam", swatch: "state-spam" },
-];
-
-type SeverityFacet = { key: string; rating: string | null };
-
-const SEVERITY_FACETS: SeverityFacet[] = [
-	{ key: "critical", rating: "critical" },
-	{ key: "high", rating: "high" },
-	{ key: "medium", rating: "medium" },
-	{ key: "low", rating: "low" },
-	{ key: "none", rating: "none" },
-	{ key: "unrated", rating: null },
-];
-
-function useFacetSelection(allKeys: string[], initialChecked: string[]) {
-	const [checked, setChecked] = useState<Set<string>>(() => new Set(initialChecked));
-	const parentRef = useRef<HTMLInputElement>(null);
-
-	const allChecked = allKeys.length > 0 && allKeys.every((k) => checked.has(k));
-	const someChecked = allKeys.some((k) => checked.has(k));
-
-	useEffect(() => {
-		if (parentRef.current) {
-			parentRef.current.indeterminate = !allChecked && someChecked;
-		}
-	}, [allChecked, someChecked]);
-
-	const toggleAll = () => {
-		setChecked(allChecked ? new Set() : new Set(allKeys));
-	};
-
-	const toggleOne = (key: string) => {
-		setChecked((prev) => {
-			const next = new Set(prev);
-			if (next.has(key)) next.delete(key);
-			else next.add(key);
-			return next;
-		});
-	};
-
-	return { checked, allChecked, parentRef, toggleAll, toggleOne };
-}
-
-// All controls in this sidebar are visual placeholders for v1.
-// Filtering will be wired up in a later pass — see the plan.
 export function Sidebar() {
 	const state = useAppState();
-	const orgPrograms = state.filters.orgId
-		? state.programsByOrg[state.filters.orgId]
-		: undefined;
-	const program =
-		orgPrograms?.status === "ready"
-			? orgPrograms.data.find((p) => p.handle === state.filters.programHandle)
-			: undefined;
-	const scopes: AsyncState<StructuredScope[]> | undefined = program
-		? state.scopesByProgram[program.id]
-		: undefined;
+	const orgId = state.filters.orgId;
+	const assets: AsyncState<Asset[]> | undefined = orgId ? state.assetsByOrg[orgId] : undefined;
 	return (
 		<aside class="side">
 			<div class="side-search">
@@ -83,15 +21,15 @@ export function Sidebar() {
 				</div>
 			</div>
 
-			<AssetSection key={program?.id ?? "none"} state={scopes} />
+			<AssetSection key={orgId ?? "none"} state={assets} />
 
 			<div class="side-section">
 				<div class="side-h">
 					<span>STATE</span>
 				</div>
 
-				<StateFacetGroup heading="Open" facets={OPEN_STATES} initialChecked={["new"]} />
-				<StateFacetGroup heading="Closed" facets={CLOSED_STATES} initialChecked={[]} />
+				<StateFacetGroup heading="Open" facets={OPEN_STATES} />
+				<StateFacetGroup heading="Closed" facets={CLOSED_STATES} />
 			</div>
 
 			<SeveritySection />
@@ -99,20 +37,35 @@ export function Sidebar() {
 	);
 }
 
-function StateFacetGroup({
-	heading,
-	facets,
-	initialChecked,
-}: {
-	heading: string;
-	facets: StateFacet[];
-	initialChecked: string[];
-}) {
-	const keys = facets.map((f) => f.key);
-	const { checked, allChecked, parentRef, toggleAll, toggleOne } = useFacetSelection(
-		keys,
-		initialChecked,
-	);
+function useIndeterminate(allChecked: boolean, someChecked: boolean) {
+	const ref = useRef<HTMLInputElement>(null);
+	useEffect(() => {
+		if (ref.current) ref.current.indeterminate = !allChecked && someChecked;
+	}, [allChecked, someChecked]);
+	return ref;
+}
+
+function StateFacetGroup({ heading, facets }: { heading: string; facets: StateFacet[] }) {
+	const state = useAppState();
+	const dispatch = useDispatch();
+	const checked = new Set(state.filters.states);
+	const groupKeys = facets.map((f) => f.key);
+	const allChecked = groupKeys.every((k) => checked.has(k));
+	const someChecked = groupKeys.some((k) => checked.has(k));
+	const parentRef = useIndeterminate(allChecked, someChecked);
+
+	const toggleAll = () => {
+		const next = allChecked
+			? state.filters.states.filter((k) => !checked.has(k) || !groupKeys.includes(k))
+			: [...new Set([...state.filters.states, ...groupKeys])];
+		dispatch({ type: "STATES_SET", states: next });
+	};
+	const toggleOne = (key: string) => {
+		const next = checked.has(key)
+			? state.filters.states.filter((k) => k !== key)
+			: [...state.filters.states, key];
+		dispatch({ type: "STATES_SET", states: next });
+	};
 
 	return (
 		<div class="cb-group">
@@ -142,8 +95,23 @@ function StateFacetGroup({
 }
 
 function SeveritySection() {
+	const state = useAppState();
+	const dispatch = useDispatch();
+	const checked = new Set(state.filters.severities);
 	const keys = SEVERITY_FACETS.map((f) => f.key);
-	const { checked, allChecked, parentRef, toggleAll, toggleOne } = useFacetSelection(keys, keys);
+	const allChecked = keys.every((k) => checked.has(k));
+	const someChecked = keys.some((k) => checked.has(k));
+	const parentRef = useIndeterminate(allChecked, someChecked);
+
+	const toggleAll = () => {
+		dispatch({ type: "SEVERITIES_SET", severities: allChecked ? [] : keys });
+	};
+	const toggleOne = (key: string) => {
+		const next = checked.has(key)
+			? state.filters.severities.filter((k) => k !== key)
+			: [...state.filters.severities, key];
+		dispatch({ type: "SEVERITIES_SET", severities: next });
+	};
 
 	return (
 		<div class="side-section">
@@ -174,7 +142,7 @@ function SeveritySection() {
 	);
 }
 
-function AssetSection({ state }: { state: AsyncState<StructuredScope[]> | undefined }) {
+function AssetSection({ state }: { state: AsyncState<Asset[]> | undefined }) {
 	if (!state || state.status !== "ready") {
 		return (
 			<div class="side-section">
@@ -193,19 +161,33 @@ function AssetSection({ state }: { state: AsyncState<StructuredScope[]> | undefi
 		);
 	}
 	const visible = state.data
-		.filter((s) => s.eligible_for_submission)
+		.filter((a) => a.in_scope)
 		.slice()
-		.sort((a, b) => assetSortKey(a.asset_identifier).localeCompare(assetSortKey(b.asset_identifier)));
-	return <AssetSectionReady scopes={visible} />;
+		.sort((a, b) => assetSortKey(a.identifier).localeCompare(assetSortKey(b.identifier)));
+	return <AssetSectionReady assets={visible} />;
 }
 
 function assetSortKey(identifier: string): string {
 	return identifier.replace(/^[^\p{L}\p{N}]+/u, "").toLowerCase();
 }
 
-function AssetSectionReady({ scopes }: { scopes: StructuredScope[] }) {
-	const keys = scopes.map((s) => s.id);
-	const { checked, allChecked, parentRef, toggleAll, toggleOne } = useFacetSelection(keys, keys);
+function AssetSectionReady({ assets }: { assets: Asset[] }) {
+	const state = useAppState();
+	const dispatch = useDispatch();
+	const selected = state.filters.assets;
+	const allIds = assets.map((a) => a.id);
+	const checked = new Set<string>(selected);
+	const allChecked = allIds.length > 0 && allIds.every((k) => checked.has(k));
+	const someChecked = allIds.some((k) => checked.has(k));
+	const parentRef = useIndeterminate(allChecked, someChecked);
+
+	const toggleAll = () => {
+		dispatch({ type: "ASSETS_SET", assets: allChecked ? [] : allIds });
+	};
+	const toggleOne = (id: string) => {
+		const next = checked.has(id) ? selected.filter((k) => k !== id) : [...selected, id];
+		dispatch({ type: "ASSETS_SET", assets: next });
+	};
 
 	return (
 		<div class="side-section">
@@ -217,24 +199,24 @@ function AssetSectionReady({ scopes }: { scopes: StructuredScope[] }) {
 						class="cb"
 						checked={allChecked}
 						onChange={toggleAll}
-						disabled={scopes.length === 0}
+						disabled={assets.length === 0}
 					/>
 					ASSET
 				</label>
 			</div>
-			{scopes.length === 0 ? (
+			{assets.length === 0 ? (
 				<div class="facet facet-muted">No assets</div>
 			) : (
-				scopes.map((scope) => (
-					<label key={scope.id} class="facet facet-asset">
+				assets.map((asset) => (
+					<label key={asset.id} class="facet facet-asset">
 						<input
 							type="checkbox"
 							class="cb"
-							checked={checked.has(scope.id)}
-							onChange={() => toggleOne(scope.id)}
+							checked={checked.has(asset.id)}
+							onChange={() => toggleOne(asset.id)}
 						/>
 						<span>
-							{scope.asset_identifier.split(",").map((part, i) => (
+							{asset.identifier.split(",").map((part, i) => (
 								<>
 									{i > 0 && <br />}
 									{part.trim()}

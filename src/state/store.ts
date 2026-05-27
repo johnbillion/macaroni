@@ -1,3 +1,5 @@
+import { DEFAULT_SEVERITY_KEYS, DEFAULT_STATE_KEYS } from "./filters";
+
 export type AppError =
 	| { kind: "unauthorized"; message: string }
 	| { kind: "forbidden"; message: string }
@@ -14,11 +16,11 @@ export type AsyncState<T> =
 
 export type Organization = { id: string; handle: string };
 export type Program = { id: string; handle: string };
-export type StructuredScope = {
+export type Asset = {
 	id: string;
-	asset_identifier: string;
+	identifier: string;
 	asset_type: string | null;
-	eligible_for_submission: boolean;
+	in_scope: boolean;
 };
 export type ReportSummary = {
 	id: string;
@@ -135,13 +137,16 @@ export type AppState = {
 	username: string | null;
 	bootstrap: AsyncState<{ orgs: Organization[] }>;
 	programsByOrg: Record<string, AsyncState<Program[]>>;
-	scopesByProgram: Record<string, AsyncState<StructuredScope[]>>;
+	assetsByOrg: Record<string, AsyncState<Asset[]>>;
 	filters: {
 		orgId?: string;
 		programHandle?: string;
 		states: string[];
+		severities: string[];
+		assets: string[];
 	};
 	reports: AsyncState<{ items: ReportSummary[]; nextCursor?: string }>;
+	reportsRefreshing: boolean;
 	selectedReportId: string | null;
 	detail: Record<string, AsyncState<ReportDetail>>;
 	readReports: Record<string, true>;
@@ -160,12 +165,14 @@ export type Action =
 	| { type: "PROGRAMS_REQUESTED"; orgId: string }
 	| { type: "PROGRAMS_SUCCEEDED"; orgId: string; programs: Program[] }
 	| { type: "PROGRAMS_FAILED"; orgId: string; error: AppError }
-	| { type: "SCOPES_REQUESTED"; programId: string }
-	| { type: "SCOPES_SUCCEEDED"; programId: string; scopes: StructuredScope[] }
-	| { type: "SCOPES_FAILED"; programId: string; error: AppError }
+	| { type: "ASSETS_REQUESTED"; orgId: string }
+	| { type: "ASSETS_SUCCEEDED"; orgId: string; assets: Asset[] }
+	| { type: "ASSETS_FAILED"; orgId: string; error: AppError }
 	| { type: "ORG_SELECTED"; orgId: string }
 	| { type: "PROGRAM_SELECTED"; handle: string }
 	| { type: "STATES_SET"; states: string[] }
+	| { type: "SEVERITIES_SET"; severities: string[] }
+	| { type: "ASSETS_SET"; assets: string[] }
 	| { type: "REPORTS_REQUESTED" }
 	| { type: "REPORTS_SUCCEEDED"; items: ReportSummary[]; nextCursor?: string }
 	| { type: "REPORTS_FAILED"; error: AppError }
@@ -208,9 +215,14 @@ export const initialState: AppState = {
 	username: null,
 	bootstrap: { status: "idle" },
 	programsByOrg: {},
-	scopesByProgram: {},
-	filters: { states: [] },
+	assetsByOrg: {},
+	filters: {
+		states: [...DEFAULT_STATE_KEYS],
+		severities: [...DEFAULT_SEVERITY_KEYS],
+		assets: [],
+	},
 	reports: { status: "idle" },
+	reportsRefreshing: false,
 	selectedReportId: null,
 	detail: {},
 	readReports: {},
@@ -278,28 +290,28 @@ export function reducer(state: AppState, action: Action): AppState {
 					[action.orgId]: { status: "error", error: action.error },
 				},
 			};
-		case "SCOPES_REQUESTED":
+		case "ASSETS_REQUESTED":
 			return {
 				...state,
-				scopesByProgram: {
-					...state.scopesByProgram,
-					[action.programId]: { status: "loading" },
+				assetsByOrg: {
+					...state.assetsByOrg,
+					[action.orgId]: { status: "loading" },
 				},
 			};
-		case "SCOPES_SUCCEEDED":
+		case "ASSETS_SUCCEEDED":
 			return {
 				...state,
-				scopesByProgram: {
-					...state.scopesByProgram,
-					[action.programId]: { status: "ready", data: action.scopes },
+				assetsByOrg: {
+					...state.assetsByOrg,
+					[action.orgId]: { status: "ready", data: action.assets },
 				},
 			};
-		case "SCOPES_FAILED":
+		case "ASSETS_FAILED":
 			return {
 				...state,
-				scopesByProgram: {
-					...state.scopesByProgram,
-					[action.programId]: { status: "error", error: action.error },
+				assetsByOrg: {
+					...state.assetsByOrg,
+					[action.orgId]: { status: "error", error: action.error },
 				},
 			};
 		case "ORG_SELECTED":
@@ -309,6 +321,8 @@ export function reducer(state: AppState, action: Action): AppState {
 					orgId: action.orgId,
 					programHandle: undefined,
 					states: state.filters.states,
+					severities: state.filters.severities,
+					assets: [],
 				},
 				reports: { status: "idle" },
 				selectedReportId: null,
@@ -325,18 +339,42 @@ export function reducer(state: AppState, action: Action): AppState {
 				...state,
 				filters: { ...state.filters, states: action.states },
 			};
-		case "REPORTS_REQUESTED":
-			return { ...state, reports: { status: "loading" } };
-		case "REPORTS_SUCCEEDED":
+		case "SEVERITIES_SET":
 			return {
 				...state,
+				filters: { ...state.filters, severities: action.severities },
+			};
+		case "ASSETS_SET":
+			return {
+				...state,
+				filters: { ...state.filters, assets: action.assets },
+			};
+		case "REPORTS_REQUESTED":
+			return {
+				...state,
+				reportsRefreshing: true,
+				reports: state.reports.status === "ready" ? state.reports : { status: "loading" },
+			};
+		case "REPORTS_SUCCEEDED": {
+			const stillPresent =
+				state.selectedReportId !== null &&
+				action.items.some((r) => r.id === state.selectedReportId);
+			return {
+				...state,
+				reportsRefreshing: false,
+				selectedReportId: stillPresent ? state.selectedReportId : null,
 				reports: {
 					status: "ready",
 					data: { items: action.items, nextCursor: action.nextCursor },
 				},
 			};
+		}
 		case "REPORTS_FAILED":
-			return { ...state, reports: { status: "error", error: action.error } };
+			return {
+				...state,
+				reportsRefreshing: false,
+				reports: { status: "error", error: action.error },
+			};
 		case "REPORT_SELECTED":
 			return { ...state, selectedReportId: action.reportId };
 		case "DETAIL_REQUESTED":

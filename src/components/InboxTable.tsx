@@ -1,19 +1,11 @@
-import { useEffect } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
-import { loadReportDetail, loadReports, markReportRead } from "../state/effects";
+import { loadReportDetail, markReportRead } from "../state/effects";
 import { pillFor } from "../utils/pill";
 import { formatRelativeTime } from "../utils/time";
 
 export function InboxTable() {
 	const state = useAppState();
 	const dispatch = useDispatch();
-	const program = state.filters.programHandle;
-
-	useEffect(() => {
-		if (program && state.reports.status === "idle") {
-			loadReports(dispatch, program, []);
-		}
-	}, [program, state.reports.status, dispatch]);
 
 	const onSelect = (id: string) => {
 		dispatch({ type: "REPORT_SELECTED", reportId: id });
@@ -97,5 +89,15 @@ export function InboxTable() {
 		);
 	})();
 
-	return <main class="inbox">{body}</main>;
+	return (
+		<main class="inbox">
+			<div
+				class={`loading-bar${state.reportsRefreshing ? " active" : ""}`}
+				role="progressbar"
+				aria-label="Refreshing reports"
+				aria-hidden={!state.reportsRefreshing}
+			/>
+			{body}
+		</main>
+	);
 }

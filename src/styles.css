@@ -503,6 +503,7 @@ html.dark .theme-toggle {
 .inbox {
 	overflow-y: auto;
 	background: var(--bg);
+	position: relative;
 }
 .inbox-table {
 	width: 100%;
@@ -1268,6 +1269,36 @@ html.dark .msg.internal .msg-bubble {
 .settings-card button[disabled] {
 	opacity: 0.5;
 	cursor: not-allowed;
+}
+
+.loading-bar {
+	position: sticky;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: 2px;
+	pointer-events: none;
+	z-index: 3;
+	overflow: hidden;
+	opacity: 0;
+}
+.loading-bar.active {
+	opacity: 1;
+	background: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.loading-bar.active::before {
+	content: "";
+	position: absolute;
+	top: 0;
+	left: 0;
+	height: 100%;
+	width: 33%;
+	background: var(--accent);
+	animation: loading-bar-slide 1.2s linear infinite;
+}
+@keyframes loading-bar-slide {
+	from { transform: translateX(-100%); }
+	to { transform: translateX(400%); }
 }
 
 .placeholder {
