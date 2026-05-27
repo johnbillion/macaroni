@@ -2,6 +2,7 @@ import { useAppState, useDispatch } from "../state/context";
 import { loadReportDetail, markReportRead } from "../state/effects";
 import { pillFor } from "../utils/pill";
 import { formatRelativeTime } from "../utils/time";
+import { AssetIdentifier } from "./AssetIdentifier";
 
 export function InboxTable() {
 	const state = useAppState();
@@ -74,7 +75,13 @@ export function InboxTable() {
 								<td>
 									<span class={`pill ${pill.className}`}>{pill.label}</span>
 								</td>
-								<td class="asset">{r.asset?.asset_identifier ?? ""}</td>
+								<td class="asset">
+									{r.asset?.asset_identifier ? (
+										<AssetIdentifier identifier={r.asset.asset_identifier} />
+									) : (
+										""
+									)}
+								</td>
 								<td class="title">{r.title}</td>
 							</tr>
 						);

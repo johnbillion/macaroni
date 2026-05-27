@@ -7,6 +7,7 @@ import {
 	type StateFacet,
 } from "../state/filters";
 import type { Asset, AsyncState } from "../state/store";
+import { AssetIdentifier } from "./AssetIdentifier";
 import { SeverityMeter } from "./SeverityMeter";
 
 export function Sidebar() {
@@ -216,12 +217,7 @@ function AssetSectionReady({ assets }: { assets: Asset[] }) {
 							onChange={() => toggleOne(asset.id)}
 						/>
 						<span>
-							{asset.identifier.split(",").map((part, i) => (
-								<>
-									{i > 0 && <br />}
-									{part.trim()}
-								</>
-							))}
+							<AssetIdentifier identifier={asset.identifier} />
 						</span>
 					</label>
 				))

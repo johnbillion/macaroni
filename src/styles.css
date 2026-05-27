@@ -252,8 +252,7 @@ html.dark .theme-toggle {
 	min-width: 0;
 }
 .app > .side {
-	flex: 0 0 220px;
-	width: 220px;
+	flex: 0 0 250px;
 }
 .app-main {
 	flex: 1 1 0;
@@ -399,7 +398,6 @@ html.dark .theme-toggle {
 .facet-asset > span {
 	overflow-wrap: anywhere;
 	min-width: 0;
-	text-wrap: pretty;
 }
 .facet .swatch {
 	width: 8px;

@@ -5,6 +5,7 @@ import type { Activity } from "../state/store";
 import { pillFor } from "../utils/pill";
 import { formatClock, formatRelativeTime } from "../utils/time";
 import { renderActivity } from "./activity/renderActivity";
+import { AssetIdentifier } from "./AssetIdentifier";
 import { Markdown } from "./Markdown";
 import { SeverityMeter } from "./SeverityMeter";
 
@@ -116,7 +117,7 @@ export function DetailPanel() {
 					<dt>Asset</dt>
 					<dd>
 						{r.asset?.asset_identifier ? (
-							<>{r.asset.asset_identifier}</>
+							<AssetIdentifier identifier={r.asset.asset_identifier} />
 						) : (
 							<span class="kv-missing">None</span>
 						)}
