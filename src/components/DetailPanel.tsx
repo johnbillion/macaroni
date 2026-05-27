@@ -87,6 +87,11 @@ export function DetailPanel() {
 		? r.activities.slice(1)
 		: r.activities;
 
+	const handle = state.filters.programHandle ?? null;
+	const members = handle ? state.teamMembersByProgram[handle] : undefined;
+	const teamMemberIds: Set<string> =
+		members?.status === "ready" ? new Set(members.data.map((m) => m.id)) : new Set();
+
 	return (
 		<aside class="detail">
 			<div class="detail-head">
@@ -167,7 +172,7 @@ export function DetailPanel() {
 					<div class="placeholder">No activity yet.</div>
 				) : (
 					<div class="thread">
-						{activities.map((a) => renderActivity(a, r.reporter.id))}
+						{activities.map((a) => renderActivity(a, r.reporter.id, teamMemberIds, handle))}
 						<div class="thread-end">— END —</div>
 					</div>
 				)}

@@ -83,6 +83,12 @@ pub struct Asset {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct TeamMember {
+    pub id: String,
+    pub username: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct Attachment {
     pub id: String,
     pub file_name: String,
@@ -160,6 +166,7 @@ pub trait HackerOneApi: Send + Sync {
     async fn list_organizations(&self) -> AppResult<Vec<Organization>>;
     async fn list_programs(&self, org_id: &str) -> AppResult<Vec<Program>>;
     async fn list_assets(&self, org_id: &str) -> AppResult<Vec<Asset>>;
+    async fn list_program_members(&self, program_id: &str) -> AppResult<Vec<TeamMember>>;
     async fn list_reports(&self, query: ReportQuery) -> AppResult<ReportPage>;
     async fn get_report(&self, report_id: &str) -> AppResult<ReportDetail>;
 }
@@ -273,6 +280,36 @@ impl HackerOneApi for ReqwestClient {
                 })
             })
             .collect())
+    }
+
+    async fn list_program_members(&self, program_id: &str) -> AppResult<Vec<TeamMember>> {
+        let mut url = format!("{BASE_URL}/programs/{program_id}/members?page%5Bsize%5D=100");
+        let mut members: Vec<TeamMember> = Vec::new();
+        loop {
+            let body = self.get_json(&url).await?;
+            let data = body.get("data").and_then(|v| v.as_array()).ok_or_else(|| {
+                AppError::Other {
+                    message: "Unexpected response shape from /programs/.../members".into(),
+                }
+            })?;
+            for item in data {
+                let Some(attrs) = item.get("attributes") else { continue };
+                let Some(user_id) = attrs.get("user_id").and_then(|v| {
+                    v.as_str().map(String::from).or_else(|| v.as_u64().map(|n| n.to_string()))
+                }) else {
+                    continue;
+                };
+                let Some(username) = attrs.get("username").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                members.push(TeamMember { id: user_id, username: username.to_string() });
+            }
+            match body.get("links").and_then(|l| l.get("next")).and_then(|n| n.as_str()) {
+                Some(next) => url = next.to_string(),
+                None => break,
+            }
+        }
+        Ok(members)
     }
 
     async fn list_reports(&self, query: ReportQuery) -> AppResult<ReportPage> {

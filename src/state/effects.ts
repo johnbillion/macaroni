@@ -75,6 +75,20 @@ export async function loadAssets(dispatch: Dispatch, orgId: string) {
 	}
 }
 
+export async function loadTeamMembers(
+	dispatch: Dispatch,
+	programHandle: string,
+	programId: string,
+) {
+	dispatch({ type: "TEAM_MEMBERS_REQUESTED", programHandle });
+	try {
+		const members = await api.listProgramMembers(programId);
+		dispatch({ type: "TEAM_MEMBERS_SUCCEEDED", programHandle, members });
+	} catch (e) {
+		dispatch({ type: "TEAM_MEMBERS_FAILED", programHandle, error: asError(e) });
+	}
+}
+
 export async function loadReportDetail(dispatch: Dispatch, reportId: string) {
 	dispatch({ type: "DETAIL_REQUESTED", reportId });
 	try {

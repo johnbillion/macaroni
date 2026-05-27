@@ -40,6 +40,7 @@ pub fn run() {
             commands::list_organizations,
             commands::list_programs,
             commands::list_assets,
+            commands::list_program_members,
             commands::list_reports,
             commands::get_report,
             commands::save_attachment,

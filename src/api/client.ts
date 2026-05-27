@@ -6,6 +6,7 @@ import type {
 	Program,
 	ReportDetail,
 	ReportSummary,
+	TeamMember,
 } from "../state/store";
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -25,6 +26,8 @@ export const api = {
 	listOrganizations: () => call<Organization[]>("list_organizations"),
 	listPrograms: (orgId: string) => call<Program[]>("list_programs", { orgId }),
 	listAssets: (orgId: string) => call<Asset[]>("list_assets", { orgId }),
+	listProgramMembers: (programId: string) =>
+		call<TeamMember[]>("list_program_members", { programId }),
 	listReports: (query: {
 		program_handle: string;
 		states: string[];

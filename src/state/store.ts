@@ -16,6 +16,7 @@ export type AsyncState<T> =
 
 export type Organization = { id: string; handle: string };
 export type Program = { id: string; handle: string };
+export type TeamMember = { id: string; username: string };
 export type Asset = {
 	id: string;
 	identifier: string;
@@ -164,6 +165,7 @@ export type AppState = {
 	bootstrap: AsyncState<{ orgs: Organization[] }>;
 	programsByOrg: Record<string, AsyncState<Program[]>>;
 	assetsByOrg: Record<string, AsyncState<Asset[]>>;
+	teamMembersByProgram: Record<string, AsyncState<TeamMember[]>>;
 	filters: {
 		orgId?: string;
 		programHandle?: string;
@@ -200,6 +202,9 @@ export type Action =
 	| { type: "ASSETS_REQUESTED"; orgId: string }
 	| { type: "ASSETS_SUCCEEDED"; orgId: string; assets: Asset[] }
 	| { type: "ASSETS_FAILED"; orgId: string; error: AppError }
+	| { type: "TEAM_MEMBERS_REQUESTED"; programHandle: string }
+	| { type: "TEAM_MEMBERS_SUCCEEDED"; programHandle: string; members: TeamMember[] }
+	| { type: "TEAM_MEMBERS_FAILED"; programHandle: string; error: AppError }
 	| { type: "ORG_SELECTED"; orgId: string }
 	| { type: "PROGRAM_SELECTED"; handle: string }
 	| { type: "STATES_SET"; states: string[] }
@@ -249,6 +254,7 @@ export const initialState: AppState = {
 	bootstrap: { status: "idle" },
 	programsByOrg: {},
 	assetsByOrg: {},
+	teamMembersByProgram: {},
 	filters: {
 		states: [...DEFAULT_STATE_KEYS],
 		severities: [...DEFAULT_SEVERITY_KEYS],
@@ -347,6 +353,30 @@ export function reducer(state: AppState, action: Action): AppState {
 				assetsByOrg: {
 					...state.assetsByOrg,
 					[action.orgId]: { status: "error", error: action.error },
+				},
+			};
+		case "TEAM_MEMBERS_REQUESTED":
+			return {
+				...state,
+				teamMembersByProgram: {
+					...state.teamMembersByProgram,
+					[action.programHandle]: { status: "loading" },
+				},
+			};
+		case "TEAM_MEMBERS_SUCCEEDED":
+			return {
+				...state,
+				teamMembersByProgram: {
+					...state.teamMembersByProgram,
+					[action.programHandle]: { status: "ready", data: action.members },
+				},
+			};
+		case "TEAM_MEMBERS_FAILED":
+			return {
+				...state,
+				teamMembersByProgram: {
+					...state.teamMembersByProgram,
+					[action.programHandle]: { status: "error", error: action.error },
 				},
 			};
 		case "ORG_SELECTED":

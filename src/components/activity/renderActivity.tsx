@@ -93,21 +93,42 @@ function bugStateFromKind(kind: string): string | null {
  * Decide whether an activity should be rendered on the program/team side
  * (right-aligned, "out") or the reporter side (left-aligned, "in").
  *
- * Heuristic — refine here as we learn more about edge cases:
- *   - Internal comments are always program-side (the reporter never sees them).
- *   - Anyone who isn't the original reporter is program-side.
+ *   - Internal activities are always program-side (the reporter never sees them).
+ *   - Activities with no actor (system events) default to reporter-side.
+ *   - The reporter is always on the reporter side, even if they are also program staff
+ *     (e.g. a team member who filed a report against their own program) — otherwise the
+ *     two sides of the conversation would collapse.
+ *   - Otherwise the actor's program-team membership decides it: program staff are
+ *     program-side, everyone else (external participants, hackbot, etc.) is reporter-side.
  */
-export function isProgramSide(activity: Activity, reporterId: string): boolean {
+export function isProgramSide(
+	activity: Activity,
+	reporterId: string,
+	teamMemberIds: Set<string>,
+): boolean {
 	if (activity.internal) return true;
-	return activity.actor?.id !== reporterId;
+	const actorId = activity.actor?.id;
+	if (!actorId) return false;
+	if (actorId === reporterId) return false;
+	return teamMemberIds.has(actorId);
 }
 
-export function renderActivity(activity: Activity, reporterId: string) {
+export function renderActivity(
+	activity: Activity,
+	reporterId: string,
+	teamMemberIds: Set<string>,
+	programHandle: string | null,
+) {
 	const isComment = activity.type === "comment";
 	const message = isComment ? activity.message : (activity.message ?? "");
 	const hasMessage = message.trim().length > 0;
 	const messageAttachments = activity.type === "comment" ? activity.attachments : undefined;
 	const newState = !isComment ? bugStateFromKind(activity.kind) : null;
+	const isStaff = !!activity.actor && teamMemberIds.has(activity.actor.id);
+	const staffFlag =
+		isStaff && programHandle ? (
+			<span class="msg-staff-flag">{programHandle.toUpperCase()} STAFF</span>
+		) : null;
 
 	// Non-state-change events with no message body collapse to a one-line tick.
 	if (activity.type === "event" && !newState && !hasMessage) {
@@ -118,29 +139,37 @@ export function renderActivity(activity: Activity, reporterId: string) {
 		return (
 			<div key={activity.id} class={tickClasses}>
 				<span class="event-tick-text">
-					{activity.internal && <span class="msg-internal-flag">INTERNAL</span>}
-					{activity.actor && <Avatar user={activity.actor} />}
-					{activity.actor && <b>{activity.actor.username}</b>}
-					{activity.actor && " "}
+					{activity.actor && (
+						<>
+							<Avatar user={activity.actor} />
+							<b>{activity.actor.username}</b>
+							{staffFlag}{" "}
+						</>
+					)}
 					{description ?? <b>{humanizeKind(activity.kind)}</b>}
 				</span>
-				<span class="event-time">{formatRelativeTime(activity.created_at)}</span>
+				<span class="event-time">
+					{activity.internal && (
+						<span class="icon-padlock" title="Internal" aria-label="Internal" />
+					)}
+					{formatRelativeTime(activity.created_at)}
+				</span>
 			</div>
 		);
 	}
 
 	const author = activity.actor?.username ?? "system";
 	const isReporter = activity.actor?.id === reporterId;
-	const side = isProgramSide(activity, reporterId) ? "out" : "in";
+	const side = isProgramSide(activity, reporterId, teamMemberIds) ? "out" : "in";
 	const classes = ["msg", side, activity.internal ? "internal" : ""].filter(Boolean).join(" ");
 	const pill = newState ? pillFor(newState) : null;
 
 	return (
 		<div key={activity.id} class={classes}>
 			<div class="msg-meta">
-				{activity.internal && <span class="msg-internal-flag">INTERNAL</span>}
 				<Avatar user={activity.actor} />
 				<span class="msg-author">{author}</span>
+				{staffFlag}
 				{isReporter && <span class="msg-reporter-flag">REPORTER</span>}
 				{pill ? (
 					<>
@@ -150,7 +179,12 @@ export function renderActivity(activity: Activity, reporterId: string) {
 				) : !isComment ? (
 					<span class="msg-event-kind">{humanizeKind(activity.kind)}</span>
 				) : null}
-				<span class="msg-time">{formatRelativeTime(activity.created_at)}</span>
+				<span class="msg-time">
+					{activity.internal && (
+						<span class="icon-padlock" title="Internal" aria-label="Internal" />
+					)}
+					{formatRelativeTime(activity.created_at)}
+				</span>
 			</div>
 			{hasMessage && (
 				<Markdown source={message} attachments={messageAttachments} class="msg-bubble" />

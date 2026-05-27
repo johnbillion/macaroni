@@ -6,6 +6,7 @@ import {
 	loadAssets,
 	loadPrograms,
 	loadReports,
+	loadTeamMembers,
 } from "../state/effects";
 import { CredentialsGate } from "./CredentialsGate";
 import { DetailPanel } from "./DetailPanel";
@@ -37,6 +38,27 @@ export function App() {
 		if (state.assetsByOrg[orgId]) return;
 		loadAssets(dispatch, orgId);
 	}, [state.filters.orgId, state.assetsByOrg, dispatch]);
+
+	// Team members are per program and only change when the program changes. We need both the
+	// selected handle and the loaded programs list to resolve handle → program id (the API
+	// call is keyed on id, but the rest of the app addresses programs by handle).
+	useEffect(() => {
+		const orgId = state.filters.orgId;
+		const handle = state.filters.programHandle;
+		if (!orgId || !handle) return;
+		if (state.teamMembersByProgram[handle]) return;
+		const programs = state.programsByOrg[orgId];
+		if (programs?.status !== "ready") return;
+		const program = programs.data.find((p) => p.handle === handle);
+		if (!program) return;
+		loadTeamMembers(dispatch, handle, program.id);
+	}, [
+		state.filters.orgId,
+		state.filters.programHandle,
+		state.programsByOrg,
+		state.teamMembersByProgram,
+		dispatch,
+	]);
 
 	const orgId = state.filters.orgId;
 	const handle = state.filters.programHandle;

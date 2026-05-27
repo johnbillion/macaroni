@@ -1122,6 +1122,9 @@ a[target="_blank"]::after {
 	color: var(--text-3);
 }
 .msg-time {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
 	font-variant-numeric: tabular-nums;
 	margin-left: auto;
 }
@@ -1140,33 +1143,26 @@ a[target="_blank"]::after {
 	background: var(--bg-1);
 }
 
-/* Internal comments — sepia inverted stamp */
+/* Internal comments — light red tint, padlock icon in the meta row */
 .msg.internal .msg-bubble {
-	background: color-mix(in srgb, var(--text-3) 85%, var(--bg));
-	border-color: var(--text-3);
-	color: var(--bg);
+	background: color-mix(in srgb, var(--crit) 10%, var(--bg));
+	border-color: color-mix(in srgb, var(--crit) 30%, var(--bg));
+	color: var(--text);
 }
-html.dark .msg.internal .msg-bubble {
-	background: var(--text-2);
-	border-color: var(--text);
-	color: var(--bg);
-}
-.msg-internal-flag {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	padding: 1px 6px;
-	background: var(--med);
-	color: var(--bg);
-	border-radius: 2px;
-	font-size: 9px;
-	letter-spacing: 0.14em;
-	font-weight: 700;
-}
-.msg-internal-flag::before {
-	content: "■";
-	font-size: 8px;
-	line-height: 1;
+
+.icon-padlock {
+	display: inline-block;
+	width: 12px;
+	height: 12px;
+	background-color: currentColor;
+	-webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 7V5a4 4 0 0 1 8 0v2h-1.5V5a2.5 2.5 0 0 0-5 0v2H4z'/><rect x='3' y='7' width='10' height='7' rx='1'/></svg>");
+	mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 7V5a4 4 0 0 1 8 0v2h-1.5V5a2.5 2.5 0 0 0-5 0v2H4z'/><rect x='3' y='7' width='10' height='7' rx='1'/></svg>");
+	-webkit-mask-repeat: no-repeat;
+	mask-repeat: no-repeat;
+	-webkit-mask-size: contain;
+	mask-size: contain;
+	opacity: 0.75;
+	flex-shrink: 0;
 }
 
 .msg-reporter-flag {
@@ -1175,6 +1171,18 @@ html.dark .msg.internal .msg-bubble {
 	padding: 1px 6px;
 	border: 1px solid var(--accent);
 	color: var(--accent);
+	border-radius: 2px;
+	font-size: 9px;
+	letter-spacing: 0.14em;
+	font-weight: 700;
+}
+
+.msg-staff-flag {
+	display: inline-flex;
+	align-items: center;
+	padding: 1px 6px;
+	background: var(--bg-2);
+	color: var(--text-2);
 	border-radius: 2px;
 	font-size: 9px;
 	letter-spacing: 0.14em;
@@ -1227,6 +1235,9 @@ html.dark .msg.internal .msg-bubble {
 	font-weight: 500;
 }
 .event-tick .event-time {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
 	margin-left: auto;
 	font-variant-numeric: tabular-nums;
 }
@@ -1237,7 +1248,19 @@ html.dark .msg.internal .msg-bubble {
 	flex-wrap: wrap;
 }
 .event-tick.internal {
+	position: relative;
+	isolation: isolate;
 	color: var(--text-2);
+}
+.event-tick.internal::after {
+	content: "";
+	position: absolute;
+	inset: -2px -8px;
+	background: color-mix(in srgb, var(--crit) 5%, var(--bg));
+	border: 1px solid color-mix(in srgb, var(--crit) 20%, var(--bg));
+	border-radius: 3px;
+	z-index: -1;
+	pointer-events: none;
 }
 
 /* Credentials gate */
@@ -1503,36 +1526,3 @@ html.dark .msg.internal .msg-bubble {
 	white-space: normal;
 }
 
-/* Markdown inside an internal (inverted) bubble — adapt borders, code blocks, links. */
-.msg.internal .msg-bubble.markdown a {
-	color: inherit;
-	text-decoration: underline;
-	text-underline-offset: 2px;
-}
-.msg.internal .msg-bubble.markdown code,
-.msg.internal .msg-bubble.markdown pre {
-	background: color-mix(in srgb, currentColor 10%, transparent);
-	border-color: color-mix(in srgb, currentColor 30%, transparent);
-	color: inherit;
-}
-.msg.internal .msg-bubble.markdown pre .code-copy {
-	background: color-mix(in srgb, currentColor 15%, transparent);
-	border-color: color-mix(in srgb, currentColor 35%, transparent);
-	color: inherit;
-}
-.msg.internal .msg-bubble.markdown pre .code-copy:hover {
-	background: color-mix(in srgb, currentColor 25%, transparent);
-	border-color: currentColor;
-	color: inherit;
-}
-.msg.internal .msg-bubble.markdown blockquote {
-	border-left-color: color-mix(in srgb, currentColor 50%, transparent);
-	color: color-mix(in srgb, currentColor 85%, transparent);
-}
-.msg.internal .msg-bubble.markdown th,
-.msg.internal .msg-bubble.markdown td {
-	border-color: color-mix(in srgb, currentColor 30%, transparent);
-}
-.msg.internal .msg-bubble.markdown hr {
-	border-top-color: color-mix(in srgb, currentColor 30%, transparent);
-}

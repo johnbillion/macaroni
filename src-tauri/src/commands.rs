@@ -1,7 +1,7 @@
 use crate::credentials::{CredentialStore, Credentials};
 use crate::error::{AppError, AppResult};
 use crate::hackerone::{
-    Asset, HackerOneApi, Organization, Program, ReportDetail, ReportPage, ReportQuery,
+    Asset, HackerOneApi, Organization, Program, ReportDetail, ReportPage, ReportQuery, TeamMember,
 };
 use crate::local_db::ReportStore;
 use std::sync::Arc;
@@ -72,6 +72,14 @@ pub async fn list_assets(
     org_id: String,
 ) -> AppResult<Vec<Asset>> {
     ctx.api.list_assets(&org_id).await
+}
+
+#[tauri::command]
+pub async fn list_program_members(
+    ctx: State<'_, AppContext>,
+    program_id: String,
+) -> AppResult<Vec<TeamMember>> {
+    ctx.api.list_program_members(&program_id).await
 }
 
 #[tauri::command]
