@@ -1,3 +1,4 @@
+import { pillFor } from "../utils/pill";
 import { DEFAULT_SEVERITY_KEYS, DEFAULT_STATE_KEYS } from "./filters";
 
 export type AppError =

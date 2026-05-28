@@ -209,14 +209,16 @@ function ReportTab() {
 				<div class="dh-meta">
 					<span>#{r.id}</span>
 					<span>
-						SUBMITTED {submittedClock} · {submittedRelative}
+						SUBMITTED {submittedClock}
+						{r.submitted_at ? (
+							<>
+								{" · "}
+								<RelativeTime iso={r.submitted_at} />
+							</>
+						) : null}
 					</span>
 					<span class={`pill ${pill.className}`}>{pill.label}</span>
-					<CopyButton
-						text={r.id}
-						label="COPY ID"
-						class="dh-action dh-action-first"
-					/>
+					<CopyButton text={r.id} label="COPY ID" class="dh-action dh-action-first" />
 					<button
 						type="button"
 						class="dh-action"
