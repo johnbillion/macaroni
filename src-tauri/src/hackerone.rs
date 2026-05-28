@@ -157,6 +157,8 @@ pub struct ReportQuery {
     #[serde(default)]
     pub asset_ids: Vec<String>,
     #[serde(default)]
+    pub keyword: Option<String>,
+    #[serde(default)]
     pub page_cursor: Option<String>,
 }
 
@@ -329,6 +331,9 @@ impl HackerOneApi for ReqwestClient {
                 }
                 for asset_id in &query.asset_ids {
                     params.push(("filter[asset_ids][]".to_string(), asset_id.clone()));
+                }
+                if let Some(keyword) = query.keyword.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                    params.push(("filter[keyword]".to_string(), keyword.to_string()));
                 }
                 let qs = serde_urlencoded::to_string(&params).map_err(AppError::other)?;
                 format!("{BASE_URL}/reports?{qs}")

@@ -134,6 +134,7 @@ export type ReportsQuery = {
 	states: string[];
 	severities: string[];
 	assetIds: string[];
+	keyword: string;
 };
 
 // Monotonic counter so a later loadReports call can invalidate any in-flight earlier one.
@@ -141,11 +142,55 @@ export type ReportsQuery = {
 // dropped before dispatch, which is the same observable behaviour as cancellation.
 let reportsRequestId = 0;
 
+// Module-scoped so any caller (filter checkboxes, search box, etc.) can cancel a pending
+// debounced load — e.g. the search input's onSubmit fires immediately and needs to stop
+// the trailing debounce from re-firing the same query.
+let pendingDebounceTimer: number | null = null;
+
+// Key of the last query handed to loadReports. Used to short-circuit no-op requests when
+// the user lands back on the same filter set (e.g. type-then-backspace, toggle-all twice,
+// HMR replay). Cleared on failure so a retry of the same query still goes out.
+let lastIssuedQueryKey: string | null = null;
+
+function reportsQueryKey(query: ReportsQuery, pageCursor: string | undefined): string {
+	return JSON.stringify({
+		h: query.programHandle,
+		s: [...query.states].sort(),
+		v: [...query.severities].sort(),
+		a: [...query.assetIds].sort(),
+		k: query.keyword,
+		c: pageCursor ?? null,
+	});
+}
+
+export function debounceLoadReports(
+	dispatch: Dispatch,
+	query: ReportsQuery,
+	delayMs = 1000,
+): () => void {
+	cancelPendingReportsLoad();
+	pendingDebounceTimer = window.setTimeout(() => {
+		pendingDebounceTimer = null;
+		loadReports(dispatch, query);
+	}, delayMs);
+	return cancelPendingReportsLoad;
+}
+
+export function cancelPendingReportsLoad() {
+	if (pendingDebounceTimer !== null) {
+		window.clearTimeout(pendingDebounceTimer);
+		pendingDebounceTimer = null;
+	}
+}
+
 export async function loadReports(
 	dispatch: Dispatch,
 	query: ReportsQuery,
 	pageCursor?: string,
 ) {
+	const key = reportsQueryKey(query, pageCursor);
+	if (key === lastIssuedQueryKey) return;
+	lastIssuedQueryKey = key;
 	const myId = ++reportsRequestId;
 	const append = pageCursor !== undefined;
 	dispatch({ type: "REPORTS_REQUESTED", append });
@@ -155,6 +200,7 @@ export async function loadReports(
 			states: query.states,
 			severities: query.severities,
 			asset_ids: query.assetIds,
+			keyword: query.keyword || undefined,
 			page_cursor: pageCursor,
 		});
 		if (myId !== reportsRequestId) return;
@@ -171,6 +217,7 @@ export async function loadReports(
 			append,
 		});
 	} catch (e) {
+		if (lastIssuedQueryKey === key) lastIssuedQueryKey = null;
 		if (myId !== reportsRequestId) return;
 		dispatch({ type: "REPORTS_FAILED", error: asError(e), append });
 	}
@@ -200,7 +247,13 @@ export function buildReportsQuery(state: AppState): ReportsQuery | null {
 			? []
 			: state.filters.assets;
 
-	return { programHandle: handle, states, severities, assetIds };
+	return {
+		programHandle: handle,
+		states,
+		severities,
+		assetIds,
+		keyword: state.filters.search.trim(),
+	};
 }
 
 export async function loadMoreReports(dispatch: Dispatch, state: AppState) {

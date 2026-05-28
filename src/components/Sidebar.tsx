@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
+import { buildReportsQuery, cancelPendingReportsLoad, loadReports } from "../state/effects";
 import {
 	CLOSED_STATES,
 	OPEN_STATES,
@@ -12,15 +13,36 @@ import { SeverityMeter } from "./SeverityMeter";
 
 export function Sidebar() {
 	const state = useAppState();
+	const dispatch = useDispatch();
 	const orgId = state.filters.orgId;
 	const assets: AsyncState<Asset[]> | undefined = orgId ? state.assetsByOrg[orgId] : undefined;
 	return (
 		<aside class="side">
-			<div class="side-search">
+			<form
+				class="side-search"
+				onSubmit={(e) => {
+					e.preventDefault();
+					const query = buildReportsQuery(state);
+					if (!query) return;
+					cancelPendingReportsLoad();
+					loadReports(dispatch, query);
+				}}
+			>
 				<div class="search-box">
-					<input type="search" placeholder="search" />
+					<input
+						type="search"
+						placeholder="search"
+						value={state.filters.search}
+						autoComplete="off"
+						autoCorrect="off"
+						autoCapitalize="off"
+						spellcheck={false}
+						onInput={(e) =>
+							dispatch({ type: "SEARCH_SET", search: e.currentTarget.value })
+						}
+					/>
 				</div>
-			</div>
+			</form>
 
 			<AssetSection key={orgId ?? "none"} state={assets} />
 

@@ -172,6 +172,7 @@ export type AppState = {
 		states: string[];
 		severities: string[];
 		assets: string[];
+		search: string;
 	};
 	reports: AsyncState<{ items: ReportSummary[]; nextCursor?: string }>;
 	reportsRefreshing: boolean;
@@ -210,6 +211,7 @@ export type Action =
 	| { type: "STATES_SET"; states: string[] }
 	| { type: "SEVERITIES_SET"; severities: string[] }
 	| { type: "ASSETS_SET"; assets: string[] }
+	| { type: "SEARCH_SET"; search: string }
 	| { type: "REPORTS_REQUESTED"; append: boolean }
 	| { type: "REPORTS_SUCCEEDED"; items: ReportSummary[]; nextCursor?: string; append: boolean }
 	| { type: "REPORTS_FAILED"; error: AppError; append: boolean }
@@ -259,6 +261,7 @@ export const initialState: AppState = {
 		states: [...DEFAULT_STATE_KEYS],
 		severities: [...DEFAULT_SEVERITY_KEYS],
 		assets: [],
+		search: "",
 	},
 	reports: { status: "idle" },
 	reportsRefreshing: false,
@@ -388,6 +391,7 @@ export function reducer(state: AppState, action: Action): AppState {
 					states: state.filters.states,
 					severities: state.filters.severities,
 					assets: [],
+					search: state.filters.search,
 				},
 				reports: { status: "idle" },
 				selectedReportId: null,
@@ -413,6 +417,11 @@ export function reducer(state: AppState, action: Action): AppState {
 			return {
 				...state,
 				filters: { ...state.filters, assets: action.assets },
+			};
+		case "SEARCH_SET":
+			return {
+				...state,
+				filters: { ...state.filters, search: action.search },
 			};
 		case "REPORTS_REQUESTED":
 			return {

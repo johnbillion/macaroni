@@ -33,6 +33,7 @@ export const api = {
 		states: string[];
 		severities: string[];
 		asset_ids: string[];
+		keyword?: string;
 		page_cursor?: string;
 	}) => call<{ items: ReportSummary[]; next_cursor: string | null }>("list_reports", { query }),
 	getReport: (reportId: string) => call<ReportDetail>("get_report", { reportId }),

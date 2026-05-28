@@ -3,6 +3,7 @@ import { useAppState, useDispatch } from "../state/context";
 import {
 	bootstrap,
 	buildReportsQuery,
+	debounceLoadReports,
 	loadAssets,
 	loadPrograms,
 	loadReports,
@@ -71,6 +72,7 @@ export function App() {
 	const statesKey = state.filters.states.join(",");
 	const severitiesKey = state.filters.severities.join(",");
 	const assetsKey = state.filters.assets.join(",");
+	const searchKey = state.filters.search.trim();
 
 	const firstReportsLoadRef = useRef(true);
 	useEffect(() => {
@@ -82,11 +84,10 @@ export function App() {
 			return;
 		}
 		// Debounce rapid filter toggles so a burst of checkbox clicks only fires one request.
-		const timer = window.setTimeout(() => loadReports(dispatch, query), 1000);
-		return () => window.clearTimeout(timer);
+		return debounceLoadReports(dispatch, query);
 		// We key on the joined strings so reference identity churn doesn't refetch on every render.
 		// biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
-	}, [handle, statesKey, severitiesKey, assetsKey, eligibleAssetKey, dispatch]);
+	}, [handle, statesKey, severitiesKey, assetsKey, searchKey, eligibleAssetKey, dispatch]);
 
 	useEffect(() => {
 		const onResize = () => {
