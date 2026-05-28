@@ -129,6 +129,9 @@ pub enum Activity {
         new_weakness: Option<String>,
         /// `group` name on `activity-group-assigned-to-bug` (sometimes null).
         group_name: Option<String>,
+        /// `old_severity` / `new_severity` ratings on `activity-report-severity-updated`.
+        old_severity: Option<String>,
+        new_severity: Option<String>,
     },
 }
 
@@ -619,6 +622,20 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
         } else {
             None
         };
+        let severity_rating = |key: &str| -> Option<String> {
+            relationships?
+                .get(key)?
+                .get("data")?
+                .get("attributes")?
+                .get("rating")?
+                .as_str()
+                .map(String::from)
+        };
+        let (old_severity, new_severity) = if kind_short == "report-severity-updated" {
+            (severity_rating("old_severity"), severity_rating("new_severity"))
+        } else {
+            (None, None)
+        };
         Some(Activity::Event {
             id,
             created_at,
@@ -632,6 +649,8 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
             new_scope,
             new_weakness,
             group_name,
+            old_severity,
+            new_severity,
         })
     }
 }

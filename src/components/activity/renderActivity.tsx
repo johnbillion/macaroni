@@ -2,9 +2,10 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { JSX } from "preact";
 import type { Activity } from "../../state/store";
 import { pillFor } from "../../utils/pill";
-import { formatRelativeTime } from "../../utils/time";
 import { Avatar } from "../Avatar";
 import { Markdown } from "../Markdown";
+import { RelativeTime } from "../RelativeTime";
+import { SeverityMeter } from "../SeverityMeter";
 
 type EventActivity = Extract<Activity, { type: "event" }>;
 
@@ -72,6 +73,20 @@ function describeEvent(activity: EventActivity): JSX.Element | null {
 			);
 		case "report-organization-inboxes-updated":
 			return <>updated the organization inboxes</>;
+		case "report-severity-updated":
+			return activity.new_severity ? (
+				<>
+					changed severity{" "}
+					{activity.old_severity && (
+						<>
+							from <SeverityMeter rating={activity.old_severity} showLabel />{" "}
+						</>
+					)}
+					to <SeverityMeter rating={activity.new_severity} showLabel />
+				</>
+			) : (
+				<>updated the severity</>
+			);
 		default:
 			return null;
 	}
@@ -137,7 +152,7 @@ export function renderActivity(
 			.filter(Boolean)
 			.join(" ");
 		return (
-			<div key={activity.id} class={tickClasses}>
+			<div key={activity.id} data-activity-id={activity.id} class={tickClasses}>
 				<span class="event-tick-text">
 					{activity.actor && (
 						<>
@@ -152,7 +167,8 @@ export function renderActivity(
 					{activity.internal && (
 						<span class="icon-padlock" title="Internal" aria-label="Internal" />
 					)}
-					{formatRelativeTime(activity.created_at)}
+					<RelativeTime iso={activity.created_at} />
+
 				</span>
 			</div>
 		);
@@ -163,9 +179,11 @@ export function renderActivity(
 	const side = isProgramSide(activity, reporterId, teamMemberIds) ? "out" : "in";
 	const classes = ["msg", side, activity.internal ? "internal" : ""].filter(Boolean).join(" ");
 	const pill = newState ? pillFor(newState) : null;
+	const isSeverityChange =
+		activity.type === "event" && activity.kind === "report-severity-updated" && !!activity.new_severity;
 
 	return (
-		<div key={activity.id} class={classes}>
+		<div key={activity.id} data-activity-id={activity.id} class={classes}>
 			<div class="msg-meta">
 				<Avatar user={activity.actor} />
 				<span class="msg-author">{author}</span>
@@ -176,6 +194,20 @@ export function renderActivity(
 						<span class="msg-event-action">changed status to</span>
 						<span class={`pill ${pill.className}`}>{pill.label}</span>
 					</>
+				) : isSeverityChange && activity.type === "event" ? (
+					activity.old_severity ? (
+						<>
+							<span class="msg-event-action">changed severity from</span>
+							<SeverityMeter rating={activity.old_severity} showLabel />
+							<span class="msg-event-action">to</span>
+							<SeverityMeter rating={activity.new_severity} showLabel />
+						</>
+					) : (
+						<>
+							<span class="msg-event-action">changed severity to</span>
+							<SeverityMeter rating={activity.new_severity} showLabel />
+						</>
+					)
 				) : !isComment ? (
 					<span class="msg-event-kind">{humanizeKind(activity.kind)}</span>
 				) : null}
@@ -183,7 +215,8 @@ export function renderActivity(
 					{activity.internal && (
 						<span class="icon-padlock" title="Internal" aria-label="Internal" />
 					)}
-					{formatRelativeTime(activity.created_at)}
+					<RelativeTime iso={activity.created_at} />
+
 				</span>
 			</div>
 			{hasMessage && (
