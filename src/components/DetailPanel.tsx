@@ -141,6 +141,28 @@ export function DetailPanel() {
 					<dd>
 						<SeverityMeter rating={r.severity_rating} showLabel />
 					</dd>
+					{(r.issue_tracker_reference_id || r.issue_tracker_reference_url) && (
+						<>
+							<dt>Reference</dt>
+							<dd>
+								{r.issue_tracker_reference_url ? (
+									<a
+										href={r.issue_tracker_reference_url}
+										target="_blank"
+										rel="noopener noreferrer"
+										onClick={(e) => {
+											e.preventDefault();
+											openUrl(r.issue_tracker_reference_url as string);
+										}}
+									>
+										{r.issue_tracker_reference_id ?? r.issue_tracker_reference_url}
+									</a>
+								) : (
+									r.issue_tracker_reference_id
+								)}
+							</dd>
+						</>
+					)}
 				</dl>
 			</div>
 

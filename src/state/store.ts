@@ -30,6 +30,8 @@ export type ReportSummary = {
 	severity_rating: string | null;
 	created_at: string;
 	last_activity_at: string | null;
+	issue_tracker_reference_id: string | null;
+	issue_tracker_reference_url: string | null;
 	asset: AssetRef | null;
 	reporter: UserRef;
 	assignee: AssigneeRef | null;
@@ -94,6 +96,8 @@ export type ReportDetail = {
 	created_at: string;
 	submitted_at: string | null;
 	vulnerability_information: string;
+	issue_tracker_reference_id: string | null;
+	issue_tracker_reference_url: string | null;
 	reporter: UserRef;
 	weakness: WeaknessRef | null;
 	asset: AssetRef | null;

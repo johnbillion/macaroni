@@ -31,6 +31,8 @@ pub struct ReportSummary {
     pub severity_rating: Option<String>,
     pub created_at: String,
     pub last_activity_at: Option<String>,
+    pub issue_tracker_reference_id: Option<String>,
+    pub issue_tracker_reference_url: Option<String>,
     pub asset: Option<AssetRef>,
     pub reporter: UserRef,
     pub assignee: Option<AssigneeRef>,
@@ -140,6 +142,8 @@ pub struct ReportDetail {
     pub created_at: String,
     pub submitted_at: Option<String>,
     pub vulnerability_information: String,
+    pub issue_tracker_reference_id: Option<String>,
+    pub issue_tracker_reference_url: Option<String>,
     pub reporter: UserRef,
     pub weakness: Option<WeaknessRef>,
     pub asset: Option<AssetRef>,
@@ -365,6 +369,14 @@ impl HackerOneApi for ReqwestClient {
                         .to_string(),
                     last_activity_at: attrs
                         .get("last_activity_at")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    issue_tracker_reference_id: attrs
+                        .get("issue_tracker_reference_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    issue_tracker_reference_url: attrs
+                        .get("issue_tracker_reference_url")
                         .and_then(|v| v.as_str())
                         .map(String::from),
                     asset: rel
@@ -614,6 +626,14 @@ fn parse_report_detail(body: &serde_json::Value) -> Option<ReportDetail> {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
+        issue_tracker_reference_id: attrs
+            .get("issue_tracker_reference_id")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        issue_tracker_reference_url: attrs
+            .get("issue_tracker_reference_url")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         reporter: rel.and_then(|r| r.get("reporter")).and_then(parse_user_ref)?,
         weakness: rel.and_then(|r| r.get("weakness")).and_then(parse_weakness_ref),
         asset: rel.and_then(|r| r.get("structured_scope")).and_then(parse_asset_ref),

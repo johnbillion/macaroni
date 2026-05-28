@@ -1,5 +1,6 @@
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { CheckMenuItem, Menu } from "@tauri-apps/api/menu";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
 import {
@@ -26,6 +27,7 @@ const COLUMN_DEFS = [
 	{ key: "title", label: "Title", defaultVisible: true },
 	{ key: "reporter", label: "Reporter", defaultVisible: false },
 	{ key: "assignee", label: "Assignee", defaultVisible: false },
+	{ key: "reference", label: "Reference", defaultVisible: false },
 ] as const;
 
 type ColumnKey = (typeof COLUMN_DEFS)[number]["key"];
@@ -198,6 +200,7 @@ export function InboxTable() {
 						{visibility.title ? <th class="th-title">TITLE</th> : null}
 						{visibility.reporter ? <th class="th-person">REPORTER</th> : null}
 						{visibility.assignee ? <th class="th-person">ASSIGNEE</th> : null}
+						{visibility.reference ? <th>REFERENCE</th> : null}
 					</tr>
 				</thead>
 				<tbody>
@@ -253,6 +256,26 @@ export function InboxTable() {
 								{visibility.assignee ? (
 									<td class="person">{renderPerson(r.assignee)}</td>
 								) : null}
+								{visibility.reference ? (
+									<td class="reference">
+										{r.issue_tracker_reference_url && r.issue_tracker_reference_id ? (
+											<a
+												href={r.issue_tracker_reference_url}
+												target="_blank"
+												rel="noopener noreferrer"
+												onClick={(e) => {
+													e.stopPropagation();
+													e.preventDefault();
+													openUrl(r.issue_tracker_reference_url as string);
+												}}
+											>
+												{r.issue_tracker_reference_id}
+											</a>
+										) : (
+											(r.issue_tracker_reference_id ?? "")
+										)}
+									</td>
+								) : null}
 							</tr>
 						);
 					})}
@@ -295,6 +318,9 @@ export function InboxTable() {
 		);
 	})();
 
+	const showColumnsMenu =
+		state.reports.status === "ready" && state.reports.data.items.length > 0;
+
 	return (
 		<div class="inbox-wrap">
 			<main class="inbox" ref={inboxRef}>
@@ -306,9 +332,11 @@ export function InboxTable() {
 				/>
 				{body}
 			</main>
-			<div class="inbox-toolbar">
-				<ColumnsMenu visibility={visibility} onToggle={toggle} />
-			</div>
+			{showColumnsMenu ? (
+				<div class="inbox-toolbar">
+					<ColumnsMenu visibility={visibility} onToggle={toggle} />
+				</div>
+			) : null}
 		</div>
 	);
 }
