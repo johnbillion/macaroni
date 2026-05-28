@@ -403,9 +403,6 @@ html.dark .theme-toggle {
 .facet:hover {
 	color: var(--accent);
 }
-.facet > .cb {
-	margin-top: calc((1em * 1.4 - 12px) / 2);
-}
 .facet-asset > span {
 	overflow-wrap: anywhere;
 	min-width: 0;
@@ -446,31 +443,12 @@ html.dark .theme-toggle {
 	padding-left: 22px;
 }
 
-.cb {
-	appearance: none;
-	-webkit-appearance: none;
-	width: 12px;
-	height: 12px;
-	border: 1px solid var(--border-2);
-	background: var(--bg-2);
-	border-radius: 1px;
+input[type="checkbox"],
+input[type="radio"] {
+	accent-color: var(--accent);
 	cursor: pointer;
-	position: relative;
 	flex-shrink: 0;
 	margin: 0;
-}
-.cb:hover { border-color: var(--text-2); }
-.cb:checked { background: var(--accent); border-color: var(--accent); }
-.cb:checked::after {
-	content: "";
-	position: absolute;
-	top: 1px;
-	left: 3px;
-	width: 3px;
-	height: 6px;
-	border: solid var(--bg);
-	border-width: 0 1.5px 1.5px 0;
-	transform: rotate(45deg);
 }
 
 .check-h {

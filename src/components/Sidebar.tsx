@@ -79,8 +79,8 @@ function StateFacetGroup({ heading, facets }: { heading: string; facets: StateFa
 	const parentRef = useIndeterminate(allChecked, someChecked);
 
 	const toggleAll = () => {
-		const next = allChecked
-			? state.filters.states.filter((k) => !checked.has(k) || !groupKeys.includes(k))
+		const next = someChecked
+			? state.filters.states.filter((k) => !groupKeys.includes(k))
 			: [...new Set([...state.filters.states, ...groupKeys])];
 		dispatch({ type: "STATES_SET", states: next });
 	};
@@ -128,7 +128,7 @@ function SeveritySection() {
 	const parentRef = useIndeterminate(allChecked, someChecked);
 
 	const toggleAll = () => {
-		dispatch({ type: "SEVERITIES_SET", severities: allChecked ? [] : keys });
+		dispatch({ type: "SEVERITIES_SET", severities: someChecked ? [] : keys });
 	};
 	const toggleOne = (key: string) => {
 		const next = checked.has(key)
@@ -206,7 +206,7 @@ function AssetSectionReady({ assets }: { assets: Asset[] }) {
 	const parentRef = useIndeterminate(allChecked, someChecked);
 
 	const toggleAll = () => {
-		dispatch({ type: "ASSETS_SET", assets: allChecked ? [] : allIds });
+		dispatch({ type: "ASSETS_SET", assets: someChecked ? [] : allIds });
 	};
 	const toggleOne = (id: string) => {
 		const next = checked.has(id) ? selected.filter((k) => k !== id) : [...selected, id];

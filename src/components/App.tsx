@@ -6,8 +6,10 @@ import {
 	debounceLoadReports,
 	loadAssets,
 	loadPrograms,
+	loadReportDetail,
 	loadReports,
 	loadTeamMembers,
+	markReportRead,
 } from "../state/effects";
 import { CredentialsGate } from "./CredentialsGate";
 import { DetailPanel } from "./DetailPanel";
@@ -88,6 +90,21 @@ export function App() {
 		// We key on the joined strings so reference identity churn doesn't refetch on every render.
 		// biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
 	}, [handle, statesKey, severitiesKey, assetsKey, searchKey, eligibleAssetKey, dispatch]);
+
+	// Selecting a report (whether by click or by the reducer's auto-select on a fresh load)
+	// should populate the detail pane. We only react to the selection itself changing —
+	// detail/readReports updates are read from the same render's closure and don't re-fire.
+	const selectedReportId = state.selectedReportId;
+	useEffect(() => {
+		if (!selectedReportId) return;
+		const existing = state.detail[selectedReportId];
+		if (!existing || existing.status === "error") {
+			loadReportDetail(dispatch, selectedReportId);
+		} else if (existing.status === "ready" && !state.readReports[selectedReportId]) {
+			markReportRead(dispatch, selectedReportId);
+		}
+		// biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
+	}, [selectedReportId, dispatch]);
 
 	useEffect(() => {
 		const onResize = () => {
