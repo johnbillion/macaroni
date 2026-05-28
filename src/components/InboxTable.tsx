@@ -3,13 +3,7 @@ import { CheckMenuItem, Menu } from "@tauri-apps/api/menu";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
-import {
-	buildReportsQuery,
-	loadMoreReports,
-	loadReportDetail,
-	loadReports,
-	markReportRead,
-} from "../state/effects";
+import { buildReportsQuery, loadMoreReports, loadReports } from "../state/effects";
 import type { AppError, AssigneeRef, UserRef } from "../state/store";
 import { pillFor } from "../utils/pill";
 import { formatRelativeTime } from "../utils/time";
@@ -141,18 +135,35 @@ export function InboxTable() {
 	const visibleCount =
 		1 + COLUMN_DEFS.reduce((n, c) => n + (visibility[c.key] ? 1 : 0), 0);
 
+	const items = state.reports.status === "ready" ? state.reports.data.items : [];
+	const selected = state.selectedReportIds;
+	const allSelected = items.length > 0 && items.every((r) => selected.has(r.id));
+	const someSelected = items.some((r) => selected.has(r.id));
+	const bulkRunning = state.bulkOperation.status === "running";
+	const headerCheckRef = useRef<HTMLInputElement>(null);
+	useEffect(() => {
+		if (headerCheckRef.current) {
+			headerCheckRef.current.indeterminate = !allSelected && someSelected;
+		}
+	}, [allSelected, someSelected]);
+
 	useEffect(() => {
 		inboxRef.current?.scrollTo({ top: 0 });
 	}, [state.reportsReplaceCount]);
 
 	const onSelect = (id: string) => {
 		dispatch({ type: "REPORT_SELECTED", reportId: id });
-		const existing = state.detail[id];
-		if (!existing || existing.status === "error") {
-			loadReportDetail(dispatch, id);
-		} else if (existing.status === "ready" && !state.readReports[id]) {
-			markReportRead(dispatch, id);
-		}
+	};
+
+	const onToggleAll = () => {
+		dispatch({
+			type: "SELECTION_SET",
+			reportIds: items.map((r) => r.id),
+			checked: !someSelected,
+		});
+	};
+	const onToggleRow = (id: string) => {
+		dispatch({ type: "SELECTION_TOGGLED", reportId: id });
 	};
 
 	const onRetryReports = () => {
@@ -181,7 +192,6 @@ export function InboxTable() {
 			return <div class="placeholder">No reports.</div>;
 		}
 
-		const items = state.reports.data.items;
 		const hasMore = !!state.reports.data.nextCursor;
 
 		return (
@@ -189,7 +199,15 @@ export function InboxTable() {
 				<thead>
 					<tr>
 						<th class="th-check">
-							<input type="checkbox" class="cb" aria-label="Select all" />
+							<input
+								ref={headerCheckRef}
+								type="checkbox"
+								class="cb"
+								aria-label="Select all"
+								checked={allSelected}
+								disabled={bulkRunning}
+								onChange={onToggleAll}
+							/>
 						</th>
 						{visibility.id ? <th>ID</th> : null}
 						{visibility.opened ? <th>OPENED</th> : null}
@@ -206,11 +224,15 @@ export function InboxTable() {
 				<tbody>
 					{items.map((r) => {
 						const pill = pillFor(r.state);
-						const isSelected = state.selectedReportId === r.id;
+						const showSelected =
+							state.selectedReportId === r.id && state.detailActiveTab !== "bulk";
 						const isUnread = !state.readReports[r.id];
+						const isBulkSelected = selected.has(r.id);
+						const showBulkSelected = isBulkSelected && state.detailActiveTab === "bulk";
 						const classes = ["row"];
-						if (isSelected) classes.push("selected");
+						if (showSelected) classes.push("selected");
 						if (isUnread) classes.push("unread");
+						if (showBulkSelected) classes.push("bulk-selected");
 						return (
 							<tr key={r.id} class={classes.join(" ")} onClick={() => onSelect(r.id)}>
 								<td class="check">
@@ -218,7 +240,10 @@ export function InboxTable() {
 										type="checkbox"
 										class="cb"
 										aria-label="Select report"
+										checked={isBulkSelected}
+										disabled={bulkRunning}
 										onClick={(e) => e.stopPropagation()}
+										onChange={() => onToggleRow(r.id)}
 									/>
 								</td>
 								{visibility.id ? <td class="id">#{r.id}</td> : null}

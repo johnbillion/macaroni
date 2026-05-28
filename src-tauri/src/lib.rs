@@ -43,6 +43,7 @@ pub fn run() {
             commands::list_program_members,
             commands::list_reports,
             commands::get_report,
+            commands::update_report_asset,
             commands::save_attachment,
             commands::mark_report_read,
             commands::mark_reports_read,

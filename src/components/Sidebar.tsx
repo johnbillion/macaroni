@@ -16,8 +16,9 @@ export function Sidebar() {
 	const dispatch = useDispatch();
 	const orgId = state.filters.orgId;
 	const assets: AsyncState<Asset[]> | undefined = orgId ? state.assetsByOrg[orgId] : undefined;
+	const locked = state.selectedReportIds.size > 0;
 	return (
-		<aside class="side">
+		<aside class={`side${locked ? " side-locked" : ""}`} aria-disabled={locked}>
 			<form
 				class="side-search"
 				onSubmit={(e) => {

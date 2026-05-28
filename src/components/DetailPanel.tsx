@@ -1,11 +1,12 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useEffect, useState } from "preact/hooks";
-import { useAppState } from "../state/context";
+import { useEffect, useRef, useState } from "preact/hooks";
+import { useAppState, useDispatch } from "../state/context";
 import type { Activity } from "../state/store";
 import { pillFor } from "../utils/pill";
 import { formatClock, formatRelativeTime } from "../utils/time";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { Avatar } from "./Avatar";
+import { BulkEditPanel } from "./BulkEditPanel";
 import { renderActivity } from "./activity/renderActivity";
 import { Markdown } from "./Markdown";
 import { SeverityMeter } from "./SeverityMeter";
@@ -49,31 +50,66 @@ function CopyButton({
 
 export function DetailPanel() {
 	const state = useAppState();
+	const dispatch = useDispatch();
+	const bulkActive = state.selectedReportIds.size > 0;
+	const activeTab = state.detailActiveTab;
+	const setActiveTab = (tab: "report" | "bulk") =>
+		dispatch({ type: "DETAIL_TAB_SET", tab });
+	const prevBulkActive = useRef(false);
+	useEffect(() => {
+		if (bulkActive && !prevBulkActive.current) setActiveTab("bulk");
+		if (!bulkActive && prevBulkActive.current) setActiveTab("report");
+		prevBulkActive.current = bulkActive;
+		// setActiveTab dispatches via context and never changes identity
+		// biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
+	}, [bulkActive]);
+
+	return (
+		<aside class="detail">
+			{bulkActive ? (
+				<div class="detail-tabs" role="tablist">
+					<button
+						type="button"
+						role="tab"
+						aria-selected={activeTab === "report"}
+						class={`detail-tab${activeTab === "report" ? " active" : ""}`}
+						onClick={() => setActiveTab("report")}
+					>
+						Report
+					</button>
+					<button
+						type="button"
+						role="tab"
+						aria-selected={activeTab === "bulk"}
+						class={`detail-tab${activeTab === "bulk" ? " active" : ""}`}
+						onClick={() => setActiveTab("bulk")}
+					>
+						Bulk edit ({state.selectedReportIds.size})
+					</button>
+				</div>
+			) : null}
+			{bulkActive && activeTab === "bulk" ? <BulkEditPanel /> : <ReportTab />}
+		</aside>
+	);
+}
+
+function ReportTab() {
+	const state = useAppState();
 	const id = state.selectedReportId;
 
 	if (!id) {
-		return (
-			<aside class="detail">
-				<div class="detail-empty">SELECT A REPORT</div>
-			</aside>
-		);
+		return <div class="detail-empty">SELECT A REPORT</div>;
 	}
 
 	const detail = state.detail[id];
 	if (!detail || detail.status === "idle" || detail.status === "loading") {
-		return (
-			<aside class="detail">
-				<div class="placeholder">Loading report…</div>
-			</aside>
-		);
+		return <div class="placeholder">Loading report…</div>;
 	}
 	if (detail.status === "error") {
 		return (
-			<aside class="detail">
-				<div class="placeholder error">
-					{detail.error.kind}: {detail.error.message}
-				</div>
-			</aside>
+			<div class="placeholder error">
+				{detail.error.kind}: {detail.error.message}
+			</div>
 		);
 	}
 

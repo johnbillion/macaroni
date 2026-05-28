@@ -1,6 +1,6 @@
 import { api } from "../api/client";
 import { ALL_SEVERITY_KEYS, ALL_STATE_KEYS, CLOSED_STATES } from "./filters";
-import type { Action, AppError, AppState } from "./store";
+import type { Action, AppError, AppState, AssetRef } from "./store";
 
 const CLOSED_STATE_KEYS = new Set(CLOSED_STATES.map((s) => s.key));
 
@@ -263,4 +263,56 @@ export async function loadMoreReports(dispatch: Dispatch, state: AppState) {
 	const query = buildReportsQuery(state);
 	if (!query) return;
 	await loadReports(dispatch, query, cursor);
+}
+
+// Mirrors the reportsRequestId cancellation idiom: a monotonic counter so a later
+// runBulkAssetUpdate call invalidates an earlier one, and a flag the UI flips via
+// cancelBulkUpdate to stop further iterations after the in-flight request resolves.
+let bulkRunId = 0;
+let bulkCancelFlag = false;
+
+function shouldAbortBatch(error: AppError): boolean {
+	// 401/403 will fail identically for every remaining report (same token, same group).
+	// Stop early rather than blasting N identical errors.
+	return error.kind === "unauthorized" || error.kind === "forbidden";
+}
+
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+export async function runBulkAssetUpdate(
+	dispatch: Dispatch,
+	reportIds: string[],
+	asset: AssetRef,
+) {
+	const myId = ++bulkRunId;
+	bulkCancelFlag = false;
+	dispatch({ type: "BULK_STARTED", total: reportIds.length });
+
+	for (const id of reportIds) {
+		if (bulkCancelFlag || myId !== bulkRunId) break;
+		dispatch({ type: "BULK_ITEM_BEGAN", reportId: id });
+		try {
+			await api.updateReportAsset(id, asset.id);
+			if (myId !== bulkRunId) return;
+			dispatch({ type: "BULK_ITEM_SUCCEEDED", reportId: id, asset });
+		} catch (e) {
+			if (myId !== bulkRunId) return;
+			const error = asError(e);
+			dispatch({ type: "BULK_ITEM_FAILED", reportId: id, error });
+			if (shouldAbortBatch(error)) {
+				bulkCancelFlag = true;
+				break;
+			}
+			if (error.kind === "rate_limited") {
+				await delay(2000);
+			}
+		}
+	}
+	dispatch({ type: "BULK_FINISHED", cancelled: bulkCancelFlag });
+}
+
+export function cancelBulkUpdate() {
+	bulkCancelFlag = true;
 }

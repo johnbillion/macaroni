@@ -37,6 +37,8 @@ export const api = {
 		page_cursor?: string;
 	}) => call<{ items: ReportSummary[]; next_cursor: string | null }>("list_reports", { query }),
 	getReport: (reportId: string) => call<ReportDetail>("get_report", { reportId }),
+	updateReportAsset: (reportId: string, assetId: string) =>
+		call<void>("update_report_asset", { reportId, assetId }),
 	saveAttachment: (url: string, suggestedFilename: string) =>
 		call<boolean>("save_attachment", { url, suggestedFilename }),
 	markReportRead: (reportId: string) => call<void>("mark_report_read", { reportId }),

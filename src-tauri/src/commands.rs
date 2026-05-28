@@ -124,6 +124,15 @@ pub async fn get_report(
     ctx.api.get_report(&report_id).await
 }
 
+#[tauri::command]
+pub async fn update_report_asset(
+    ctx: State<'_, AppContext>,
+    report_id: String,
+    asset_id: String,
+) -> AppResult<()> {
+    ctx.api.update_report_asset(&report_id, &asset_id).await
+}
+
 // Show a native save-file dialog for an attachment and, if the user confirms a path,
 // fetch the bytes from the (presigned) URL on the Rust side and write them to disk.
 // Returns true if a file was written, false if the user cancelled.

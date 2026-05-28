@@ -163,6 +163,26 @@ export function clampPanelSize(value: number, bounds: PanelBounds): number {
 	return Math.max(bounds.min, Math.min(bounds.max, Math.round(value)));
 }
 
+export type BulkFailure = { reportId: string; error: AppError };
+
+export type BulkOperationState =
+	| { status: "idle" }
+	| {
+			status: "running";
+			total: number;
+			completed: number;
+			currentReportId: string | null;
+			failed: BulkFailure[];
+			cancelRequested: boolean;
+	  }
+	| {
+			status: "done";
+			total: number;
+			succeeded: number;
+			failed: BulkFailure[];
+			cancelled: boolean;
+	  };
+
 export type AppState = {
 	credentials: "unknown" | "missing" | "present";
 	username: string | null;
@@ -187,6 +207,10 @@ export type AppState = {
 	// Consumers watch this to react to "fresh list" events — e.g. scrolling back to the top.
 	reportsReplaceCount: number;
 	selectedReportId: string | null;
+	// Multi-selection for bulk-edit mode. Non-empty Set => app is in bulk-edit mode.
+	selectedReportIds: Set<string>;
+	bulkOperation: BulkOperationState;
+	detailActiveTab: "report" | "bulk";
 	detail: Record<string, AsyncState<ReportDetail>>;
 	readReports: Record<string, true>;
 	detailPlacement: DetailPlacement;
@@ -220,6 +244,18 @@ export type Action =
 	| { type: "REPORTS_SUCCEEDED"; items: ReportSummary[]; nextCursor?: string; append: boolean }
 	| { type: "REPORTS_FAILED"; error: AppError; append: boolean }
 	| { type: "REPORT_SELECTED"; reportId: string | null }
+	| { type: "SELECTION_TOGGLED"; reportId: string }
+	| { type: "SELECTION_SET"; reportIds: string[]; checked: boolean }
+	| { type: "SELECTION_CLEARED" }
+	| { type: "BULK_STARTED"; total: number }
+	| { type: "BULK_ITEM_BEGAN"; reportId: string }
+	| { type: "BULK_ITEM_SUCCEEDED"; reportId: string; asset: AssetRef }
+	| { type: "BULK_ITEM_FAILED"; reportId: string; error: AppError }
+	| { type: "BULK_CANCEL_REQUESTED" }
+	| { type: "BULK_FINISHED"; cancelled: boolean }
+	| { type: "BULK_RESULT_DISMISSED" }
+	| { type: "BULK_RETRY_FAILED" }
+	| { type: "DETAIL_TAB_SET"; tab: "report" | "bulk" }
 	| { type: "DETAIL_REQUESTED"; reportId: string }
 	| { type: "DETAIL_SUCCEEDED"; reportId: string; detail: ReportDetail }
 	| { type: "DETAIL_FAILED"; reportId: string; error: AppError }
@@ -272,6 +308,9 @@ export const initialState: AppState = {
 	reportsLoadMoreError: null,
 	reportsReplaceCount: 0,
 	selectedReportId: null,
+	selectedReportIds: new Set(),
+	bulkOperation: { status: "idle" },
+	detailActiveTab: "report",
 	detail: {},
 	readReports: {},
 	detailPlacement: loadDetailPlacement(),
@@ -399,6 +438,8 @@ export function reducer(state: AppState, action: Action): AppState {
 				},
 				reports: { status: "idle" },
 				selectedReportId: null,
+				selectedReportIds: new Set(),
+				bulkOperation: { status: "idle" },
 			};
 		case "PROGRAM_SELECTED":
 			return {
@@ -406,6 +447,8 @@ export function reducer(state: AppState, action: Action): AppState {
 				filters: { ...state.filters, programHandle: action.handle },
 				reports: { status: "idle" },
 				selectedReportId: null,
+				selectedReportIds: new Set(),
+				bulkOperation: { status: "idle" },
 			};
 		case "STATES_SET":
 			return {
@@ -440,6 +483,13 @@ export function reducer(state: AppState, action: Action): AppState {
 			const items = [...existing, ...action.items];
 			const stillPresent =
 				state.selectedReportId !== null && items.some((r) => r.id === state.selectedReportId);
+			// On a fresh list (replace, not append) with no preserved selection, auto-select the
+			// first row so the detail pane populates without requiring a manual click.
+			const nextSelected = stillPresent
+				? state.selectedReportId
+				: action.append
+					? null
+					: (items[0]?.id ?? null);
 			return {
 				...state,
 				reportsRefreshing: false,
@@ -447,7 +497,7 @@ export function reducer(state: AppState, action: Action): AppState {
 				reportsReplaceCount: action.append
 					? state.reportsReplaceCount
 					: state.reportsReplaceCount + 1,
-				selectedReportId: stillPresent ? state.selectedReportId : null,
+				selectedReportId: nextSelected,
 				reports: {
 					status: "ready",
 					data: { items, nextCursor: action.nextCursor },
@@ -472,6 +522,110 @@ export function reducer(state: AppState, action: Action): AppState {
 			};
 		case "REPORT_SELECTED":
 			return { ...state, selectedReportId: action.reportId };
+		case "SELECTION_TOGGLED": {
+			const next = new Set(state.selectedReportIds);
+			if (next.has(action.reportId)) next.delete(action.reportId);
+			else next.add(action.reportId);
+			return { ...state, selectedReportIds: next };
+		}
+		case "SELECTION_SET": {
+			const next = new Set(state.selectedReportIds);
+			for (const id of action.reportIds) {
+				if (action.checked) next.add(id);
+				else next.delete(id);
+			}
+			return { ...state, selectedReportIds: next };
+		}
+		case "SELECTION_CLEARED":
+			return { ...state, selectedReportIds: new Set() };
+		case "BULK_STARTED":
+			return {
+				...state,
+				bulkOperation: {
+					status: "running",
+					total: action.total,
+					completed: 0,
+					currentReportId: null,
+					failed: [],
+					cancelRequested: false,
+				},
+			};
+		case "BULK_ITEM_BEGAN": {
+			if (state.bulkOperation.status !== "running") return state;
+			return {
+				...state,
+				bulkOperation: { ...state.bulkOperation, currentReportId: action.reportId },
+			};
+		}
+		case "BULK_ITEM_SUCCEEDED": {
+			if (state.bulkOperation.status !== "running") return state;
+			let nextReports = state.reports;
+			if (state.reports.status === "ready") {
+				const items = state.reports.data.items.map((r) =>
+					r.id === action.reportId ? { ...r, asset: action.asset } : r,
+				);
+				nextReports = { status: "ready", data: { ...state.reports.data, items } };
+			}
+			const restDetail = { ...state.detail };
+			delete restDetail[action.reportId];
+			return {
+				...state,
+				reports: nextReports,
+				detail: restDetail,
+				bulkOperation: {
+					...state.bulkOperation,
+					completed: state.bulkOperation.completed + 1,
+				},
+			};
+		}
+		case "BULK_ITEM_FAILED": {
+			if (state.bulkOperation.status !== "running") return state;
+			return {
+				...state,
+				bulkOperation: {
+					...state.bulkOperation,
+					completed: state.bulkOperation.completed + 1,
+					failed: [
+						...state.bulkOperation.failed,
+						{ reportId: action.reportId, error: action.error },
+					],
+				},
+			};
+		}
+		case "BULK_CANCEL_REQUESTED": {
+			if (state.bulkOperation.status !== "running") return state;
+			return {
+				...state,
+				bulkOperation: { ...state.bulkOperation, cancelRequested: true },
+			};
+		}
+		case "BULK_FINISHED": {
+			if (state.bulkOperation.status !== "running") return state;
+			const { total, completed, failed } = state.bulkOperation;
+			return {
+				...state,
+				bulkOperation: {
+					status: "done",
+					total,
+					succeeded: completed - failed.length,
+					failed,
+					cancelled: action.cancelled,
+				},
+			};
+		}
+		case "BULK_RESULT_DISMISSED":
+			return { ...state, bulkOperation: { status: "idle" } };
+		case "BULK_RETRY_FAILED": {
+			if (state.bulkOperation.status !== "done") return state;
+			const failedIds = state.bulkOperation.failed.map((f) => f.reportId);
+			return {
+				...state,
+				selectedReportIds: new Set(failedIds),
+				bulkOperation: { status: "idle" },
+			};
+		}
+		case "DETAIL_TAB_SET":
+			return { ...state, detailActiveTab: action.tab };
 		case "DETAIL_REQUESTED":
 			return {
 				...state,
