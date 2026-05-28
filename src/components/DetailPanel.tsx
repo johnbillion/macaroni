@@ -11,7 +11,8 @@ import { renderActivity } from "./activity/renderActivity";
 import { Markdown } from "./Markdown";
 import { SeverityMeter } from "./SeverityMeter";
 
-function isHackbotPreSubmissionTrigger(a: Activity): boolean {
+function isHackbotPreSubmissionTrigger(a: Activity | undefined): boolean {
+	if (!a) return false;
 	if (a.type !== "comment") return false;
 	if (a.actor?.username?.toLowerCase() !== "hackbot") return false;
 	return /pre-submission[- ]trigger/i.test(a.message);
