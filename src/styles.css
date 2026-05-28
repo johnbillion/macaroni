@@ -692,8 +692,76 @@ input[type="radio"] {
 .detail {
 	border-left: 1px solid var(--border);
 	background: var(--bg-1);
-	overflow-y: auto;
 	position: relative;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+.detail-scroll {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+}
+/* Toast stack — surfaces background-poll diffs inside the detail pane. Absolute-positioned
+   alongside the scroll viewport so showing/hiding toasts never reflows the panel content. */
+.detail-toasts {
+	position: absolute;
+	bottom: 14px;
+	right: 14px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	align-items: flex-end;
+	pointer-events: none;
+	z-index: 10;
+	max-width: calc(100% - 28px);
+}
+.detail-toast {
+	pointer-events: auto;
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	background: #1a1f25;
+	color: #f0ebd8;
+	border: 1px solid #2a3036;
+	border-left: 3px solid var(--accent);
+	border-radius: 3px;
+	padding: 14px 16px 14px 18px;
+	font-size: 12px;
+	box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+	animation: detail-toast-in 180ms ease-out;
+}
+.detail-toast.clickable {
+	cursor: pointer;
+}
+.detail-toast.clickable:hover {
+	background: #232932;
+}
+.detail-toast.clickable:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 1px;
+}
+.detail-toast-msg {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 38ch;
+}
+.detail-toast-close {
+	background: transparent;
+	border: 0;
+	color: rgba(240, 235, 216, 0.65);
+	cursor: pointer;
+	font-size: 16px;
+	line-height: 1;
+	padding: 0 2px;
+}
+.detail-toast-close:hover {
+	color: #f0ebd8;
+}
+@keyframes detail-toast-in {
+	from { opacity: 0; transform: translateY(6px); }
+	to { opacity: 1; transform: translateY(0); }
 }
 .detail-empty {
 	display: grid;

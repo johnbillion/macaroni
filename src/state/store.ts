@@ -105,6 +105,15 @@ export type ReportDetail = {
 	attachments: Attachment[];
 };
 
+export type DetailToast = {
+	id: string;
+	reportId: string;
+	message: string;
+	// When set, clicking the toast should scroll the matching activity element into view.
+	// Only populated for toasts describing new activities (single-item or summary).
+	activityId?: string;
+};
+
 export type DetailPlacement = "right" | "bottom";
 
 export type PanelKey = "detailRight" | "detailBottom";
@@ -212,6 +221,10 @@ export type AppState = {
 	bulkOperation: BulkOperationState;
 	detailActiveTab: "report" | "bulk";
 	detail: Record<string, AsyncState<ReportDetail>>;
+	// Transient notifications surfaced inside the detail pane after a background refresh
+	// turns up new activity or detail changes. Tied to the currently selected report only —
+	// cleared on REPORT_SELECTED so they don't bleed across navigations.
+	detailToasts: DetailToast[];
 	readReports: Record<string, true>;
 	detailPlacement: DetailPlacement;
 	panelSizes: PanelSizes;
@@ -259,6 +272,8 @@ export type Action =
 	| { type: "DETAIL_REQUESTED"; reportId: string }
 	| { type: "DETAIL_SUCCEEDED"; reportId: string; detail: ReportDetail }
 	| { type: "DETAIL_FAILED"; reportId: string; error: AppError }
+	| { type: "DETAIL_REFRESHED"; reportId: string; detail: ReportDetail }
+	| { type: "DETAIL_TOAST_DISMISSED"; toastId: string }
 	| { type: "READ_IDS_LOADED"; ids: string[] }
 	| { type: "REPORT_MARKED_READ"; reportId: string }
 	| { type: "REPORTS_MARKED_READ"; reportIds: string[] }
@@ -312,6 +327,7 @@ export const initialState: AppState = {
 	bulkOperation: { status: "idle" },
 	detailActiveTab: "report",
 	detail: {},
+	detailToasts: [],
 	readReports: {},
 	detailPlacement: loadDetailPlacement(),
 	panelSizes: loadPanelSizes(readViewport()),
@@ -521,7 +537,11 @@ export function reducer(state: AppState, action: Action): AppState {
 				reports: { status: "error", error: action.error },
 			};
 		case "REPORT_SELECTED":
-			return { ...state, selectedReportId: action.reportId };
+			return {
+				...state,
+				selectedReportId: action.reportId,
+				detailToasts: [],
+			};
 		case "SELECTION_TOGGLED": {
 			const next = new Set(state.selectedReportIds);
 			if (next.has(action.reportId)) next.delete(action.reportId);
@@ -632,12 +652,16 @@ export function reducer(state: AppState, action: Action): AppState {
 				detail: { ...state.detail, [action.reportId]: { status: "loading" } },
 			};
 		case "DETAIL_SUCCEEDED":
+			// The inbox row was loaded from /reports earlier — it may be stale by the time
+			// the user clicks in. Reconcile it against the freshly fetched detail so the
+			// summary fields (state, severity, title, asset, etc.) match what's in the pane.
 			return {
 				...state,
 				detail: {
 					...state.detail,
 					[action.reportId]: { status: "ready", data: action.detail },
 				},
+				reports: applyDetailToReports(state.reports, action.reportId, action.detail),
 			};
 		case "DETAIL_FAILED":
 			return {
@@ -646,6 +670,36 @@ export function reducer(state: AppState, action: Action): AppState {
 					...state.detail,
 					[action.reportId]: { status: "error", error: action.error },
 				},
+			};
+		case "DETAIL_REFRESHED": {
+			const existing = state.detail[action.reportId];
+			const nextDetail: AppState["detail"] = {
+				...state.detail,
+				[action.reportId]: { status: "ready", data: action.detail },
+			};
+			const nextReports = applyDetailToReports(state.reports, action.reportId, action.detail);
+			// First time the data lands (refresh raced ahead of the initial fetch finishing) —
+			// no prior data to diff against, so just install the detail with no toasts.
+			if (!existing || existing.status !== "ready") {
+				return { ...state, detail: nextDetail, reports: nextReports };
+			}
+			// Only surface toasts when the refresh is for the currently selected report —
+			// otherwise the user would see notifications inside a pane that isn't visible.
+			if (state.selectedReportId !== action.reportId) {
+				return { ...state, detail: nextDetail, reports: nextReports };
+			}
+			const newToasts = diffReportDetail(existing.data, action.detail, action.reportId);
+			return {
+				...state,
+				detail: nextDetail,
+				reports: nextReports,
+				detailToasts: [...state.detailToasts, ...newToasts],
+			};
+		}
+		case "DETAIL_TOAST_DISMISSED":
+			return {
+				...state,
+				detailToasts: state.detailToasts.filter((t) => t.id !== action.toastId),
 			};
 		case "READ_IDS_LOADED": {
 			const next: Record<string, true> = { ...state.readReports };
@@ -681,4 +735,127 @@ export function reducer(state: AppState, action: Action): AppState {
 			return { ...state, viewport: vp, panelSizes: next };
 		}
 	}
+}
+
+// Reconcile the inbox-list row for `reportId` against a freshly fetched detail. Only the
+// fields that overlap between ReportSummary and ReportDetail are touched; everything else
+// (assignee, last_activity_at) is left as-is since the detail endpoint doesn't carry it.
+// Returns the same reports state reference when nothing actually changed so consumers can
+// skip re-renders via reference identity.
+function applyDetailToReports(
+	reports: AppState["reports"],
+	reportId: string,
+	detail: ReportDetail,
+): AppState["reports"] {
+	if (reports.status !== "ready") return reports;
+	let changed = false;
+	const items = reports.data.items.map((r) => {
+		if (r.id !== reportId) return r;
+		const sameAsset = (r.asset?.id ?? null) === (detail.asset?.id ?? null);
+		if (
+			r.title === detail.title &&
+			r.state === detail.state &&
+			r.severity_rating === detail.severity_rating &&
+			r.issue_tracker_reference_id === detail.issue_tracker_reference_id &&
+			r.issue_tracker_reference_url === detail.issue_tracker_reference_url &&
+			r.reporter.id === detail.reporter.id &&
+			sameAsset
+		) {
+			return r;
+		}
+		changed = true;
+		return {
+			...r,
+			title: detail.title,
+			state: detail.state,
+			severity_rating: detail.severity_rating,
+			issue_tracker_reference_id: detail.issue_tracker_reference_id,
+			issue_tracker_reference_url: detail.issue_tracker_reference_url,
+			asset: detail.asset,
+			reporter: detail.reporter,
+		};
+	});
+	if (!changed) return reports;
+	return { ...reports, data: { ...reports.data, items } };
+}
+
+function describeNewActivity(activity: Activity): string {
+	const actor = activity.actor?.username ?? "system";
+	if (activity.type === "comment") {
+		return `New comment by ${actor}`;
+	}
+	if (activity.kind.startsWith("bug-")) {
+		const newState = activity.kind.slice("bug-".length);
+		return `Report changed to ${pillFor(newState).label} by ${actor}`;
+	}
+	const kindLabel = activity.kind.replace(/-/g, " ");
+	return `${actor} ${kindLabel}`;
+}
+
+function describeDetailChange(field: string, next: ReportDetail): string | null {
+	switch (field) {
+		case "title":
+			return "Title updated";
+		case "vulnerability_information":
+			return "Description updated";
+		case "severity_rating":
+			return next.severity_rating
+				? `Severity changed to ${next.severity_rating}`
+				: "Severity cleared";
+		case "asset":
+			return next.asset ? `Asset changed to ${next.asset.asset_identifier}` : "Asset cleared";
+		default:
+			return null;
+	}
+}
+
+let toastSeq = 0;
+function makeToast(reportId: string, message: string, activityId?: string): DetailToast {
+	toastSeq += 1;
+	return { id: `${Date.now()}-${toastSeq}`, reportId, message, activityId };
+}
+
+// Compare two ReportDetail snapshots and produce toasts describing what changed.
+// Detail-field changes and new activities are reported independently; each category
+// aggregates to a single summary toast once it has three or more items.
+function diffReportDetail(prev: ReportDetail, next: ReportDetail, reportId: string): DetailToast[] {
+	const toasts: DetailToast[] = [];
+
+	const prevIds = new Set(prev.activities.map((a) => a.id));
+	const newActivities = next.activities.filter((a) => !prevIds.has(a.id));
+	if (newActivities.length === 1) {
+		const a = newActivities[0];
+		toasts.push(makeToast(reportId, describeNewActivity(a), a.id));
+	} else if (newActivities.length === 2) {
+		for (const a of newActivities) {
+			toasts.push(makeToast(reportId, describeNewActivity(a), a.id));
+		}
+	} else if (newActivities.length > 2) {
+		// Summary toast jumps to the first new activity — the others are immediately
+		// after it in the thread, so a single scroll target is enough.
+		toasts.push(
+			makeToast(reportId, `${newActivities.length} new activities`, newActivities[0].id),
+		);
+	}
+
+	const changedFields: string[] = [];
+	if (prev.title !== next.title) changedFields.push("title");
+	if (prev.vulnerability_information !== next.vulnerability_information)
+		changedFields.push("vulnerability_information");
+	if (prev.severity_rating !== next.severity_rating) changedFields.push("severity_rating");
+	if ((prev.asset?.id ?? null) !== (next.asset?.id ?? null)) changedFields.push("asset");
+
+	if (changedFields.length === 1) {
+		const msg = describeDetailChange(changedFields[0], next);
+		if (msg) toasts.push(makeToast(reportId, msg));
+	} else if (changedFields.length === 2) {
+		for (const f of changedFields) {
+			const msg = describeDetailChange(f, next);
+			if (msg) toasts.push(makeToast(reportId, msg));
+		}
+	} else if (changedFields.length > 2) {
+		toasts.push(makeToast(reportId, `${changedFields.length} new changes were loaded`));
+	}
+
+	return toasts;
 }

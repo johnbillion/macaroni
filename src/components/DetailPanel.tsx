@@ -1,14 +1,16 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
-import type { Activity } from "../state/store";
+import { CLOSED_STATE_CHANGE_TARGETS, OPEN_STATE_CHANGE_TARGETS } from "../state/filters";
+import type { Activity, DetailToast } from "../state/store";
 import { pillFor } from "../utils/pill";
-import { formatClock, formatRelativeTime } from "../utils/time";
+import { formatClock } from "../utils/time";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { Avatar } from "./Avatar";
-import { BulkEditPanel } from "./BulkEditPanel";
 import { renderActivity } from "./activity/renderActivity";
+import { BulkEditPanel } from "./BulkEditPanel";
 import { Markdown } from "./Markdown";
+import { RelativeTime } from "./RelativeTime";
 import { SeverityMeter } from "./SeverityMeter";
 
 function isHackbotPreSubmissionTrigger(a: Activity | undefined): boolean {
@@ -54,8 +56,7 @@ export function DetailPanel() {
 	const dispatch = useDispatch();
 	const bulkActive = state.selectedReportIds.size > 0;
 	const activeTab = state.detailActiveTab;
-	const setActiveTab = (tab: "report" | "bulk") =>
-		dispatch({ type: "DETAIL_TAB_SET", tab });
+	const setActiveTab = (tab: "report" | "bulk") => dispatch({ type: "DETAIL_TAB_SET", tab });
 	const prevBulkActive = useRef(false);
 	useEffect(() => {
 		if (bulkActive && !prevBulkActive.current) setActiveTab("bulk");
@@ -67,30 +68,104 @@ export function DetailPanel() {
 
 	return (
 		<aside class="detail">
-			{bulkActive ? (
-				<div class="detail-tabs" role="tablist">
-					<button
-						type="button"
-						role="tab"
-						aria-selected={activeTab === "report"}
-						class={`detail-tab${activeTab === "report" ? " active" : ""}`}
-						onClick={() => setActiveTab("report")}
-					>
-						Report
-					</button>
-					<button
-						type="button"
-						role="tab"
-						aria-selected={activeTab === "bulk"}
-						class={`detail-tab${activeTab === "bulk" ? " active" : ""}`}
-						onClick={() => setActiveTab("bulk")}
-					>
-						Bulk edit ({state.selectedReportIds.size})
-					</button>
-				</div>
-			) : null}
-			{bulkActive && activeTab === "bulk" ? <BulkEditPanel /> : <ReportTab />}
+			<div class="detail-scroll">
+				{bulkActive ? (
+					<div class="detail-tabs" role="tablist">
+						<button
+							type="button"
+							role="tab"
+							aria-selected={activeTab === "report"}
+							class={`detail-tab${activeTab === "report" ? " active" : ""}`}
+							onClick={() => setActiveTab("report")}
+						>
+							Report
+						</button>
+						<button
+							type="button"
+							role="tab"
+							aria-selected={activeTab === "bulk"}
+							class={`detail-tab${activeTab === "bulk" ? " active" : ""}`}
+							onClick={() => setActiveTab("bulk")}
+						>
+							Bulk edit ({state.selectedReportIds.size})
+						</button>
+					</div>
+				) : null}
+				{bulkActive && activeTab === "bulk" ? <BulkEditPanel /> : <ReportTab />}
+			</div>
+			{!bulkActive || activeTab === "report" ? <ToastStack toasts={state.detailToasts} /> : null}
 		</aside>
+	);
+}
+
+const TOAST_AUTO_DISMISS_MS = 10000;
+
+function scrollToActivity(activityId: string) {
+	const el = document.querySelector(`[data-activity-id="${CSS.escape(activityId)}"]`);
+	if (el instanceof HTMLElement) {
+		el.scrollIntoView({ behavior: "smooth", block: "center" });
+	}
+}
+
+function ToastStack({ toasts }: { toasts: DetailToast[] }) {
+	const dispatch = useDispatch();
+	useEffect(() => {
+		if (toasts.length === 0) return;
+		const timers = toasts.map((t) =>
+			window.setTimeout(
+				() => dispatch({ type: "DETAIL_TOAST_DISMISSED", toastId: t.id }),
+				TOAST_AUTO_DISMISS_MS,
+			),
+		);
+		return () => {
+			for (const id of timers) window.clearTimeout(id);
+		};
+	}, [toasts, dispatch]);
+	if (toasts.length === 0) return null;
+	return (
+		<div class="detail-toasts" role="status" aria-live="polite">
+			{toasts.map((t) => {
+				const clickable = !!t.activityId;
+				const onClick = clickable
+					? () => {
+							if (t.activityId) scrollToActivity(t.activityId);
+							dispatch({ type: "DETAIL_TOAST_DISMISSED", toastId: t.id });
+						}
+					: undefined;
+				return (
+					<div
+						key={t.id}
+						class={`detail-toast${clickable ? " clickable" : ""}`}
+						role={clickable ? "button" : undefined}
+						tabIndex={clickable ? 0 : undefined}
+						onClick={onClick}
+						onKeyDown={
+							clickable
+								? (e) => {
+										if (e.key === "Enter" || e.key === " ") {
+											e.preventDefault();
+											onClick?.();
+										}
+									}
+								: undefined
+						}
+					>
+						<span class="detail-toast-msg">{t.message}</span>
+						<button
+							type="button"
+							class="detail-toast-close"
+							aria-label="Dismiss"
+							onClick={(e) => {
+								e.stopPropagation();
+								dispatch({ type: "DETAIL_TOAST_DISMISSED", toastId: t.id });
+							}}
+						>
+							×
+						</button>
+					</div>
+				);
+			})}
+		</div>
 	);
 }
 
@@ -117,7 +192,6 @@ function ReportTab() {
 	const r = detail.data;
 	const pill = pillFor(r.state);
 	const submittedClock = r.submitted_at ? formatClock(r.submitted_at) : "";
-	const submittedRelative = r.submitted_at ? formatRelativeTime(r.submitted_at) : "";
 	const reporterUsername = r.reporter.username;
 	const reporterName = r.reporter.name;
 	const activities = isHackbotPreSubmissionTrigger(r.activities[0])

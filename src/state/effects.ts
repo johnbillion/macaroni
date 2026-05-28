@@ -100,6 +100,18 @@ export async function loadReportDetail(dispatch: Dispatch, reportId: string) {
 	}
 }
 
+// Background refresh — does NOT flip the detail into a loading state, and silently swallows
+// errors so a transient network blip doesn't blow away the currently-rendered report. The
+// reducer handles the diff between the prior snapshot and the freshly fetched one.
+export async function refreshReportDetail(dispatch: Dispatch, reportId: string) {
+	try {
+		const detail = await api.getReport(reportId);
+		dispatch({ type: "DETAIL_REFRESHED", reportId, detail });
+	} catch {
+		// Best-effort — the next poll will retry.
+	}
+}
+
 export async function markReportRead(dispatch: Dispatch, reportId: string) {
 	dispatch({ type: "REPORT_MARKED_READ", reportId });
 	try {
@@ -183,11 +195,7 @@ export function cancelPendingReportsLoad() {
 	}
 }
 
-export async function loadReports(
-	dispatch: Dispatch,
-	query: ReportsQuery,
-	pageCursor?: string,
-) {
+export async function loadReports(dispatch: Dispatch, query: ReportsQuery, pageCursor?: string) {
 	const key = reportsQueryKey(query, pageCursor);
 	if (key === lastIssuedQueryKey) return;
 	lastIssuedQueryKey = key;
@@ -236,8 +244,7 @@ export function buildReportsQuery(state: AppState): ReportsQuery | null {
 			? currentAssets.data.filter((a) => a.in_scope).map((a) => a.id)
 			: undefined;
 
-	const states =
-		state.filters.states.length === ALL_STATE_KEYS.length ? [] : state.filters.states;
+	const states = state.filters.states.length === ALL_STATE_KEYS.length ? [] : state.filters.states;
 	const severities =
 		state.filters.severities.length === ALL_SEVERITY_KEYS.length
 			? []
@@ -281,11 +288,7 @@ function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-export async function runBulkAssetUpdate(
-	dispatch: Dispatch,
-	reportIds: string[],
-	asset: AssetRef,
-) {
+export async function runBulkAssetUpdate(dispatch: Dispatch, reportIds: string[], asset: AssetRef) {
 	const myId = ++bulkRunId;
 	bulkCancelFlag = false;
 	dispatch({ type: "BULK_STARTED", total: reportIds.length });

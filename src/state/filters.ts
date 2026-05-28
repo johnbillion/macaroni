@@ -28,6 +28,18 @@ export const ALL_STATE_KEYS: string[] = [
 
 export const DEFAULT_STATE_KEYS: string[] = OPEN_STATES.map((s) => s.key);
 
+// Subset of states valid as targets for POST /v1/reports/{id}/state_changes.
+// `retesting` and `pending-program-review` are computed states, not directly settable.
+const COMPUTED_STATES = new Set(["retesting", "pending-program-review"]);
+export const OPEN_STATE_CHANGE_TARGETS: StateFacet[] = OPEN_STATES.filter(
+	(s) => !COMPUTED_STATES.has(s.key),
+);
+export const CLOSED_STATE_CHANGE_TARGETS: StateFacet[] = CLOSED_STATES;
+export const STATE_CHANGE_TARGETS: StateFacet[] = [
+	...OPEN_STATE_CHANGE_TARGETS,
+	...CLOSED_STATE_CHANGE_TARGETS,
+];
+
 export type SeverityFacet = { key: string; rating: string | null };
 
 // "unrated" is UI-only — the API can't filter for reports without a severity rating.

@@ -10,6 +10,7 @@ import {
 	loadReports,
 	loadTeamMembers,
 	markReportRead,
+	refreshReportDetail,
 } from "../state/effects";
 import { CredentialsGate } from "./CredentialsGate";
 import { DetailPanel } from "./DetailPanel";
@@ -17,6 +18,8 @@ import { InboxTable } from "./InboxTable";
 import { Resizer } from "./Resizer";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+
+const DETAIL_REFRESH_INTERVAL_MS = 20_000;
 
 export function App() {
 	const state = useAppState();
@@ -68,7 +71,10 @@ export function App() {
 	const currentAssets = orgId ? state.assetsByOrg[orgId] : undefined;
 	const eligibleAssetKey =
 		currentAssets?.status === "ready"
-			? currentAssets.data.filter((a) => a.in_scope).map((a) => a.id).join(",")
+			? currentAssets.data
+					.filter((a) => a.in_scope)
+					.map((a) => a.id)
+					.join(",")
 			: "";
 
 	const statesKey = state.filters.states.join(",");
@@ -104,6 +110,40 @@ export function App() {
 			markReportRead(dispatch, selectedReportId);
 		}
 		// biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
+	}, [selectedReportId, dispatch]);
+
+	// Poll the selected report in the background so new activity / detail changes surface
+	// without the user having to reselect. The reducer diffs the result against the prior
+	// snapshot and emits toasts. Polling pauses when the window loses focus (no point
+	// hitting the API while the user is in another app) and fires an immediate catch-up
+	// refresh when focus returns, so the toasts surface whatever happened while away.
+	useEffect(() => {
+		if (!selectedReportId) return;
+		let intervalId: number | null = null;
+		const start = () => {
+			if (intervalId !== null) return;
+			intervalId = window.setInterval(() => {
+				refreshReportDetail(dispatch, selectedReportId);
+			}, DETAIL_REFRESH_INTERVAL_MS);
+		};
+		const stop = () => {
+			if (intervalId !== null) {
+				window.clearInterval(intervalId);
+				intervalId = null;
+			}
+		};
+		const onFocus = () => {
+			refreshReportDetail(dispatch, selectedReportId);
+			start();
+		};
+		if (document.hasFocus()) start();
+		window.addEventListener("focus", onFocus);
+		window.addEventListener("blur", stop);
+		return () => {
+			stop();
+			window.removeEventListener("focus", onFocus);
+			window.removeEventListener("blur", stop);
+		};
 	}, [selectedReportId, dispatch]);
 
 	useEffect(() => {
