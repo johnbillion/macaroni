@@ -321,7 +321,7 @@ impl HackerOneApi for ReqwestClient {
                 let mut params = vec![
                     ("filter[program][]".to_string(), query.program_handle.clone()),
                     ("sort".to_string(), "-reports.created_at".to_string()),
-                    ("page[size]".to_string(), "100".to_string()),
+                    ("page[size]".to_string(), "50".to_string()),
                 ];
                 for state in &query.states {
                     params.push(("filter[state][]".to_string(), state.clone()));
