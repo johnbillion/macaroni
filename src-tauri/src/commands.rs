@@ -46,7 +46,7 @@ pub async fn credentials_status(ctx: State<'_, AppContext>) -> AppResult<Credent
     let loaded = ctx.creds.load()?;
     Ok(CredentialsStatus {
         has_credentials: loaded.is_some(),
-        username: loaded.map(|c| c.username),
+        username: loaded.map(|c| c.username.clone()),
     })
 }
 

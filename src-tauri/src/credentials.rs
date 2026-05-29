@@ -1,10 +1,14 @@
 use crate::error::AppResult;
 use serde::{Deserialize, Serialize};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub const SERVICE: &str = "com.johnbillion.macaroni";
 pub const ACCOUNT: &str = "default";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// `ZeroizeOnDrop` wipes the heap backing the token (and username) when the value is dropped,
+// so the cleartext secret doesn't linger in freed memory, swap, or a core dump. We reload
+// from the keychain on every request rather than caching, so these are short-lived.
+#[derive(Clone, Serialize, Deserialize, ZeroizeOnDrop)]
 pub struct Credentials {
     pub username: String,
     pub token: String,
@@ -40,15 +44,23 @@ impl Default for KeyringStore {
 impl CredentialStore for KeyringStore {
     fn load(&self) -> AppResult<Option<Credentials>> {
         match self.entry()?.get_password() {
-            Ok(s) => Ok(Some(serde_json::from_str(&s)?)),
+            // `s` is the cleartext JSON blob holding the token — parse it, then wipe it
+            // before it's dropped.
+            Ok(mut s) => {
+                let parsed = serde_json::from_str(&s);
+                s.zeroize();
+                Ok(Some(parsed?))
+            }
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(e) => Err(e.into()),
         }
     }
 
     fn save(&self, creds: &Credentials) -> AppResult<()> {
-        let serialized = serde_json::to_string(creds)?;
-        self.entry()?.set_password(&serialized)?;
+        let mut serialized = serde_json::to_string(creds)?;
+        let result = self.entry()?.set_password(&serialized);
+        serialized.zeroize();
+        result?;
         Ok(())
     }
 

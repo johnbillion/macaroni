@@ -5,6 +5,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
+use zeroize::Zeroize as _;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -222,13 +223,18 @@ impl ReqwestClient {
             .load()?
             .ok_or(AppError::Unauthorized { message: "No credentials saved".into() })?;
 
+        // Built fresh per request and wiped immediately after the builder copies it into the
+        // request's header map, so the base64'd secret isn't left sitting on the heap.
+        let mut auth = Self::auth_header(&creds);
         let res = self
             .http
             .get(url)
-            .header("Authorization", Self::auth_header(&creds))
+            .header("Authorization", auth.as_str())
             .header("Accept", "application/json")
             .send()
-            .await?;
+            .await;
+        auth.zeroize();
+        let res = res?;
 
         let status = res.status();
         if !status.is_success() {
