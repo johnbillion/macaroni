@@ -186,6 +186,11 @@ pub struct ReportQuery {
     pub keyword: Option<String>,
     #[serde(default)]
     pub page_cursor: Option<String>,
+    /// ISO8601 timestamp. When set (and no `page_cursor`), restricts the result to reports
+    /// created strictly after this instant via `filter[created_at__gt]` — used by the inbox's
+    /// background poll to fetch only reports newer than the latest one already on screen.
+    #[serde(default)]
+    pub since_created_at: Option<String>,
 }
 
 #[async_trait]
@@ -383,6 +388,9 @@ impl HackerOneApi for ReqwestClient {
                 }
                 if let Some(keyword) = query.keyword.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
                     params.push(("filter[keyword]".to_string(), keyword.to_string()));
+                }
+                if let Some(since) = query.since_created_at.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                    params.push(("filter[created_at__gt]".to_string(), since.to_string()));
                 }
                 let qs = serde_urlencoded::to_string(&params).map_err(AppError::other)?;
                 format!("{BASE_URL}/reports?{qs}")

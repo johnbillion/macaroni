@@ -265,6 +265,51 @@ export async function loadReports(
 	}
 }
 
+// Poll for reports created after `sinceCreatedAt` (the created_at of the newest report already
+// on screen) and prepend any new ones. Best-effort like refreshReportDetail: it never flips the
+// list into a loading state and swallows errors so a transient blip leaves the inbox untouched.
+// `replaceCount` is forwarded so the reducer can drop the result if a filter change replaced the
+// list while this was in flight. A single page (50) of new reports is plenty for a 30s cadence;
+// if more than that ever arrive between polls the older ones surface on the next manual reload.
+//
+// `sinceCreatedAt` is null when the current view is empty (a filter that matches nothing yet) —
+// there's no high-water mark to poll from, so we fetch the first page outright. The reducer's
+// dedupe means this harmlessly re-confirms an empty result until the first matching report lands.
+//
+// `boundaryId` is the id of the report whose created_at we polled from. HackerOne's
+// created_at__gt is inclusive of the exact boundary timestamp (it stores sub-ms precision but
+// returns ms-truncated created_at), so that report comes back in every response. We drop it by
+// id — never by timestamp, which would also discard a genuinely-new report sharing the boundary's
+// millisecond. The reducer's dedupe-by-id is the final backstop.
+export async function pollNewReports(
+	dispatch: Dispatch,
+	query: ReportsQuery,
+	sinceCreatedAt: string | null,
+	boundaryId: string | null,
+	replaceCount: number,
+) {
+	try {
+		const { items: fetched } = await api.listReports({
+			program_handle: query.programHandle,
+			states: query.states,
+			severities: query.severities,
+			asset_ids: query.assetIds,
+			keyword: query.keyword || undefined,
+			since_created_at: sinceCreatedAt ?? undefined,
+		});
+		const items = boundaryId ? fetched.filter((i) => i.id !== boundaryId) : fetched;
+		if (items.length === 0) return;
+		const ids = items.map((i) => i.id);
+		hydrateReadIds(dispatch, ids);
+		hydrateTriageValidity(dispatch, ids);
+		const closedIds = items.filter((i) => CLOSED_STATE_KEYS.has(i.state)).map((i) => i.id);
+		markReportsRead(dispatch, closedIds);
+		dispatch({ type: "REPORTS_POLLED", items, replaceCount });
+	} catch {
+		// Best-effort — the next poll will retry.
+	}
+}
+
 // Build the query from the current filter state, applying the "fully-checked group == no
 // filter" optimization in the same way as the App-level fetch effect.
 export function buildReportsQuery(state: AppState): ReportsQuery | null {

@@ -289,6 +289,10 @@ export type Action =
 	| { type: "REPORTS_REQUESTED"; append: boolean }
 	| { type: "REPORTS_SUCCEEDED"; items: ReportSummary[]; nextCursor?: string; append: boolean }
 	| { type: "REPORTS_FAILED"; error: AppError; append: boolean }
+	// Background poll turned up reports newer than the top of the current list. `replaceCount`
+	// is the reportsReplaceCount captured when the poll fired; the reducer drops the result if
+	// the list has since been replaced by a filter change (the stale items wouldn't match).
+	| { type: "REPORTS_POLLED"; items: ReportSummary[]; replaceCount: number }
 	| { type: "REPORT_SELECTED"; reportId: string | null }
 	| { type: "SELECTION_TOGGLED"; reportId: string }
 	| { type: "SELECTION_SET"; reportIds: string[]; checked: boolean }
@@ -581,6 +585,27 @@ export function reducer(state: AppState, action: Action): AppState {
 				reportsLoadMoreError: null,
 				reports: { status: "error", error: action.error },
 			};
+		case "REPORTS_POLLED": {
+			// Ignore a poll that resolved after the list was replaced by a filter change — its
+			// items belong to the previous query, and the high-water mark it polled from is gone.
+			if (state.reports.status !== "ready") return state;
+			if (action.replaceCount !== state.reportsReplaceCount) return state;
+			const known = new Set(state.reports.data.items.map((r) => r.id));
+			const fresh = action.items.filter((r) => !known.has(r.id));
+			if (fresh.length === 0) return state;
+			// Newer reports arrive at the top, like a new email landing in the inbox. The API
+			// returns them newest-first; the list is ordered the same way, so prepend as-is.
+			return {
+				...state,
+				reports: {
+					status: "ready",
+					data: {
+						items: [...fresh, ...state.reports.data.items],
+						nextCursor: state.reports.data.nextCursor,
+					},
+				},
+			};
+		}
 		case "REPORT_SELECTED":
 			return {
 				...state,

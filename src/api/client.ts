@@ -36,6 +36,7 @@ export const api = {
 		asset_ids: string[];
 		keyword?: string;
 		page_cursor?: string;
+		since_created_at?: string;
 	}) => call<{ items: ReportSummary[]; next_cursor: string | null }>("list_reports", { query }),
 	getReport: (reportId: string) => call<ReportDetail>("get_report", { reportId }),
 	updateReportAsset: (reportId: string, assetId: string) =>
