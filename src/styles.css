@@ -497,6 +497,8 @@ input[type="radio"] {
 	top: 5px;
 	right: 6px;
 	z-index: 4;
+	display: flex;
+	gap: 4px;
 }
 .columns-menu-btn {
 	font-family: inherit;
@@ -512,6 +514,12 @@ input[type="radio"] {
 .columns-menu-btn:hover {
 	color: var(--accent);
 	border-color: var(--border-2);
+}
+.columns-menu-btn:disabled {
+	opacity: 0.5;
+	cursor: default;
+	color: var(--text-3);
+	border-color: var(--border);
 }
 .inbox-table {
 	width: 100%;

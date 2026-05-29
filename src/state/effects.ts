@@ -225,9 +225,14 @@ export function cancelPendingReportsLoad() {
 	}
 }
 
-export async function loadReports(dispatch: Dispatch, query: ReportsQuery, pageCursor?: string) {
+export async function loadReports(
+	dispatch: Dispatch,
+	query: ReportsQuery,
+	pageCursor?: string,
+	force = false,
+) {
 	const key = reportsQueryKey(query, pageCursor);
-	if (key === lastIssuedQueryKey) return;
+	if (!force && key === lastIssuedQueryKey) return;
 	lastIssuedQueryKey = key;
 	const myId = ++reportsRequestId;
 	const append = pageCursor !== undefined;

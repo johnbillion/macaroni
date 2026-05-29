@@ -172,6 +172,11 @@ export function InboxTable() {
 		if (query) loadReports(dispatch, query);
 	};
 
+	const onRefreshReports = () => {
+		const query = buildReportsQuery(state);
+		if (query) loadReports(dispatch, query, undefined, true);
+	};
+
 	const body = (() => {
 		if (state.reports.status === "idle") {
 			return <div class="placeholder">Select a program to load its reports.</div>;
@@ -379,6 +384,7 @@ export function InboxTable() {
 	})();
 
 	const showColumnsMenu = state.reports.status === "ready" && state.reports.data.items.length > 0;
+	const canRefresh = !!buildReportsQuery(state);
 
 	return (
 		<div class="inbox-wrap">
@@ -391,9 +397,20 @@ export function InboxTable() {
 				/>
 				{body}
 			</main>
-			{showColumnsMenu ? (
+			{showColumnsMenu || canRefresh ? (
 				<div class="inbox-toolbar">
-					<ColumnsMenu visibility={visibility} onToggle={toggle} />
+					{canRefresh ? (
+						<button
+							type="button"
+							class="columns-menu-btn"
+							aria-label="Refresh reports"
+							onClick={onRefreshReports}
+							disabled={state.reportsRefreshing}
+						>
+							↻
+						</button>
+					) : null}
+					{showColumnsMenu ? <ColumnsMenu visibility={visibility} onToggle={toggle} /> : null}
 				</div>
 			) : null}
 		</div>
