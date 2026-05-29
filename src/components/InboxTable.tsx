@@ -20,7 +20,7 @@ const COLUMN_DEFS = [
 	{ key: "status", label: "Status", defaultVisible: true },
 	{ key: "severity", label: "Severity", defaultVisible: false },
 	{ key: "asset", label: "Asset", defaultVisible: true },
-	{ key: "inboxes", label: "Inboxes", defaultVisible: false },
+	{ key: "inboxes", label: "Inbox", defaultVisible: false },
 	{ key: "title", label: "Title", defaultVisible: true },
 	{ key: "triage", label: "Triage", defaultVisible: true },
 	{ key: "reporter", label: "Reporter", defaultVisible: false },

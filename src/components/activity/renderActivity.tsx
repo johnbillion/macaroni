@@ -18,8 +18,16 @@ function humanizeKind(kind: string): string {
  * pulling in kind-specific fields (invitee, scope names, weakness, etc.).
  * Returns null for kinds we don't have a custom phrasing for, so callers
  * can fall back to a humanized kind label.
+ *
+ * `currentInboxNames` carries the report's current custom inbox name(s), but
+ * only for the most recent inbox-update event — the H1 API doesn't expose the
+ * inbox on the `report-organization-inboxes-updated` activity itself, so we can
+ * only reliably name it on the event that produced the current inbox state.
  */
-function describeEvent(activity: EventActivity): JSX.Element | null {
+function describeEvent(
+	activity: EventActivity,
+	currentInboxNames: string[] | null,
+): JSX.Element | null {
 	switch (activity.kind) {
 		case "external-user-invited":
 			return activity.invitee ? (
@@ -63,7 +71,14 @@ function describeEvent(activity: EventActivity): JSX.Element | null {
 				<>assigned this report to a group</>
 			);
 		case "report-organization-inboxes-updated":
-			return <>updated the organization inboxes</>;
+			return currentInboxNames && currentInboxNames.length > 0 ? (
+				<>
+					updated the {currentInboxNames.length > 1 ? "inboxes" : "inbox"} to{" "}
+					<b>{currentInboxNames.join(", ")}</b>
+				</>
+			) : (
+				<>updated the organization inboxes</>
+			);
 		case "report-severity-updated":
 			return activity.new_severity ? (
 				<>
@@ -124,6 +139,7 @@ export function renderActivity(
 	reporterId: string,
 	teamMemberIds: Set<string>,
 	programHandle: string | null,
+	currentInboxNames: string[] | null = null,
 ) {
 	const isComment = activity.type === "comment";
 	const message = isComment ? activity.message : (activity.message ?? "");
@@ -138,7 +154,7 @@ export function renderActivity(
 
 	// Non-state-change events with no message body collapse to a one-line tick.
 	if (activity.type === "event" && !newState && !hasMessage) {
-		const description = describeEvent(activity);
+		const description = describeEvent(activity, currentInboxNames);
 		const tickClasses = ["event-tick", activity.internal ? "internal" : ""]
 			.filter(Boolean)
 			.join(" ");

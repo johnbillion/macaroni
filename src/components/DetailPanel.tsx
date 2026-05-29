@@ -214,6 +214,15 @@ function ReportTab() {
 	);
 	const duplicateOf = duplicateEvents[duplicateEvents.length - 1]?.original_report_id ?? null;
 
+	// The H1 API doesn't carry the inbox name on `report-organization-inboxes-updated`
+	// activities, so we can only name it on the most recent one — whose result is the
+	// report's current custom inbox(es). Older inbox-update events stay generic.
+	const inboxNames = inboxes.map((inbox) => inbox.name);
+	const inboxUpdateEvents = r.activities.filter(
+		(a) => a.type === "event" && a.kind === "report-organization-inboxes-updated",
+	);
+	const latestInboxUpdateId = inboxUpdateEvents[inboxUpdateEvents.length - 1]?.id ?? null;
+
 	const handle = state.filters.programHandle ?? null;
 	const members = handle ? state.teamMembersByProgram[handle] : undefined;
 	const teamMemberIds: Set<string> =
@@ -348,7 +357,15 @@ function ReportTab() {
 					<div class="placeholder">No activity yet.</div>
 				) : (
 					<div class="thread">
-						{activities.map((a) => renderActivity(a, r.reporter.id, teamMemberIds, handle))}
+						{activities.map((a) =>
+							renderActivity(
+								a,
+								r.reporter.id,
+								teamMemberIds,
+								handle,
+								a.id === latestInboxUpdateId ? inboxNames : null,
+							),
+						)}
 						<div class="thread-end">— END —</div>
 					</div>
 				)}
