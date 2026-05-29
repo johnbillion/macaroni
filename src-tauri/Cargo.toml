@@ -28,11 +28,12 @@ serde_json = "1"
 reqwest = { version = "0.13.3", default-features = false, features = ["rustls", "json", "http2"] }
 thiserror = "2.0.18"
 anyhow = "1.0.102"
-tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "process", "io-util"] }
 keyring = { version = "3", features = ["apple-native"] }
 async-trait = "0.1.89"
 log = "0.4"
 base64 = "0.22.1"
 serde_urlencoded = "0.7.1"
 rusqlite = { version = "0.32", features = ["bundled"] }
+libc = "0.2"
 
