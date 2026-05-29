@@ -1127,6 +1127,23 @@ a[target="_blank"]::after {
 	gap: 6px;
 	color: var(--high);
 }
+.kv-inboxes {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 4px 6px;
+}
+.kv-inbox {
+	display: inline-block;
+	padding: 1px 7px;
+	border: 1px solid var(--border-2);
+	border-radius: 999px;
+	font-size: 11px;
+	color: var(--text-2);
+}
+.kv-inbox.kv-inbox-custom {
+	border-color: var(--accent);
+	color: var(--accent);
+}
 .warn-icon {
 	flex-shrink: 0;
 }

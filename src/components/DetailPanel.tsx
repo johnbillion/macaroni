@@ -238,6 +238,23 @@ function ReportTab() {
 							<span class="kv-missing">None</span>
 						)}
 					</dd>
+					<dt>Inboxes</dt>
+					<dd>
+						{r.inboxes.length > 0 ? (
+							<span class="kv-inboxes">
+								{r.inboxes.map((inbox) => (
+									<span
+										key={inbox.id}
+										class={`kv-inbox${inbox.kind === "custom" ? " kv-inbox-custom" : ""}`}
+									>
+										{inbox.name}
+									</span>
+								))}
+							</span>
+						) : (
+							<span class="kv-missing">None</span>
+						)}
+					</dd>
 					<dt>Reporter</dt>
 					<dd class="kv-person">
 						<Avatar user={r.reporter} />

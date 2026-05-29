@@ -53,6 +53,7 @@ export type AssigneeRef = {
 };
 export type WeaknessRef = { id: string; name: string; external_id: string | null };
 export type AssetRef = { id: string; asset_identifier: string; asset_type: string | null };
+export type InboxRef = { id: string; name: string; kind: string | null };
 
 export type Attachment = {
 	id: string;
@@ -104,6 +105,7 @@ export type ReportDetail = {
 	reporter: UserRef;
 	weakness: WeaknessRef | null;
 	asset: AssetRef | null;
+	inboxes: InboxRef[];
 	activities: Activity[];
 	attachments: Attachment[];
 };

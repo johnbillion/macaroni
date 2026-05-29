@@ -77,6 +77,14 @@ pub struct AssetRef {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct InboxRef {
+    pub id: String,
+    pub name: String,
+    /// `default` for the program's built-in inbox, `custom` for a custom inbox.
+    pub kind: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct Asset {
     pub id: String,
     pub identifier: String,
@@ -150,6 +158,7 @@ pub struct ReportDetail {
     pub reporter: UserRef,
     pub weakness: Option<WeaknessRef>,
     pub asset: Option<AssetRef>,
+    pub inboxes: Vec<InboxRef>,
     pub activities: Vec<Activity>,
     pub attachments: Vec<Attachment>,
 }
@@ -519,6 +528,25 @@ fn parse_severity_rating(relationships: Option<&serde_json::Value>) -> Option<St
         .map(String::from)
 }
 
+fn parse_inboxes(rel: Option<&serde_json::Value>) -> Vec<InboxRef> {
+    rel.and_then(|r| r.get("inboxes"))
+        .and_then(|i| i.get("data"))
+        .and_then(|d| d.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| {
+                    let attrs = item.get("attributes")?;
+                    Some(InboxRef {
+                        id: item.get("id")?.as_str()?.to_string(),
+                        name: attrs.get("name")?.as_str()?.to_string(),
+                        kind: attrs.get("type").and_then(|v| v.as_str()).map(String::from),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn parse_asset_ref(rel: &serde_json::Value) -> Option<AssetRef> {
     let data = rel.get("data")?;
     let attrs = data.get("attributes")?;
@@ -699,6 +727,7 @@ fn parse_report_detail(body: &serde_json::Value) -> Option<ReportDetail> {
         reporter: rel.and_then(|r| r.get("reporter")).and_then(parse_user_ref)?,
         weakness: rel.and_then(|r| r.get("weakness")).and_then(parse_weakness_ref),
         asset: rel.and_then(|r| r.get("structured_scope")).and_then(parse_asset_ref),
+        inboxes: parse_inboxes(rel),
         activities,
         attachments: parse_attachments(rel),
     })
