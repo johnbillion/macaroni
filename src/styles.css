@@ -591,6 +591,9 @@ input[type="radio"] {
 	color: var(--text-2);
 	font-size: 11px;
 }
+.row .inboxes {
+	max-width: 220px;
+}
 .row .severity {
 	font-variant-numeric: tabular-nums;
 }

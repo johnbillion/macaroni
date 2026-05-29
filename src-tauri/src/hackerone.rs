@@ -36,6 +36,7 @@ pub struct ReportSummary {
     pub asset: Option<AssetRef>,
     pub reporter: UserRef,
     pub assignee: Option<AssigneeRef>,
+    pub inboxes: Vec<InboxRef>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -397,6 +398,7 @@ impl HackerOneApi for ReqwestClient {
                         .and_then(parse_asset_ref),
                     reporter: rel.and_then(|r| r.get("reporter")).and_then(parse_user_ref)?,
                     assignee: rel.and_then(|r| r.get("assignee")).and_then(parse_assignee_ref),
+                    inboxes: parse_inboxes(rel),
                 })
             })
             .collect();

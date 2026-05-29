@@ -20,6 +20,7 @@ const COLUMN_DEFS = [
 	{ key: "status", label: "Status", defaultVisible: true },
 	{ key: "severity", label: "Severity", defaultVisible: false },
 	{ key: "asset", label: "Asset", defaultVisible: true },
+	{ key: "inboxes", label: "Inboxes", defaultVisible: false },
 	{ key: "title", label: "Title", defaultVisible: true },
 	{ key: "triage", label: "Triage", defaultVisible: true },
 	{ key: "reporter", label: "Reporter", defaultVisible: false },
@@ -215,6 +216,7 @@ export function InboxTable() {
 						{visibility.status ? <th>STATUS</th> : null}
 						{visibility.severity ? <th class="th-severity">SEVERITY</th> : null}
 						{visibility.asset ? <th class="th-asset">ASSET</th> : null}
+						{visibility.inboxes ? <th class="th-inboxes">INBOX</th> : null}
 						{visibility.title ? <th class="th-title">TITLE</th> : null}
 						{visibility.triage ? <th class="th-triage">TRIAGE</th> : null}
 						{visibility.reporter ? <th class="th-person">REPORTER</th> : null}
@@ -273,6 +275,28 @@ export function InboxTable() {
 										) : (
 											""
 										)}
+									</td>
+								) : null}
+								{visibility.inboxes ? (
+									<td class="inboxes">
+										{(() => {
+											// Hide the program's built-in `default` inbox — it's named after the
+											// program and adds no information beyond the selected program.
+											const inboxes = r.inboxes.filter((inbox) => inbox.kind !== "default");
+											if (inboxes.length === 0) return "";
+											return (
+												<span class="kv-inboxes">
+													{inboxes.map((inbox) => (
+														<span
+															key={inbox.id}
+															class={`kv-inbox${inbox.kind === "custom" ? " kv-inbox-custom" : ""}`}
+														>
+															{inbox.name}
+														</span>
+													))}
+												</span>
+											);
+										})()}
 									</td>
 								) : null}
 								{visibility.title ? <td class="title">{r.title}</td> : null}

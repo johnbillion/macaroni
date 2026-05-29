@@ -199,6 +199,10 @@ function ReportTab() {
 		? r.activities.slice(1)
 		: r.activities;
 
+	// Hide the program's built-in `default` inbox — it's named after the program and
+	// adds no information beyond the currently selected program.
+	const inboxes = r.inboxes.filter((inbox) => inbox.kind !== "default");
+
 	const handle = state.filters.programHandle ?? null;
 	const members = handle ? state.teamMembersByProgram[handle] : undefined;
 	const teamMemberIds: Set<string> =
@@ -240,9 +244,9 @@ function ReportTab() {
 					</dd>
 					<dt>Inboxes</dt>
 					<dd>
-						{r.inboxes.length > 0 ? (
+						{inboxes.length > 0 ? (
 							<span class="kv-inboxes">
-								{r.inboxes.map((inbox) => (
+								{inboxes.map((inbox) => (
 									<span
 										key={inbox.id}
 										class={`kv-inbox${inbox.kind === "custom" ? " kv-inbox-custom" : ""}`}

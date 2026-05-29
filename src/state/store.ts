@@ -36,6 +36,7 @@ export type ReportSummary = {
 	asset: AssetRef | null;
 	reporter: UserRef;
 	assignee: AssigneeRef | null;
+	inboxes: InboxRef[];
 };
 
 export type UserRef = {
