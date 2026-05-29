@@ -7,6 +7,7 @@ import type {
 	ReportDetail,
 	ReportSummary,
 	TeamMember,
+	TriageRecord,
 } from "../state/store";
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -44,4 +45,12 @@ export const api = {
 	markReportRead: (reportId: string) => call<void>("mark_report_read", { reportId }),
 	markReportsRead: (reportIds: string[]) => call<void>("mark_reports_read", { reportIds }),
 	getReadIds: (reportIds: string[]) => call<string[]>("get_read_ids", { reportIds }),
+	getTriage: (reportId: string) => call<TriageRecord | null>("get_triage", { reportId }),
+	getTriagePrompt: (reportTitle: string, reportBody: string) =>
+		call<string>("get_triage_prompt", { reportTitle, reportBody }),
+	runTriage: (reportId: string, prompt: string) =>
+		call<TriageRecord>("run_triage", { reportId, prompt }),
+	stopTriage: (reportId: string) => call<boolean>("stop_triage", { reportId }),
+	listTriageValidity: (reportIds: string[]) =>
+		call<{ id: string; validity: string | null }[]>("list_triage_validity", { reportIds }),
 };

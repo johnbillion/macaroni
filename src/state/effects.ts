@@ -1,6 +1,14 @@
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api } from "../api/client";
 import { ALL_SEVERITY_KEYS, ALL_STATE_KEYS, CLOSED_STATES } from "./filters";
-import type { Action, AppError, AppState, AssetRef } from "./store";
+import type {
+	Action,
+	AppError,
+	AppState,
+	AssetRef,
+	TriageEvent,
+	TriageValidity,
+} from "./store";
 
 const CLOSED_STATE_KEYS = new Set(CLOSED_STATES.map((s) => s.key));
 
@@ -141,6 +149,28 @@ async function hydrateReadIds(dispatch: Dispatch, ids: string[]) {
 	}
 }
 
+const VALID_VALIDITIES = new Set<string>([
+	"valid",
+	"partially-valid",
+	"invalid",
+	"indeterminate",
+]);
+
+async function hydrateTriageValidity(dispatch: Dispatch, ids: string[]) {
+	if (ids.length === 0) return;
+	try {
+		const rows = await api.listTriageValidity(ids);
+		const entries = rows.map((r) => ({
+			id: r.id,
+			validity:
+				r.validity && VALID_VALIDITIES.has(r.validity) ? (r.validity as TriageValidity) : null,
+		}));
+		dispatch({ type: "TRIAGE_VALIDITY_LOADED", entries });
+	} catch {
+		// Non-fatal: the inbox column just stays empty.
+	}
+}
+
 export type ReportsQuery = {
 	programHandle: string;
 	states: string[];
@@ -212,10 +242,9 @@ export async function loadReports(dispatch: Dispatch, query: ReportsQuery, pageC
 			page_cursor: pageCursor,
 		});
 		if (myId !== reportsRequestId) return;
-		hydrateReadIds(
-			dispatch,
-			items.map((i) => i.id),
-		);
+		const ids = items.map((i) => i.id);
+		hydrateReadIds(dispatch, ids);
+		hydrateTriageValidity(dispatch, ids);
 		const closedIds = items.filter((i) => CLOSED_STATE_KEYS.has(i.state)).map((i) => i.id);
 		markReportsRead(dispatch, closedIds);
 		dispatch({
@@ -318,4 +347,42 @@ export async function runBulkAssetUpdate(dispatch: Dispatch, reportIds: string[]
 
 export function cancelBulkUpdate() {
 	bulkCancelFlag = true;
+}
+
+export async function loadTriage(dispatch: Dispatch, reportId: string) {
+	dispatch({ type: "TRIAGE_LOAD_REQUESTED", reportId });
+	try {
+		const result = await api.getTriage(reportId);
+		dispatch({ type: "TRIAGE_LOAD_SUCCEEDED", reportId, result });
+	} catch (e) {
+		// Treat a load failure as "no saved triage" — surfacing an error here would block the
+		// user from starting a fresh run, which is more useful than reporting the read miss.
+		dispatch({ type: "TRIAGE_LOAD_SUCCEEDED", reportId, result: null });
+		void e;
+	}
+}
+
+export async function runTriage(dispatch: Dispatch, reportId: string, prompt: string) {
+	dispatch({ type: "TRIAGE_RUN_STARTED", reportId });
+	let unlisten: UnlistenFn | null = null;
+	try {
+		unlisten = await listen<TriageEvent>(`triage:event:${reportId}`, (e) => {
+			dispatch({ type: "TRIAGE_EVENT", reportId, event: e.payload });
+		});
+		const result = await api.runTriage(reportId, prompt);
+		dispatch({ type: "TRIAGE_RUN_SUCCEEDED", reportId, result });
+	} catch (e) {
+		dispatch({ type: "TRIAGE_RUN_FAILED", reportId, error: asError(e) });
+	} finally {
+		if (unlisten) unlisten();
+	}
+}
+
+export async function stopTriage(reportId: string) {
+	try {
+		await api.stopTriage(reportId);
+	} catch {
+		// Best-effort — if the signal fails (process already gone, etc.) the normal
+		// completion path will surface whatever state the run ended in.
+	}
 }

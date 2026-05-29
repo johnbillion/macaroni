@@ -1789,3 +1789,267 @@ a[target="_blank"]::after {
 	justify-content: flex-end;
 }
 
+/* --- AI Triage panel --- */
+.triage {
+	padding: 20px 0;
+	display: flex;
+	flex-direction: column;
+	gap: 18px;
+}
+.triage-head {
+	padding-bottom: 14px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.triage-title {
+	font-size: 11px;
+	letter-spacing: 0.18em;
+	color: var(--text-3);
+	text-transform: uppercase;
+}
+.triage-sub {
+	font-size: 12px;
+	color: var(--text-2);
+}
+.triage-error {
+	color: var(--crit);
+}
+.triage-run {
+	align-self: flex-start;
+	margin-top: 6px;
+	background: var(--bg-2);
+	border: 1px solid var(--border);
+	color: var(--text);
+	padding: 8px 16px;
+	font-family: inherit;
+	font-size: 11px;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	cursor: pointer;
+}
+.triage-run:hover {
+	background: var(--bg-3);
+}
+.triage-run:disabled {
+	cursor: not-allowed;
+	opacity: 0.6;
+}
+.triage-stop {
+	color: var(--crit);
+	border-color: var(--crit);
+}
+.triage-stop:hover {
+	background: var(--bg-3);
+	color: var(--crit);
+}
+.triage-validity {
+	display: inline-block;
+	padding: 2px 8px;
+	border: 1px solid currentColor;
+	font-size: 10px;
+	letter-spacing: 0.12em;
+	font-weight: 600;
+	vertical-align: middle;
+}
+/* Only kicks in when the badge sits next to other inline content (heading text, tab label).
+   In a table cell where the badge is the lone child, no margin is added. */
+.triage-validity:not(:first-child) {
+	margin-left: 10px;
+}
+.triage-validity-valid {
+	color: var(--low);
+}
+.triage-validity-partially-valid {
+	color: var(--med);
+}
+.triage-validity-invalid {
+	color: var(--crit);
+}
+.triage-validity-none,
+.triage-validity-indeterminate {
+	color: var(--text-3);
+}
+.th-triage {
+	width: 90px;
+}
+.triage-cell {
+	white-space: nowrap;
+}
+.triage-cell-empty {
+	color: var(--text-3);
+}
+.spinner {
+	display: inline-block;
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	border: 2px solid var(--text);
+	border-top-color: transparent;
+	vertical-align: middle;
+	animation: spinner-rotate 1.5s linear infinite;
+}
+@keyframes spinner-rotate {
+	to {
+		transform: rotate(360deg);
+	}
+}
+.triage-disclosure-summary {
+	cursor: pointer;
+	list-style: none;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.triage-disclosure-summary::-webkit-details-marker {
+	display: none;
+}
+.triage-disclosure-summary::before {
+	content: "▸";
+	color: var(--text-3);
+	font-size: 13px;
+}
+.triage-disclosure[open] > .triage-disclosure-summary::before {
+	transform: rotate(90deg);
+}
+.triage-disclosure-label {
+	font-size: 11px;
+	letter-spacing: 0.14em;
+	color: var(--text-2);
+}
+.triage-disclosure-spinner {
+	margin-left: 2px;
+}
+/* The embedded TriagePanel renders a `.triage` wrapper with its own padding —
+   strip the outer-most layout padding so the disclosure body controls spacing. */
+.triage-disclosure-body .triage {
+	padding: 16px 18px;
+}
+.triage-prompt {
+	width: 100%;
+	min-height: 240px;
+	max-height: 60vh;
+	margin-top: 8px;
+	background: #faf5e6;
+	border: 1px solid var(--border);
+	color: #000000;
+	font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+		"Courier New", monospace;
+	font-size: 12px;
+	line-height: 1.5;
+	padding: 10px 12px;
+	resize: vertical;
+}
+.triage-prompt:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+.triage-log {
+	max-height: 360px;
+	overflow-y: auto;
+	border: 1px solid var(--border);
+	background: var(--bg-1);
+	font-size: 11px;
+	display: flex;
+	flex-direction: column;
+}
+.triage-log-empty {
+	padding: 12px;
+	color: var(--text-3);
+	font-style: italic;
+}
+.triage-event {
+	display: flex;
+	gap: 10px;
+	padding: 6px 10px;
+	border-bottom: 1px dashed var(--border);
+	align-items: flex-start;
+}
+.triage-event:last-child {
+	border-bottom: none;
+}
+.triage-event-kind {
+	flex: 0 0 60px;
+	color: var(--text-3);
+	letter-spacing: 0.1em;
+	font-size: 10px;
+	padding-top: 1px;
+}
+.triage-event-text {
+	flex: 1;
+	color: var(--text-2);
+	white-space: pre-wrap;
+	word-break: break-word;
+	min-width: 0;
+}
+.triage-event-primary {
+	color: var(--text);
+}
+.triage-event-secondary {
+	color: var(--text-3);
+}
+.triage-event-assistant .triage-event-kind {
+	color: var(--accent);
+}
+.triage-event-assistant .triage-event-primary {
+	color: var(--text);
+}
+.triage-event-tool .triage-event-kind {
+	color: var(--info);
+}
+.triage-event-tool .triage-event-primary {
+	color: var(--info);
+	font-weight: 600;
+}
+.triage-event-tool .triage-event-secondary {
+	color: var(--text-2);
+	font-family: ui-monospace, monospace;
+}
+.triage-event-result .triage-event-primary {
+	color: var(--text-3);
+	font-family: ui-monospace, monospace;
+}
+.triage-event-thinking .triage-event-kind {
+	color: var(--text-3);
+}
+.triage-event-thinking .triage-event-primary {
+	color: var(--text-3);
+	font-style: italic;
+}
+.triage-event-error .triage-event-kind {
+	color: var(--crit);
+}
+.triage-event-error .triage-event-primary {
+	color: var(--crit);
+	font-family: ui-monospace, monospace;
+}
+.triage-event-final .triage-event-kind {
+	color: var(--low);
+}
+.triage-event-raw .triage-event-primary {
+	color: var(--text-3);
+	font-family: ui-monospace, monospace;
+}
+.triage-events,
+.triage-prev {
+	border: 1px solid var(--border);
+	background: var(--bg-1);
+	padding: 8px 10px;
+	font-size: 11px;
+}
+.triage-events summary,
+.triage-prev summary {
+	cursor: pointer;
+	color: var(--text-3);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+.triage-events[open],
+.triage-prev[open] {
+	padding-bottom: 12px;
+}
+.triage-events[open] summary,
+.triage-prev[open] summary {
+	margin-bottom: 8px;
+}
+

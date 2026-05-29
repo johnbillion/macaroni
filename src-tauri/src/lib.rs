@@ -4,7 +4,8 @@ mod error;
 mod hackerone;
 mod local_db;
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use commands::AppContext;
 use credentials::KeyringStore;
@@ -44,7 +45,9 @@ pub fn run() {
                 SqliteStore::open(&data_dir.join("macaroni.db")).expect("open local db"),
             );
 
-            app.manage(AppContext { creds, api, reports });
+            let triages = Arc::new(Mutex::new(HashMap::new()));
+
+            app.manage(AppContext { creds, api, reports, triages });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -62,6 +65,11 @@ pub fn run() {
             commands::mark_report_read,
             commands::mark_reports_read,
             commands::get_read_ids,
+            commands::get_triage,
+            commands::get_triage_prompt,
+            commands::list_triage_validity,
+            commands::run_triage,
+            commands::stop_triage,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -86,6 +86,8 @@ export type Activity =
 			new_scope: string | null;
 			new_weakness: string | null;
 			group_name: string | null;
+			old_severity: string | null;
+			new_severity: string | null;
 	  };
 
 export type ReportDetail = {
@@ -173,6 +175,26 @@ export function clampPanelSize(value: number, bounds: PanelBounds): number {
 	return Math.max(bounds.min, Math.min(bounds.max, Math.round(value)));
 }
 
+// Triage events come straight from `claude --output-format stream-json` — JSON objects
+// with a `type` field (`system`, `assistant`, `user`, `result`, or our own `raw`).
+// We keep the original shape so the renderer can decide how to display each kind.
+// biome-ignore lint/suspicious/noExplicitAny: stream-json events vary in shape per `type`
+export type TriageEvent = { type: string; [key: string]: any };
+
+export type TriageValidity = "valid" | "partially-valid" | "invalid" | "indeterminate" | "none";
+
+// What we store per report — the markdown summary plus an optional structured verdict.
+// `validity` is null for legacy entries written before claude was asked for JSON output,
+// or for runs where claude didn't emit a parseable verdict.
+export type TriageRecord = { summary: string; validity: TriageValidity | null };
+
+export type TriageState =
+	| { status: "idle" }
+	| { status: "loading" }
+	| { status: "running"; events: TriageEvent[]; saved: TriageRecord | null }
+	| { status: "ready"; result: TriageRecord; events: TriageEvent[] }
+	| { status: "error"; error: AppError; events: TriageEvent[]; saved: TriageRecord | null };
+
 export type BulkFailure = { reportId: string; error: AppError };
 
 export type BulkOperationState =
@@ -222,6 +244,11 @@ export type AppState = {
 	bulkOperation: BulkOperationState;
 	detailActiveTab: "report" | "bulk";
 	detail: Record<string, AsyncState<ReportDetail>>;
+	triage: Record<string, TriageState>;
+	// Lightweight per-report triage status surfaced in the inbox row (`null` means a triage
+	// was saved but no validity verdict was recorded — e.g. legacy entries or parse failures).
+	// Missing keys = no triage saved.
+	triageValidityByReport: Record<string, TriageValidity | null>;
 	// Transient notifications surfaced inside the detail pane after a background refresh
 	// turns up new activity or detail changes. Tied to the currently selected report only —
 	// cleared on REPORT_SELECTED so they don't bleed across navigations.
@@ -270,6 +297,16 @@ export type Action =
 	| { type: "BULK_RESULT_DISMISSED" }
 	| { type: "BULK_RETRY_FAILED" }
 	| { type: "DETAIL_TAB_SET"; tab: "report" | "bulk" }
+	| { type: "TRIAGE_LOAD_REQUESTED"; reportId: string }
+	| { type: "TRIAGE_LOAD_SUCCEEDED"; reportId: string; result: TriageRecord | null }
+	| { type: "TRIAGE_RUN_STARTED"; reportId: string }
+	| { type: "TRIAGE_EVENT"; reportId: string; event: TriageEvent }
+	| { type: "TRIAGE_RUN_SUCCEEDED"; reportId: string; result: TriageRecord }
+	| { type: "TRIAGE_RUN_FAILED"; reportId: string; error: AppError }
+	| {
+			type: "TRIAGE_VALIDITY_LOADED";
+			entries: { id: string; validity: TriageValidity | null }[];
+	  }
 	| { type: "DETAIL_REQUESTED"; reportId: string }
 	| { type: "DETAIL_SUCCEEDED"; reportId: string; detail: ReportDetail }
 	| { type: "DETAIL_FAILED"; reportId: string; error: AppError }
@@ -328,6 +365,8 @@ export const initialState: AppState = {
 	bulkOperation: { status: "idle" },
 	detailActiveTab: "report",
 	detail: {},
+	triage: {},
+	triageValidityByReport: {},
 	detailToasts: [],
 	readReports: {},
 	detailPlacement: loadDetailPlacement(),
@@ -647,6 +686,88 @@ export function reducer(state: AppState, action: Action): AppState {
 		}
 		case "DETAIL_TAB_SET":
 			return { ...state, detailActiveTab: action.tab };
+		case "TRIAGE_LOAD_REQUESTED":
+			return {
+				...state,
+				triage: { ...state.triage, [action.reportId]: { status: "loading" } },
+			};
+		case "TRIAGE_LOAD_SUCCEEDED":
+			return {
+				...state,
+				triage: {
+					...state.triage,
+					[action.reportId]:
+						action.result !== null
+							? { status: "ready", result: action.result, events: [] }
+							: { status: "idle" },
+				},
+				triageValidityByReport:
+					action.result !== null
+						? {
+								...state.triageValidityByReport,
+								[action.reportId]: action.result.validity,
+							}
+						: state.triageValidityByReport,
+			};
+		case "TRIAGE_RUN_STARTED": {
+			const prev = state.triage[action.reportId];
+			const saved: TriageRecord | null =
+				prev?.status === "ready"
+					? prev.result
+					: prev?.status === "running" || prev?.status === "error"
+						? prev.saved
+						: null;
+			return {
+				...state,
+				triage: {
+					...state.triage,
+					[action.reportId]: { status: "running", events: [], saved },
+				},
+			};
+		}
+		case "TRIAGE_EVENT": {
+			const prev = state.triage[action.reportId];
+			if (!prev || prev.status !== "running") return state;
+			return {
+				...state,
+				triage: {
+					...state.triage,
+					[action.reportId]: { ...prev, events: [...prev.events, action.event] },
+				},
+			};
+		}
+		case "TRIAGE_RUN_SUCCEEDED": {
+			const prev = state.triage[action.reportId];
+			const events = prev && "events" in prev ? prev.events : [];
+			return {
+				...state,
+				triage: {
+					...state.triage,
+					[action.reportId]: { status: "ready", result: action.result, events },
+				},
+				triageValidityByReport: {
+					...state.triageValidityByReport,
+					[action.reportId]: action.result.validity,
+				},
+			};
+		}
+		case "TRIAGE_RUN_FAILED": {
+			const prev = state.triage[action.reportId];
+			const events = prev && "events" in prev ? prev.events : [];
+			const saved = prev?.status === "running" || prev?.status === "error" ? prev.saved : null;
+			return {
+				...state,
+				triage: {
+					...state.triage,
+					[action.reportId]: { status: "error", error: action.error, events, saved },
+				},
+			};
+		}
+		case "TRIAGE_VALIDITY_LOADED": {
+			const next: Record<string, TriageValidity | null> = { ...state.triageValidityByReport };
+			for (const e of action.entries) next[e.id] = e.validity;
+			return { ...state, triageValidityByReport: next };
+		}
 		case "DETAIL_REQUESTED":
 			return {
 				...state,
@@ -834,9 +955,7 @@ function diffReportDetail(prev: ReportDetail, next: ReportDetail, reportId: stri
 	} else if (newActivities.length > 2) {
 		// Summary toast jumps to the first new activity — the others are immediately
 		// after it in the thread, so a single scroll target is enough.
-		toasts.push(
-			makeToast(reportId, `${newActivities.length} new activities`, newActivities[0].id),
-		);
+		toasts.push(makeToast(reportId, `${newActivities.length} new activities`, newActivities[0].id));
 	}
 
 	const changedFields: string[] = [];

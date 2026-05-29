@@ -7,9 +7,11 @@ import { buildReportsQuery, loadMoreReports, loadReports } from "../state/effect
 import type { AppError, AssigneeRef, UserRef } from "../state/store";
 import { pillFor } from "../utils/pill";
 import { formatRelativeTime } from "../utils/time";
+import { ValidityBadge } from "./TriagePanel";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { Avatar } from "./Avatar";
 import { SeverityMeter } from "./SeverityMeter";
+import { Spinner } from "./Spinner";
 
 const COLUMN_DEFS = [
 	{ key: "id", label: "ID", defaultVisible: true },
@@ -19,6 +21,7 @@ const COLUMN_DEFS = [
 	{ key: "severity", label: "Severity", defaultVisible: false },
 	{ key: "asset", label: "Asset", defaultVisible: true },
 	{ key: "title", label: "Title", defaultVisible: true },
+	{ key: "triage", label: "Triage", defaultVisible: true },
 	{ key: "reporter", label: "Reporter", defaultVisible: false },
 	{ key: "assignee", label: "Assignee", defaultVisible: false },
 	{ key: "reference", label: "Reference", defaultVisible: false },
@@ -48,13 +51,11 @@ function loadColumnVisibility(): Record<ColumnKey, boolean> {
 }
 
 function useColumnVisibility() {
-	const [visibility, setVisibility] =
-		useState<Record<ColumnKey, boolean>>(loadColumnVisibility);
+	const [visibility, setVisibility] = useState<Record<ColumnKey, boolean>>(loadColumnVisibility);
 	useEffect(() => {
 		localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibility));
 	}, [visibility]);
-	const toggle = (key: ColumnKey) =>
-		setVisibility((v) => ({ ...v, [key]: !v[key] }));
+	const toggle = (key: ColumnKey) => setVisibility((v) => ({ ...v, [key]: !v[key] }));
 	return { visibility, toggle };
 }
 
@@ -132,8 +133,7 @@ export function InboxTable() {
 	const dispatch = useDispatch();
 	const inboxRef = useRef<HTMLElement>(null);
 	const { visibility, toggle } = useColumnVisibility();
-	const visibleCount =
-		1 + COLUMN_DEFS.reduce((n, c) => n + (visibility[c.key] ? 1 : 0), 0);
+	const visibleCount = 1 + COLUMN_DEFS.reduce((n, c) => n + (visibility[c.key] ? 1 : 0), 0);
 
 	const items = state.reports.status === "ready" ? state.reports.data.items : [];
 	const selected = state.selectedReportIds;
@@ -216,6 +216,7 @@ export function InboxTable() {
 						{visibility.severity ? <th class="th-severity">SEVERITY</th> : null}
 						{visibility.asset ? <th class="th-asset">ASSET</th> : null}
 						{visibility.title ? <th class="th-title">TITLE</th> : null}
+						{visibility.triage ? <th class="th-triage">TRIAGE</th> : null}
 						{visibility.reporter ? <th class="th-person">REPORTER</th> : null}
 						{visibility.assignee ? <th class="th-person">ASSIGNEE</th> : null}
 						{visibility.reference ? <th>REFERENCE</th> : null}
@@ -275,12 +276,22 @@ export function InboxTable() {
 									</td>
 								) : null}
 								{visibility.title ? <td class="title">{r.title}</td> : null}
-								{visibility.reporter ? (
-									<td class="person">{renderPerson(r.reporter)}</td>
+								{visibility.triage ? (
+									<td class="triage-cell">
+										{(() => {
+											// In-flight run takes precedence over any previously saved validity.
+											if (state.triage[r.id]?.status === "running") {
+												return <Spinner class="triage-cell-spinner" />;
+											}
+											const v = state.triageValidityByReport[r.id];
+											if (v === undefined) return null;
+											if (v === null) return <span class="triage-cell-empty">—</span>;
+											return <ValidityBadge validity={v} />;
+										})()}
+									</td>
 								) : null}
-								{visibility.assignee ? (
-									<td class="person">{renderPerson(r.assignee)}</td>
-								) : null}
+								{visibility.reporter ? <td class="person">{renderPerson(r.reporter)}</td> : null}
+								{visibility.assignee ? <td class="person">{renderPerson(r.assignee)}</td> : null}
 								{visibility.reference ? (
 									<td class="reference">
 										{r.issue_tracker_reference_url && r.issue_tracker_reference_id ? (
@@ -343,8 +354,7 @@ export function InboxTable() {
 		);
 	})();
 
-	const showColumnsMenu =
-		state.reports.status === "ready" && state.reports.data.items.length > 0;
+	const showColumnsMenu = state.reports.status === "ready" && state.reports.data.items.length > 0;
 
 	return (
 		<div class="inbox-wrap">

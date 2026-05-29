@@ -9,6 +9,7 @@ import {
 	loadReportDetail,
 	loadReports,
 	loadTeamMembers,
+	loadTriage,
 	markReportRead,
 	refreshReportDetail,
 } from "../state/effects";
@@ -111,6 +112,15 @@ export function App() {
 		}
 		// biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
 	}, [selectedReportId, dispatch]);
+
+	// Hydrate any saved triage for the selected report so the AI Triage tab shows immediately.
+	// Skip if we already have a running/ready/loading entry — overwriting would clobber events.
+	useEffect(() => {
+		if (!selectedReportId) return;
+		const existing = state.triage[selectedReportId];
+		if (existing) return;
+		loadTriage(dispatch, selectedReportId);
+	}, [selectedReportId, state.triage, dispatch]);
 
 	// Poll the selected report in the background so new activity / detail changes surface
 	// without the user having to reselect. The reducer diffs the result against the prior

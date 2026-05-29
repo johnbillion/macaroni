@@ -5,6 +5,7 @@ import { CLOSED_STATE_CHANGE_TARGETS, OPEN_STATE_CHANGE_TARGETS } from "../state
 import type { Activity, DetailToast } from "../state/store";
 import { pillFor } from "../utils/pill";
 import { formatClock } from "../utils/time";
+import { TriageDisclosure } from "./TriagePanel";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { Avatar } from "./Avatar";
 import { renderActivity } from "./activity/renderActivity";
@@ -278,6 +279,8 @@ function ReportTab() {
 					)}
 				</dl>
 			</div>
+
+			<TriageDisclosure />
 
 			<div class="section">
 				<div class="section-h">
