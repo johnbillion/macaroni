@@ -229,7 +229,7 @@ function ReportTab() {
 		members?.status === "ready" ? new Set(members.data.map((m) => m.id)) : new Set();
 
 	return (
-		<aside class="detail">
+		<>
 			<div class="detail-head">
 				<div class="dh-meta">
 					<span>#{r.id}</span>
@@ -370,6 +370,6 @@ function ReportTab() {
 					</div>
 				)}
 			</div>
-		</aside>
+		</>
 	);
 }
