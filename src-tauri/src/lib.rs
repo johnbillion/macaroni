@@ -15,6 +15,9 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // builder is reassigned only inside the debug-only block below, so the `mut`
+    // looks unnecessary in release builds.
+    #[cfg_attr(not(debug_assertions), allow(unused_mut))]
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())

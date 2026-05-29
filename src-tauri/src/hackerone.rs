@@ -464,6 +464,9 @@ impl HackerOneApi for ReqwestClient {
     // full bulk-edit UI flow (progress, partial failure, retry-failed) can be
     // exercised without unauthorized/forbidden which would abort the batch.
     // Replace with a real PUT /reports/{id}/structured_scope when the UI is solid.
+    // asset_id is only referenced by the debug-only println below, so it reads
+    // as unused in release builds.
+    #[cfg_attr(not(debug_assertions), allow(unused_variables))]
     async fn update_report_asset(&self, report_id: &str, asset_id: &str) -> AppResult<()> {
         let r = pseudo_rand_u64();
         let delay_ms = 150 + ((r >> 8) % 350);
