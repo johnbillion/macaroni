@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="App icon: the letter M formed from four pieces of macaroni pasta">
+  <defs>
+    <!-- Pasta body shading: catches light at the top, darker at the bottom -->
+    <linearGradient id="pasta" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F7D269"/>
+      <stop offset="0.5" stop-color="#E9B23C"/>
+      <stop offset="1" stop-color="#CE8C1E"/>
+    </linearGradient>
+    <!-- Open tube end -->
+    <radialGradient id="hole" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#6E440C"/>
+      <stop offset="0.7" stop-color="#945E12"/>
+      <stop offset="1" stop-color="#B0751C"/>
+    </radialGradient>
+  </defs>
+
+  <!-- ===================== Macaroni tubes (4 pieces of an M) ===================== -->
+  <!-- Each piece: dark rim (tube wall) + gold body + soft top highlight -->
+  <g fill="none" stroke-linecap="round">
+    <!-- rims -->
+    <g stroke="#A2660F" stroke-width="50">
+      <path d="M148 148 Q132 268 150 382"/>
+      <path d="M160 146 Q203 214 247 286"/>
+      <path d="M352 146 Q309 214 265 286"/>
+      <path d="M364 148 Q380 268 362 382"/>
+    </g>
+    <!-- bodies -->
+    <g stroke="url(#pasta)" stroke-width="40">
+      <path d="M148 148 Q132 268 150 382"/>
+      <path d="M160 146 Q203 214 247 286"/>
+      <path d="M352 146 Q309 214 265 286"/>
+      <path d="M364 148 Q380 268 362 382"/>
+    </g>
+    <!-- highlights -->
+    <g stroke="#FCE9A8" stroke-width="9" stroke-opacity="0.75" transform="translate(-5 -6)">
+      <path d="M148 148 Q132 268 150 382"/>
+      <path d="M160 146 Q203 214 247 286"/>
+      <path d="M352 146 Q309 214 265 286"/>
+      <path d="M364 148 Q380 268 362 382"/>
+    </g>
+  </g>
+
+  <!-- ===================== Open tube ends (the macaroni holes) ===================== -->
+  <!-- ellipse rotated to face along each tube's direction; rx = foreshortened depth, ry = bore -->
+  <g fill="url(#hole)" stroke="#7E4E10" stroke-width="2">
+    <ellipse cx="148" cy="148" rx="8.5" ry="18" transform="rotate(97.6 148 148)"/>
+    <ellipse cx="150" cy="382" rx="8.5" ry="18" transform="rotate(81.0 150 382)"/>
+    <ellipse cx="160" cy="146" rx="8.5" ry="18" transform="rotate(57.7 160 146)"/>
+    <ellipse cx="247" cy="286" rx="8.5" ry="18" transform="rotate(58.6 247 286)"/>
+    <ellipse cx="352" cy="146" rx="8.5" ry="18" transform="rotate(122.3 352 146)"/>
+    <ellipse cx="265" cy="286" rx="8.5" ry="18" transform="rotate(121.4 265 286)"/>
+    <ellipse cx="364" cy="148" rx="8.5" ry="18" transform="rotate(82.4 364 148)"/>
+    <ellipse cx="362" cy="382" rx="8.5" ry="18" transform="rotate(99.0 362 382)"/>
+  </g>
+</svg>
