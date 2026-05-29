@@ -14,6 +14,17 @@ pub struct Credentials {
     pub token: String,
 }
 
+// Hand-written so the token can never reach a log line or panic message via `{:?}`. The
+// derived `Debug` would print it in cleartext.
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Credentials")
+            .field("username", &self.username)
+            .field("token", &"<redacted>")
+            .finish()
+    }
+}
+
 pub trait CredentialStore: Send + Sync {
     fn load(&self) -> AppResult<Option<Credentials>>;
     fn save(&self, creds: &Credentials) -> AppResult<()>;
@@ -103,6 +114,15 @@ impl CredentialStore for InMemoryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn debug_redacts_token() {
+        let creds = Credentials { username: "alice".into(), token: "super-secret-token".into() };
+        let rendered = format!("{creds:?}");
+        assert!(rendered.contains("alice"));
+        assert!(!rendered.contains("super-secret-token"));
+        assert!(rendered.contains("<redacted>"));
+    }
 
     #[test]
     fn in_memory_roundtrip() {
