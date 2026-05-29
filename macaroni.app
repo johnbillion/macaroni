@@ -1,0 +1,1 @@
+src-tauri/target/release/bundle/macos/macaroni.app
