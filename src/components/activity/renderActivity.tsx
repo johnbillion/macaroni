@@ -48,9 +48,9 @@ function describeEvent(activity: EventActivity): JSX.Element | null {
 				<>joined this report as a participant</>
 			);
 		case "changed-scope":
-			return activity.old_scope && activity.new_scope ? (
+			return activity.new_scope ? (
 				<>
-					changed the scope from <b>{activity.old_scope}</b> to <b>{activity.new_scope}</b>
+					changed the scope to <b>{activity.new_scope}</b>
 				</>
 			) : (
 				<>changed the scope</>
