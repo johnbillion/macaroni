@@ -8,6 +8,7 @@ pub enum AppError {
     NotFound { message: String },
     RateLimited { message: String },
     Network { message: String },
+    Keychain { message: String },
     Other { message: String },
 }
 
@@ -40,6 +41,7 @@ impl std::fmt::Display for AppError {
             | AppError::NotFound { message }
             | AppError::RateLimited { message }
             | AppError::Network { message }
+            | AppError::Keychain { message }
             | AppError::Other { message } => write!(f, "{message}"),
         }
     }
@@ -62,7 +64,23 @@ impl From<reqwest::Error> for AppError {
 
 impl From<keyring::Error> for AppError {
     fn from(e: keyring::Error) -> Self {
-        AppError::Other { message: format!("keyring: {e}") }
+        match &e {
+            // Reading from / writing to the keychain failed at the OS layer. The most common
+            // cause at startup is the user dismissing the keychain unlock prompt, which the
+            // apple-native backend surfaces as `errSecUserCanceled` (-128) wrapped in a
+            // `PlatformFailure` — the OSStatus code shows up in the error's Debug form.
+            keyring::Error::PlatformFailure(_) | keyring::Error::NoStorageAccess(_) => {
+                let message = if format!("{e:?}").contains("-128") {
+                    "Keychain access was cancelled. Macaroni needs to read your saved \
+                     credentials from the macOS keychain to continue."
+                        .to_string()
+                } else {
+                    format!("Couldn't access the macOS keychain: {e}")
+                };
+                AppError::Keychain { message }
+            }
+            _ => AppError::Other { message: format!("keyring: {e}") },
+        }
     }
 }
 

@@ -7,6 +7,7 @@ export type AppError =
 	| { kind: "not_found"; message: string }
 	| { kind: "rate_limited"; message: string }
 	| { kind: "network"; message: string }
+	| { kind: "keychain"; message: string }
 	| { kind: "other"; message: string };
 
 export type AsyncState<T> =

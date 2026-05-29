@@ -174,6 +174,22 @@ export function App() {
 	}, [state.panelSizes]);
 
 	if (state.credentials === "unknown") {
+		// We couldn't even determine whether credentials exist — typically the user dismissed
+		// the macOS keychain unlock prompt. Surface the error with a way to retry rather than
+		// hanging on "Starting…" forever.
+		if (state.bootstrap.status === "error") {
+			return (
+				<div class="gate" data-tauri-drag-region>
+					<div class="gate-card">
+						<h1>Couldn't start Macaroni</h1>
+						<div class="error">{state.bootstrap.error.message}</div>
+						<button type="button" onClick={() => bootstrap(dispatch)}>
+							Retry
+						</button>
+					</div>
+				</div>
+			);
+		}
 		return (
 			<div class="placeholder" data-tauri-drag-region>
 				Starting…
