@@ -6,7 +6,6 @@ import type {
 	AppError,
 	TriageEvent,
 	TriageRecord,
-	TriageState,
 	TriageValidity,
 } from "../state/store";
 import { Markdown } from "./Markdown";

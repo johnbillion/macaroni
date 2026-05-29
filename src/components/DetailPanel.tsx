@@ -1,7 +1,6 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
-import { CLOSED_STATE_CHANGE_TARGETS, OPEN_STATE_CHANGE_TARGETS } from "../state/filters";
 import type { Activity, DetailToast } from "../state/store";
 import { pillFor } from "../utils/pill";
 import { formatClock } from "../utils/time";
