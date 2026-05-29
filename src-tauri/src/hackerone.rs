@@ -12,6 +12,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub const BASE_URL: &str = "https://api.hackerone.com/v1";
 
+/// The only host we will ever attach the user's credentials to. `get_json` follows
+/// `links.next` cursor URLs returned by the API verbatim; this guards against a tampered
+/// response redirecting the `Authorization` header to an attacker-controlled host.
+const API_HOST: &str = "api.hackerone.com";
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Organization {
     pub id: String,
@@ -212,12 +217,29 @@ impl ReqwestClient {
     }
 
     fn auth_header(creds: &Credentials) -> String {
-        let raw = format!("{}:{}", creds.username, creds.token);
-        let encoded = base64::engine::general_purpose::STANDARD.encode(raw);
-        format!("Basic {encoded}")
+        let mut raw = format!("{}:{}", creds.username, creds.token);
+        let mut encoded = base64::engine::general_purpose::STANDARD.encode(raw.as_bytes());
+        raw.zeroize();
+        let header = format!("Basic {encoded}");
+        encoded.zeroize();
+        header
+    }
+
+    /// Reject any URL that isn't HTTPS to the HackerOne API host before we attach credentials.
+    fn ensure_api_url(url: &str) -> AppResult<()> {
+        let parsed = reqwest::Url::parse(url)
+            .map_err(|e| AppError::other(format!("invalid request URL: {e}")))?;
+        if parsed.scheme() != "https" || parsed.host_str() != Some(API_HOST) {
+            return Err(AppError::Other {
+                message: "Refusing to send credentials to a non-HackerOne URL".into(),
+            });
+        }
+        Ok(())
     }
 
     async fn get_json(&self, url: &str) -> AppResult<serde_json::Value> {
+        Self::ensure_api_url(url)?;
+
         let creds = self
             .creds
             .load()?
@@ -469,6 +491,29 @@ fn pseudo_rand_u64() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.subsec_nanos() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod auth_url_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_hackerone_https_urls() {
+        assert!(ReqwestClient::ensure_api_url(&format!("{BASE_URL}/reports")).is_ok());
+        assert!(ReqwestClient::ensure_api_url("https://api.hackerone.com/v1/me/organizations").is_ok());
+    }
+
+    #[test]
+    fn rejects_other_hosts_and_schemes() {
+        // A tampered `links.next` pointing elsewhere must not receive the credentials.
+        assert!(ReqwestClient::ensure_api_url("https://evil.example.com/v1/reports").is_err());
+        // Look-alike hosts.
+        assert!(ReqwestClient::ensure_api_url("https://api.hackerone.com.evil.com/v1").is_err());
+        // Downgraded scheme.
+        assert!(ReqwestClient::ensure_api_url("http://api.hackerone.com/v1/reports").is_err());
+        // Garbage.
+        assert!(ReqwestClient::ensure_api_url("not a url").is_err());
+    }
 }
 
 fn parse_user_ref(rel: &serde_json::Value) -> Option<UserRef> {
