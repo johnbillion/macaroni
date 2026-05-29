@@ -687,6 +687,8 @@ input[type="radio"] {
 	letter-spacing: 0.08em;
 	color: var(--text-2);
 	text-transform: uppercase;
+	white-space: nowrap;
+	flex-shrink: 0;
 }
 .pill.new { color: var(--state-new); border-color: var(--state-new); }
 .pill.pending { color: var(--state-pending); border-color: var(--state-pending); }
@@ -934,7 +936,7 @@ input[type="radio"] {
 	line-height: 1.65;
 	color: var(--text);
 	white-space: pre-wrap;
-	word-wrap: break-word;
+	overflow-wrap: anywhere;
 }
 .markdown {
 	white-space: normal;
@@ -1033,6 +1035,7 @@ a[target="_blank"]::after {
 .markdown table {
 	border-collapse: collapse;
 	font-size: 12px;
+	width: 100%;
 }
 .markdown th,
 .markdown td {
@@ -1167,18 +1170,18 @@ a[target="_blank"]::after {
 .msg {
 	display: flex;
 	flex-direction: column;
-	max-width: 86%;
 }
 .msg.in {
-	align-self: flex-start;
+	align-items: stretch;
 }
 .msg.out {
-	align-self: flex-end;
 	align-items: flex-end;
 }
 .msg-meta {
 	display: flex;
 	align-items: center;
+	flex-wrap: wrap;
+	width: 100%;
 	gap: 8px;
 	font-size: 10px;
 	color: var(--text-3);
@@ -1204,8 +1207,18 @@ a[target="_blank"]::after {
 	gap: 5px;
 	font-variant-numeric: tabular-nums;
 	margin-left: auto;
+	white-space: nowrap;
+	flex-shrink: 0;
+}
+/* Team-side meta packs to the right; time sits inline at the end of the cluster. */
+.msg.out .msg-meta {
+	justify-content: flex-end;
+}
+.msg.out .msg-time {
+	margin-left: 0;
 }
 .msg-bubble {
+	max-width: 80%;
 	background: var(--bg-2);
 	border: 1px solid var(--border);
 	border-radius: 2px;
@@ -1214,7 +1227,7 @@ a[target="_blank"]::after {
 	line-height: 1.6;
 	color: var(--text);
 	white-space: pre-wrap;
-	word-wrap: break-word;
+	overflow-wrap: anywhere;
 }
 .msg.out .msg-bubble {
 	background: var(--bg-1);
@@ -1252,6 +1265,8 @@ a[target="_blank"]::after {
 	font-size: 9px;
 	letter-spacing: 0.14em;
 	font-weight: 700;
+	white-space: nowrap;
+	flex-shrink: 0;
 }
 
 .msg-staff-flag {
@@ -1264,6 +1279,8 @@ a[target="_blank"]::after {
 	font-size: 9px;
 	letter-spacing: 0.14em;
 	font-weight: 700;
+	white-space: nowrap;
+	flex-shrink: 0;
 }
 
 .msg-event-kind {
@@ -1277,6 +1294,8 @@ a[target="_blank"]::after {
 	letter-spacing: 0.14em;
 	font-weight: 700;
 	text-transform: uppercase;
+	white-space: nowrap;
+	flex-shrink: 0;
 }
 
 .msg-event-action {
@@ -1285,6 +1304,8 @@ a[target="_blank"]::after {
 	text-transform: none;
 	font-size: 11px;
 	font-weight: 400;
+	white-space: nowrap;
+	flex-shrink: 0;
 }
 
 /* Event ticks (non-comment activities) */

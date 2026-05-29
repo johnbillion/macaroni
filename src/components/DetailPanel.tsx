@@ -12,6 +12,7 @@ import { renderActivity } from "./activity/renderActivity";
 import { BulkEditPanel } from "./BulkEditPanel";
 import { Markdown } from "./Markdown";
 import { RelativeTime } from "./RelativeTime";
+import { ReportLink } from "./ReportLink";
 import { SeverityMeter } from "./SeverityMeter";
 
 function isHackbotPreSubmissionTrigger(a: Activity | undefined): boolean {
@@ -203,6 +204,16 @@ function ReportTab() {
 	// adds no information beyond the currently selected program.
 	const inboxes = r.inboxes.filter((inbox) => inbox.kind !== "default");
 
+	// If this report was closed as a duplicate, surface the canonical report it points
+	// to. The link only exists on the `bug-duplicate` activity, so derive it from the
+	// timeline — taking the most recent one in case the report was reopened and
+	// re-duplicated against a different original.
+	const duplicateEvents = r.activities.filter(
+		(a): a is Extract<Activity, { type: "event" }> =>
+			a.type === "event" && a.kind === "bug-duplicate" && !!a.original_report_id,
+	);
+	const duplicateOf = duplicateEvents[duplicateEvents.length - 1]?.original_report_id ?? null;
+
 	const handle = state.filters.programHandle ?? null;
 	const members = handle ? state.teamMembersByProgram[handle] : undefined;
 	const teamMemberIds: Set<string> =
@@ -222,7 +233,13 @@ function ReportTab() {
 							</>
 						) : null}
 					</span>
-					<span class={`pill ${pill.className}`}>{pill.label}</span>
+					{duplicateOf ? (
+						<span class={`pill ${pill.className}`}>
+							{pill.label} of <ReportLink id={duplicateOf} />
+						</span>
+					) : (
+						<span class={`pill ${pill.className}`}>{pill.label}</span>
+					)}
 					<CopyButton text={r.id} label="COPY ID" class="dh-action dh-action-first" />
 					<button
 						type="button"
@@ -256,7 +273,7 @@ function ReportTab() {
 								))}
 							</span>
 						) : (
-							<span class="kv-missing">None</span>
+							<>Default</>
 						)}
 					</dd>
 					<dt>Reporter</dt>

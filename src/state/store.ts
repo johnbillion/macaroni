@@ -84,6 +84,7 @@ export type Activity =
 			actor: UserRef | null;
 			invitee: string | null;
 			duplicate_report_id: string | null;
+			original_report_id: string | null;
 			old_scope: string | null;
 			new_scope: string | null;
 			new_weakness: string | null;

@@ -1,10 +1,10 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
 import type { JSX } from "preact";
 import type { Activity } from "../../state/store";
 import { pillFor } from "../../utils/pill";
 import { Avatar } from "../Avatar";
 import { Markdown } from "../Markdown";
 import { RelativeTime } from "../RelativeTime";
+import { ReportLink } from "../ReportLink";
 import { SeverityMeter } from "../SeverityMeter";
 
 type EventActivity = Extract<Activity, { type: "event" }>;
@@ -32,17 +32,8 @@ function describeEvent(activity: EventActivity): JSX.Element | null {
 		case "external-user-joined":
 			return activity.duplicate_report_id ? (
 				<>
-					filed a duplicate
-					(<a
-						href={`https://hackerone.com/reports/${activity.duplicate_report_id}`}
-						target="_blank"
-						rel="noopener noreferrer"
-						onClick={(e) => {
-							e.preventDefault();
-							openUrl(`https://hackerone.com/reports/${activity.duplicate_report_id}`);
-						}}
-					>#{activity.duplicate_report_id}</a>)
-					and was invited to participate in this report
+					filed a duplicate (<ReportLink id={activity.duplicate_report_id} />) and was
+					invited to participate in this report
 				</>
 			) : (
 				<>joined this report as a participant</>
@@ -192,7 +183,13 @@ export function renderActivity(
 				{pill ? (
 					<>
 						<span class="msg-event-action">changed status to</span>
-						<span class={`pill ${pill.className}`}>{pill.label}</span>
+						{(activity.type === "event" && activity.original_report_id) ? (
+							<span class={`pill ${pill.className}`}>
+								{pill.label} of <ReportLink id={activity.original_report_id} />
+							</span>
+						) : (
+							<span class={`pill ${pill.className}`}>{pill.label}</span>
+						)}
 					</>
 				) : isSeverityChange && activity.type === "event" ? (
 					activity.old_severity ? (

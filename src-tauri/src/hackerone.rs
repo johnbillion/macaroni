@@ -131,6 +131,9 @@ pub enum Activity {
         /// `duplicate_report_id` attr on `activity-external-user-joined` when the user
         /// joined as a result of filing a duplicate report.
         duplicate_report_id: Option<String>,
+        /// `original_report_id` attr on `activity-bug-duplicate` — the canonical report
+        /// this one was closed as a duplicate of.
+        original_report_id: Option<String>,
         /// `old_scope` / `new_scope` asset identifiers on `activity-changed-scope`.
         old_scope: Option<String>,
         new_scope: Option<String>,
@@ -616,6 +619,13 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
         } else {
             None
         };
+        let original_report_id = if kind_short == "bug-duplicate" {
+            attrs
+                .get("original_report_id")
+                .and_then(|v| v.as_u64().map(|n| n.to_string()).or_else(|| v.as_str().map(String::from)))
+        } else {
+            None
+        };
         let scope_identifier = |key: &str| -> Option<String> {
             relationships?
                 .get(key)?
@@ -675,6 +685,7 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
             actor,
             invitee,
             duplicate_report_id,
+            original_report_id,
             old_scope,
             new_scope,
             new_weakness,
