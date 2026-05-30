@@ -223,6 +223,12 @@ function ReportTab() {
 	const latestInboxUpdateId = inboxUpdateEvents[inboxUpdateEvents.length - 1]?.id ?? null;
 
 	const handle = state.filters.programHandle ?? null;
+	// Suggested-bounty activities carry no currency; a program pays in a single
+	// currency, so borrow it from the first awarded bounty in the loaded inbox list.
+	const programCurrency =
+		state.reports.status === "ready"
+			? (state.reports.data.items.find((it) => it.bounty?.currency)?.bounty?.currency ?? null)
+			: null;
 	const members = handle ? state.teamMembersByProgram[handle] : undefined;
 	const teamMemberIds: Set<string> =
 		members?.status === "ready" ? new Set(members.data.map((m) => m.id)) : new Set();
@@ -363,6 +369,7 @@ function ReportTab() {
 								teamMemberIds,
 								handle,
 								a.id === latestInboxUpdateId ? inboxNames : null,
+								programCurrency,
 							),
 						)}
 						<div class="thread-end">— END —</div>

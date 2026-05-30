@@ -6,6 +6,7 @@ import { useAppState, useDispatch } from "../state/context";
 import { buildReportsQuery, loadMoreReports, loadReports } from "../state/effects";
 import type { AppError, AssigneeRef, UserRef } from "../state/store";
 import { pillFor } from "../utils/pill";
+import { formatBounty } from "../utils/money";
 import { formatRelativeTime } from "../utils/time";
 import { ValidityBadge } from "./TriagePanel";
 import { AssetIdentifier } from "./AssetIdentifier";
@@ -26,6 +27,7 @@ const COLUMN_DEFS = [
 	{ key: "reporter", label: "Reporter", defaultVisible: false },
 	{ key: "assignee", label: "Assignee", defaultVisible: false },
 	{ key: "reference", label: "Reference", defaultVisible: false },
+	{ key: "bounty", label: "Bounty", defaultVisible: false },
 ] as const;
 
 type ColumnKey = (typeof COLUMN_DEFS)[number]["key"];
@@ -227,6 +229,7 @@ export function InboxTable() {
 						{visibility.reporter ? <th class="th-person">REPORTER</th> : null}
 						{visibility.assignee ? <th class="th-person">ASSIGNEE</th> : null}
 						{visibility.reference ? <th>REFERENCE</th> : null}
+						{visibility.bounty ? <th class="th-bounty">BOUNTY</th> : null}
 					</tr>
 				</thead>
 				<tbody>
@@ -340,6 +343,9 @@ export function InboxTable() {
 											(r.issue_tracker_reference_id ?? "")
 										)}
 									</td>
+								) : null}
+								{visibility.bounty ? (
+									<td class="bounty">{r.bounty ? formatBounty(r.bounty) : ""}</td>
 								) : null}
 							</tr>
 						);

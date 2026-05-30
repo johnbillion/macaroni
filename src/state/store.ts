@@ -38,6 +38,7 @@ export type ReportSummary = {
 	reporter: UserRef;
 	assignee: AssigneeRef | null;
 	inboxes: InboxRef[];
+	bounty: BountyTotal | null;
 };
 
 export type UserRef = {
@@ -56,6 +57,8 @@ export type AssigneeRef = {
 export type WeaknessRef = { id: string; name: string; external_id: string | null };
 export type AssetRef = { id: string; asset_identifier: string; asset_type: string | null };
 export type InboxRef = { id: string; name: string; kind: string | null };
+// Total awarded bounty (base + bonus) summed across all awards on a report.
+export type BountyTotal = { amount: number; currency: string | null };
 
 export type Attachment = {
 	id: string;
@@ -92,6 +95,9 @@ export type Activity =
 			group_name: string | null;
 			old_severity: string | null;
 			new_severity: string | null;
+			bounty_amount: number | null;
+			bonus_amount: number | null;
+			assigned_user: UserRef | null;
 	  };
 
 export type ReportDetail = {

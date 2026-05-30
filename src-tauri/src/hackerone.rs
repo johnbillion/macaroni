@@ -43,6 +43,16 @@ pub struct ReportSummary {
     pub reporter: UserRef,
     pub assignee: Option<AssigneeRef>,
     pub inboxes: Vec<InboxRef>,
+    pub bounty: Option<BountyTotal>,
+}
+
+// Total awarded bounty for a report, summed across all bounty awards (a report can
+// have several when an award is split between collaborators). The list endpoint only
+// carries actually-awarded amounts; HackerOne's API has no "suggested bounty" field here.
+#[derive(Debug, Clone, Serialize)]
+pub struct BountyTotal {
+    pub amount: f64,
+    pub currency: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -150,6 +160,13 @@ pub enum Activity {
         /// `old_severity` / `new_severity` ratings on `activity-report-severity-updated`.
         old_severity: Option<String>,
         new_severity: Option<String>,
+        /// `bounty_amount` / `bonus_amount` on `activity-bounty-suggested` (the suggested
+        /// award and report-quality bonus). The activity carries no currency code.
+        bounty_amount: Option<f64>,
+        bonus_amount: Option<f64>,
+        /// `assigned_user` on `activity-user-assigned-to-bug` — the user the report was
+        /// assigned to (distinct from `actor`, who performed the assignment).
+        assigned_user: Option<UserRef>,
     },
 }
 
@@ -438,6 +455,7 @@ impl HackerOneApi for ReqwestClient {
                     reporter: rel.and_then(|r| r.get("reporter")).and_then(parse_user_ref)?,
                     assignee: rel.and_then(|r| r.get("assignee")).and_then(parse_assignee_ref),
                     inboxes: parse_inboxes(rel),
+                    bounty: parse_bounty(rel),
                 })
             })
             .collect();
@@ -614,6 +632,37 @@ fn parse_inboxes(rel: Option<&serde_json::Value>) -> Vec<InboxRef> {
         .unwrap_or_default()
 }
 
+// HackerOne returns money as JSON strings ("450.00"); tolerate numbers too.
+fn parse_money(v: Option<&serde_json::Value>) -> f64 {
+    match v {
+        Some(serde_json::Value::String(s)) => s.parse::<f64>().unwrap_or(0.0),
+        Some(serde_json::Value::Number(n)) => n.as_f64().unwrap_or(0.0),
+        _ => 0.0,
+    }
+}
+
+// Sum the awarded amount (base + bonus) across every bounty on a report. Returns None
+// when there are no bounties so the frontend can render an empty cell rather than $0.
+fn parse_bounty(rel: Option<&serde_json::Value>) -> Option<BountyTotal> {
+    let arr = rel?.get("bounties")?.get("data")?.as_array()?;
+    if arr.is_empty() {
+        return None;
+    }
+    let mut amount = 0.0;
+    let mut currency = None;
+    for item in arr {
+        let Some(attrs) = item.get("attributes") else {
+            continue;
+        };
+        amount += parse_money(attrs.get("awarded_amount"));
+        amount += parse_money(attrs.get("awarded_bonus_amount"));
+        if currency.is_none() {
+            currency = attrs.get("awarded_currency").and_then(|v| v.as_str()).map(String::from);
+        }
+    }
+    Some(BountyTotal { amount, currency })
+}
+
 fn parse_asset_ref(rel: &serde_json::Value) -> Option<AssetRef> {
     let data = rel.get("data")?;
     let attrs = data.get("attributes")?;
@@ -738,6 +787,19 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
         } else {
             (None, None)
         };
+        let (bounty_amount, bonus_amount) = if kind_short == "bounty-suggested" {
+            (
+                attrs.get("bounty_amount").map(|v| parse_money(Some(v))),
+                attrs.get("bonus_amount").map(|v| parse_money(Some(v))),
+            )
+        } else {
+            (None, None)
+        };
+        let assigned_user = if kind_short == "user-assigned-to-bug" {
+            relationships.and_then(|r| r.get("assigned_user")).and_then(parse_user_ref)
+        } else {
+            None
+        };
         Some(Activity::Event {
             id,
             created_at,
@@ -754,6 +816,9 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
             group_name,
             old_severity,
             new_severity,
+            bounty_amount,
+            bonus_amount,
+            assigned_user,
         })
     }
 }

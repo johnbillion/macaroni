@@ -1,5 +1,6 @@
 import type { JSX } from "preact";
 import type { Activity } from "../../state/store";
+import { formatMoney } from "../../utils/money";
 import { pillFor } from "../../utils/pill";
 import { Avatar } from "../Avatar";
 import { Markdown } from "../Markdown";
@@ -61,6 +62,14 @@ function describeEvent(
 				</>
 			) : (
 				<>updated the vulnerability types</>
+			);
+		case "user-assigned-to-bug":
+			return activity.assigned_user ? (
+				<>
+					assigned this report to <b>{activity.assigned_user.username}</b>
+				</>
+			) : (
+				<>assigned this report to a user</>
 			);
 		case "group-assigned-to-bug":
 			return activity.group_name ? (
@@ -140,6 +149,9 @@ export function renderActivity(
 	teamMemberIds: Set<string>,
 	programHandle: string | null,
 	currentInboxNames: string[] | null = null,
+	// HackerOne doesn't put a currency on a suggested-bounty activity, so the caller
+	// passes the program's payout currency (inferred from awarded bounties) for display.
+	programCurrency: string | null = null,
 ) {
 	const isComment = activity.type === "comment";
 	const message = isComment ? activity.message : (activity.message ?? "");
@@ -186,8 +198,7 @@ export function renderActivity(
 	const side = isProgramSide(activity, reporterId, teamMemberIds) ? "out" : "in";
 	const classes = ["msg", side, activity.internal ? "internal" : ""].filter(Boolean).join(" ");
 	const pill = newState ? pillFor(newState) : null;
-	const isSeverityChange =
-		activity.type === "event" && activity.kind === "report-severity-updated" && !!activity.new_severity;
+	const event = activity.type === "event" ? activity : null;
 
 	return (
 		<div key={activity.id} data-activity-id={activity.id} class={classes}>
@@ -199,28 +210,42 @@ export function renderActivity(
 				{pill ? (
 					<>
 						<span class="msg-event-action">changed status to</span>
-						{(activity.type === "event" && activity.original_report_id) ? (
+						{event?.original_report_id ? (
 							<span class={`pill ${pill.className}`}>
-								{pill.label} of <ReportLink id={activity.original_report_id} />
+								{pill.label} of <ReportLink id={event.original_report_id} />
 							</span>
 						) : (
 							<span class={`pill ${pill.className}`}>{pill.label}</span>
 						)}
 					</>
-				) : isSeverityChange && activity.type === "event" ? (
-					activity.old_severity ? (
+				) : event?.kind === "report-severity-updated" && event.new_severity ? (
+					event.old_severity ? (
 						<>
 							<span class="msg-event-action">changed severity from</span>
-							<SeverityMeter rating={activity.old_severity} showLabel />
+							<SeverityMeter rating={event.old_severity} showLabel />
 							<span class="msg-event-action">to</span>
-							<SeverityMeter rating={activity.new_severity} showLabel />
+							<SeverityMeter rating={event.new_severity} showLabel />
 						</>
 					) : (
 						<>
 							<span class="msg-event-action">changed severity to</span>
-							<SeverityMeter rating={activity.new_severity} showLabel />
+							<SeverityMeter rating={event.new_severity} showLabel />
 						</>
 					)
+				) : event?.kind === "bounty-suggested" && event.bounty_amount !== null ? (
+					<span class="msg-event-action">
+						suggested a bounty of <b>{formatMoney(event.bounty_amount, programCurrency)}</b>
+						{event.bonus_amount ? (
+							<>
+								{" "}
+								+ <b>{formatMoney(event.bonus_amount, programCurrency)}</b> bonus
+							</>
+						) : null}
+					</span>
+				) : event?.kind === "user-assigned-to-bug" && event.assigned_user ? (
+					<span class="msg-event-action">
+						assigned to <b>{event.assigned_user.username}</b>
+					</span>
 				) : !isComment ? (
 					<span class="msg-event-kind">{humanizeKind(activity.kind)}</span>
 				) : null}

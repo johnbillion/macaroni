@@ -605,6 +605,11 @@ input[type="radio"] {
 .row .severity {
 	font-variant-numeric: tabular-nums;
 }
+.row .bounty {
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	color: var(--text-2);
+}
 .row .person {
 	color: var(--text-2);
 	font-size: 11px;
@@ -621,6 +626,7 @@ input[type="radio"] {
 	white-space: nowrap;
 }
 .inbox-table th.th-severity,
+.inbox-table th.th-bounty,
 .inbox-table th.th-person {
 	white-space: nowrap;
 }
