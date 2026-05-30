@@ -134,20 +134,6 @@ body::before {
 	letter-spacing: 0.1em;
 	font-size: 12px;
 }
-.brand-mark {
-	width: 20px;
-	height: 20px;
-	background: var(--accent);
-	position: relative;
-	clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
-}
-.brand-mark::after {
-	content: "";
-	position: absolute;
-	inset: 4px;
-	background: var(--bg-1);
-	clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
-}
 
 .crumbs {
 	color: var(--text-3);
@@ -1078,6 +1064,7 @@ a[target="_blank"]::after {
 	right: 15px;
 	display: none;
 	gap: 14px;
+	filter: drop-shadow(0 2px 16px rgba(0, 0, 0, 0.65));
 }
 .markdown-image-wrap:hover .markdown-image-controls,
 .markdown-image-dialog:has(img:hover) .markdown-image-controls {

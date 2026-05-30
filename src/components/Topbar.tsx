@@ -39,7 +39,6 @@ export function Topbar() {
 	return (
 		<div class="topbar" data-tauri-drag-region>
 			<div class="brand">
-				<div class="brand-mark" />
 				Macaroni
 			</div>
 			<div class="crumbs">
