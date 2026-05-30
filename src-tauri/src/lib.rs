@@ -3,6 +3,7 @@ mod credentials;
 mod error;
 mod hackerone;
 mod local_db;
+mod settings;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -11,6 +12,7 @@ use commands::AppContext;
 use credentials::KeyringStore;
 use hackerone::ReqwestClient;
 use local_db::SqliteStore;
+use settings::FileSettingsStore;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -47,10 +49,11 @@ pub fn run() {
             let reports = Arc::new(
                 SqliteStore::open(&data_dir.join("macaroni.db")).expect("open local db"),
             );
+            let settings = Arc::new(FileSettingsStore::new(data_dir.join("settings.json")));
 
             let triages = Arc::new(Mutex::new(HashMap::new()));
 
-            app.manage(AppContext { creds, api, reports, triages });
+            app.manage(AppContext { creds, api, reports, settings, triages });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -65,6 +68,9 @@ pub fn run() {
             commands::get_report,
             commands::update_report_asset,
             commands::save_attachment,
+            commands::get_settings,
+            commands::set_triage_working_dir,
+            commands::pick_directory,
             commands::mark_report_read,
             commands::mark_reports_read,
             commands::get_read_ids,

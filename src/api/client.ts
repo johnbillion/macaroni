@@ -6,6 +6,7 @@ import type {
 	Program,
 	ReportDetail,
 	ReportSummary,
+	Settings,
 	TeamMember,
 	TriageRecord,
 } from "../state/store";
@@ -43,6 +44,9 @@ export const api = {
 		call<void>("update_report_asset", { reportId, assetId }),
 	saveAttachment: (url: string, suggestedFilename: string) =>
 		call<boolean>("save_attachment", { url, suggestedFilename }),
+	getSettings: () => call<Settings>("get_settings"),
+	setTriageWorkingDir: (dir: string | null) => call<Settings>("set_triage_working_dir", { dir }),
+	pickDirectory: () => call<string | null>("pick_directory"),
 	markReportRead: (reportId: string) => call<void>("mark_report_read", { reportId }),
 	markReportsRead: (reportIds: string[]) => call<void>("mark_reports_read", { reportIds }),
 	getReadIds: (reportIds: string[]) => call<string[]>("get_read_ids", { reportIds }),

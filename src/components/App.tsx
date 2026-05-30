@@ -8,6 +8,7 @@ import {
 	loadPrograms,
 	loadReportDetail,
 	loadReports,
+	loadSettings,
 	loadTeamMembers,
 	loadTriage,
 	markReportRead,
@@ -34,6 +35,11 @@ export function App() {
 			bootstrap(dispatch);
 		}
 	}, [state.credentials, dispatch]);
+
+	// Settings are machine-local and independent of credentials, so load them once at startup.
+	useEffect(() => {
+		loadSettings(dispatch);
+	}, [dispatch]);
 
 	useEffect(() => {
 		const orgId = state.filters.orgId;

@@ -1544,6 +1544,71 @@ a[target="_blank"]::after {
 	opacity: 0.5;
 	cursor: not-allowed;
 }
+.settings-divider {
+	border: none;
+	border-top: 1px solid var(--border);
+	margin: 0.25rem 0;
+	width: 100%;
+}
+
+/* Triage working-directory picker — shared by the Settings dialog and the Triage tab. */
+.dir-field {
+	display: grid;
+	gap: 0.25rem;
+	font-size: 11px;
+	color: var(--text-2);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+.dir-field-row {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+.dir-field-path {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--mono, ui-monospace, monospace);
+	font-size: 12px;
+	letter-spacing: 0;
+	text-transform: none;
+	padding: 0.45rem 0.6rem;
+	border: 1px solid var(--border);
+	border-radius: 2px;
+	background: var(--bg);
+	color: var(--text);
+}
+.dir-field-unset {
+	color: var(--text-3);
+	font-style: italic;
+}
+.dir-field-row button {
+	font: inherit;
+	font-size: 11px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	padding: 0.45rem 0.7rem;
+	border: 1px solid var(--border);
+	background: transparent;
+	color: var(--text);
+	cursor: pointer;
+	border-radius: 2px;
+	white-space: nowrap;
+}
+.dir-field-row button:hover:not([disabled]) {
+	border-color: var(--border-2);
+	color: var(--accent);
+}
+.dir-field-row button[disabled] {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+.dir-field-clear {
+	color: var(--crit) !important;
+}
 
 .loading-bar {
 	position: sticky;

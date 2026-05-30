@@ -53,6 +53,30 @@ export async function saveCredentials(
 	}
 }
 
+export async function loadSettings(dispatch: Dispatch) {
+	try {
+		const settings = await api.getSettings();
+		dispatch({ type: "SETTINGS_LOADED", settings });
+	} catch {
+		// Non-fatal — settings fall back to their defaults (everything unset) until the next load.
+	}
+}
+
+// Persist the triage working directory and reflect it in state. Pass null (or an empty
+// string) to clear it back to "unset". Returns an error to the caller for surfacing inline.
+export async function setTriageWorkingDir(
+	dispatch: Dispatch,
+	dir: string | null,
+): Promise<AppError | null> {
+	try {
+		const settings = await api.setTriageWorkingDir(dir);
+		dispatch({ type: "TRIAGE_WORKING_DIR_SET", dir: settings.triage_working_dir });
+		return null;
+	} catch (e) {
+		return asError(e);
+	}
+}
+
 export async function clearCredentials(dispatch: Dispatch): Promise<AppError | null> {
 	try {
 		await api.credentialsClear();

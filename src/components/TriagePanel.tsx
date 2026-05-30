@@ -10,6 +10,7 @@ import type {
 } from "../state/store";
 import { Markdown } from "./Markdown";
 import { Spinner } from "./Spinner";
+import { TriageWorkingDirField } from "./TriageWorkingDirField";
 
 function formatError(error: AppError): string {
 	switch (error.kind) {
@@ -56,6 +57,31 @@ export function TriagePanel() {
 
 	const reportTitle = detail.data.title;
 	const reportBody = detail.data.vulnerability_information || "(no description)";
+
+	// Triage spawns `claude` in a configured working directory, and there's no default. Until
+	// one is set, surface the directory picker here so it can be configured without leaving the
+	// triage tab. Any previously-saved analysis still shows below for reference.
+	if (!state.triageWorkingDir) {
+		const saved =
+			triage.status === "ready"
+				? triage.result
+				: triage.status === "error" || triage.status === "running"
+					? triage.saved
+					: null;
+		return (
+			<div class="triage">
+				<div class="triage-head">
+					<div class="triage-title">AI-ASSISTED TRIAGE</div>
+					<div class="triage-sub">
+						Choose a working directory before running triage — the local checkout where Claude
+						investigates the report. You can also set this in Settings.
+					</div>
+					<TriageWorkingDirField />
+				</div>
+				{saved ? <AnalysisSection record={saved} heading="PREVIOUS ANALYSIS" /> : null}
+			</div>
+		);
+	}
 
 	if (triage.status === "running") {
 		return <RunningView reportId={id} events={triage.events} saved={triage.saved} />;

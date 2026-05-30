@@ -16,6 +16,10 @@ export type AsyncState<T> =
 	| { status: "ready"; data: T }
 	| { status: "error"; error: AppError };
 
+// Non-secret user preferences, persisted on the Rust side (see settings.rs). `triage_working_dir`
+// is null until the user picks a directory — there's no default.
+export type Settings = { triage_working_dir: string | null };
+
 export type Organization = { id: string; handle: string };
 export type Program = { id: string; handle: string };
 export type TeamMember = { id: string; username: string };
@@ -229,6 +233,8 @@ export type BulkOperationState =
 export type AppState = {
 	credentials: "unknown" | "missing" | "present";
 	username: string | null;
+	// Triage working directory the Rust side spawns `claude` in. Null until configured.
+	triageWorkingDir: string | null;
 	bootstrap: AsyncState<{ orgs: Organization[] }>;
 	programsByOrg: Record<string, AsyncState<Program[]>>;
 	assetsByOrg: Record<string, AsyncState<Asset[]>>;
@@ -274,6 +280,8 @@ export type Action =
 	| { type: "CREDENTIALS_KNOWN"; present: boolean; username: string | null }
 	| { type: "CREDENTIALS_SAVED"; username: string }
 	| { type: "CREDENTIALS_CLEARED" }
+	| { type: "SETTINGS_LOADED"; settings: Settings }
+	| { type: "TRIAGE_WORKING_DIR_SET"; dir: string | null }
 	| { type: "BOOTSTRAP_REQUESTED" }
 	| { type: "BOOTSTRAP_SUCCEEDED"; orgs: Organization[] }
 	| { type: "BOOTSTRAP_FAILED"; error: AppError }
@@ -361,6 +369,7 @@ function loadPanelSizes(vp: Viewport): PanelSizes {
 export const initialState: AppState = {
 	credentials: "unknown",
 	username: null,
+	triageWorkingDir: null,
 	bootstrap: { status: "idle" },
 	programsByOrg: {},
 	assetsByOrg: {},
@@ -403,10 +412,17 @@ export function reducer(state: AppState, action: Action): AppState {
 			return {
 				...initialState,
 				credentials: "missing",
+				// The working directory is a machine-local preference, not tied to the account —
+				// keep it across a logout the same way panel layout survives.
+				triageWorkingDir: state.triageWorkingDir,
 				detailPlacement: state.detailPlacement,
 				panelSizes: state.panelSizes,
 				viewport: state.viewport,
 			};
+		case "SETTINGS_LOADED":
+			return { ...state, triageWorkingDir: action.settings.triage_working_dir };
+		case "TRIAGE_WORKING_DIR_SET":
+			return { ...state, triageWorkingDir: action.dir };
 		case "BOOTSTRAP_REQUESTED":
 			return { ...state, bootstrap: { status: "loading" } };
 		case "BOOTSTRAP_SUCCEEDED":

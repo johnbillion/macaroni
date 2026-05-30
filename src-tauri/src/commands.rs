@@ -4,6 +4,7 @@ use crate::hackerone::{
     Asset, HackerOneApi, Organization, Program, ReportDetail, ReportPage, ReportQuery, TeamMember,
 };
 use crate::local_db::{ReportStore, TriageRecord};
+use crate::settings::{Settings, SettingsStore};
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -14,6 +15,7 @@ pub struct AppContext {
     pub creds: Arc<dyn CredentialStore>,
     pub api: Arc<dyn HackerOneApi>,
     pub reports: Arc<dyn ReportStore>,
+    pub settings: Arc<dyn SettingsStore>,
     // PIDs of in-flight `claude` triage subprocesses, keyed by report id, so the
     // `stop_triage` command can signal the right child.
     pub triages: Arc<Mutex<HashMap<String, u32>>>,
@@ -314,10 +316,41 @@ mod triage_parse_tests {
 // Prompt template is embedded at compile time so distribution builds don't depend on the
 // developer's source tree being present at the absolute path it was authored at.
 const TRIAGE_PROMPT_TEMPLATE: &str = include_str!("../prompts/triage.md");
-const TRIAGE_WORKING_DIR: &str = "/Users/john/sites/wp";
 
 fn assemble_triage_prompt(report_title: &str, report_body: &str) -> String {
     format!("{TRIAGE_PROMPT_TEMPLATE}\n\n# {report_title}\n\n{report_body}")
+}
+
+#[tauri::command]
+pub async fn get_settings(ctx: State<'_, AppContext>) -> AppResult<Settings> {
+    ctx.settings.load()
+}
+
+// Persist the triage working directory. An empty/whitespace string clears it back to "unset"
+// so the UI's "no directory configured" path can be reached again. Returns the saved settings.
+#[tauri::command]
+pub async fn set_triage_working_dir(
+    ctx: State<'_, AppContext>,
+    dir: Option<String>,
+) -> AppResult<Settings> {
+    let mut settings = ctx.settings.load()?;
+    settings.triage_working_dir = dir
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty());
+    ctx.settings.save(&settings)?;
+    Ok(settings)
+}
+
+// Show a native directory picker. Returns the chosen absolute path, or None if cancelled.
+#[tauri::command]
+pub async fn pick_directory(app: tauri::AppHandle) -> AppResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let Some(folder) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(None);
+    };
+    let path = folder.into_path().map_err(AppError::other)?;
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
@@ -332,6 +365,11 @@ pub async fn run_triage(
     report_id: String,
     prompt: String,
 ) -> AppResult<TriageRecord> {
+    // No default — the user configures this in Settings. Bail clearly if it's still unset so
+    // the frontend can prompt for it rather than spawning `claude` in some arbitrary directory.
+    let working_dir = ctx.settings.load()?.triage_working_dir.ok_or_else(|| {
+        AppError::other("No triage working directory is set. Choose one in Settings.")
+    })?;
 
     // Inherit a shell-like PATH so `claude` resolves whether installed via Homebrew or npm.
     let path_env = std::env::var("PATH").unwrap_or_default();
@@ -343,7 +381,7 @@ pub async fn run_triage(
 
     let mut child = tokio::process::Command::new("claude")
         .args(["-p", "--output-format", "stream-json", "--verbose"])
-        .current_dir(TRIAGE_WORKING_DIR)
+        .current_dir(&working_dir)
         .env("PATH", &augmented_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

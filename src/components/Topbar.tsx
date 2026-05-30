@@ -22,6 +22,19 @@ export function Topbar() {
 	const dispatch = useDispatch();
 	const { toggle } = useTheme();
 	const [settingsOpen, setSettingsOpen] = useState(false);
+
+	// ⌘, shortcut for opening preferences.
+	useEffect(() => {
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.metaKey && e.key === ",") {
+				e.preventDefault();
+				setSettingsOpen(true);
+			}
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, []);
+
 	const programHandle = state.filters.programHandle ?? "—";
 	const placement = state.detailPlacement;
 	const toggleDetailPlacement = () => {
@@ -79,7 +92,7 @@ export function Topbar() {
 					type="button"
 					class="theme-toggle"
 					aria-label="Settings"
-					title="Settings"
+					title="Settings (⌘,)"
 					onClick={() => setSettingsOpen(true)}
 				>
 					⚙
