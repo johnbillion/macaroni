@@ -13,6 +13,7 @@ use credentials::KeyringStore;
 use hackerone::ReqwestClient;
 use local_db::SqliteStore;
 use settings::FileSettingsStore;
+use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -39,6 +40,57 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/128x128@2x.png"))?;
+
+            let about = AboutMetadataBuilder::new()
+                .name(Some("Macaroni"))
+                .version(Some(env!("CARGO_PKG_VERSION")))
+                .copyright(Some("© 2026 John Blackbourn"))
+                .icon(Some(icon))
+                .credits(Some(
+                    "A desktop inbox for HackerOne bug bounty programs",
+                ))
+                .build();
+
+            let app_menu = SubmenuBuilder::new(app, "Macaroni")
+                .about(Some(about))
+                .separator()
+                .services()
+                .separator()
+                .hide()
+                .hide_others()
+                .show_all()
+                .separator()
+                .quit()
+                .build()?;
+
+            // Rebuild the standard Edit and Window submenus so the usual
+            // editing shortcuts keep working alongside the custom app menu.
+            let edit_menu = SubmenuBuilder::new(app, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+
+            let window_menu = SubmenuBuilder::new(app, "Window")
+                .minimize()
+                .maximize()
+                .separator()
+                .close_window()
+                .build()?;
+
+            let menu = MenuBuilder::new(app)
+                .item(&app_menu)
+                .item(&edit_menu)
+                .item(&window_menu)
+                .build()?;
+
+            app.set_menu(menu)?;
+
             let data_dir = app.path().app_data_dir().expect("app data dir");
             std::fs::create_dir_all(&data_dir).expect("create app data dir");
 

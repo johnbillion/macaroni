@@ -230,7 +230,7 @@ pub struct ReqwestClient {
 impl ReqwestClient {
     pub fn new(creds: Arc<dyn CredentialStore>) -> AppResult<Self> {
         let http = reqwest::Client::builder()
-            .user_agent("macaroni/0.1")
+            .user_agent("Macaroni/0.1")
             .timeout(REQUEST_TIMEOUT)
             .connect_timeout(CONNECT_TIMEOUT)
             .build()

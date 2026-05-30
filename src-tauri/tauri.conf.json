@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "macaroni",
+  "productName": "Macaroni",
   "version": "0.1.0",
   "identifier": "com.johnbillion.macaroni",
   "build": {
