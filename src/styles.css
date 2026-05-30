@@ -660,6 +660,10 @@ input[type="radio"] {
 	font-size: 10px;
 	letter-spacing: 0.18em;
 }
+.load-more-actions {
+	display: flex;
+	gap: 10px;
+}
 .load-more-btn {
 	font-family: inherit;
 	font-size: 11px;

@@ -3,7 +3,8 @@ import { CheckMenuItem, Menu } from "@tauri-apps/api/menu";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
-import { buildReportsQuery, loadMoreReports, loadReports } from "../state/effects";
+import { buildReportsQuery, loadAllReports, loadMoreReports, loadReports } from "../state/effects";
+import { isOpenOnlyStateFilter } from "../state/filters";
 import type { AppError, AssigneeRef, UserRef } from "../state/store";
 import { pillFor } from "../utils/pill";
 import { formatBounty } from "../utils/money";
@@ -365,18 +366,30 @@ export function InboxTable() {
 												{formatReportError(state.reportsLoadMoreError)}
 											</span>
 										) : null}
-										<button
-											type="button"
-											class="load-more-btn"
-											onClick={() => loadMoreReports(dispatch, state)}
-											disabled={state.reportsRefreshing}
-										>
-											{state.reportsRefreshing
-												? "Loading…"
-												: state.reportsLoadMoreError
-													? "Try again"
-													: "Load more"}
-										</button>
+										<div class="load-more-actions">
+											<button
+												type="button"
+												class="load-more-btn"
+												onClick={() => loadMoreReports(dispatch, state)}
+												disabled={state.reportsRefreshing}
+											>
+												{state.reportsRefreshing
+													? "Loading…"
+													: state.reportsLoadMoreError
+														? "Try again"
+														: "Load more"}
+											</button>
+											{isOpenOnlyStateFilter(state.filters.states) ? (
+												<button
+													type="button"
+													class="load-more-btn"
+													onClick={() => loadAllReports(dispatch, state)}
+													disabled={state.reportsRefreshing}
+												>
+													Load all
+												</button>
+											) : null}
+										</div>
 									</>
 								) : (
 									<span class="footer-end">- END -</span>

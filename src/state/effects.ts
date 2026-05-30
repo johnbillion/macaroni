@@ -225,14 +225,17 @@ export function cancelPendingReportsLoad() {
 	}
 }
 
+// Resolves to the next page cursor on success (undefined when there are no further pages), or
+// undefined when the request was a no-op short-circuit, was superseded, or failed. Callers that
+// paginate (loadAllReports) follow this return value rather than reading it back out of state.
 export async function loadReports(
 	dispatch: Dispatch,
 	query: ReportsQuery,
 	pageCursor?: string,
 	force = false,
-) {
+): Promise<string | undefined> {
 	const key = reportsQueryKey(query, pageCursor);
-	if (!force && key === lastIssuedQueryKey) return;
+	if (!force && key === lastIssuedQueryKey) return undefined;
 	lastIssuedQueryKey = key;
 	const myId = ++reportsRequestId;
 	const append = pageCursor !== undefined;
@@ -246,7 +249,7 @@ export async function loadReports(
 			keyword: query.keyword || undefined,
 			page_cursor: pageCursor,
 		});
-		if (myId !== reportsRequestId) return;
+		if (myId !== reportsRequestId) return undefined;
 		const ids = items.map((i) => i.id);
 		hydrateReadIds(dispatch, ids);
 		hydrateTriageValidity(dispatch, ids);
@@ -258,10 +261,12 @@ export async function loadReports(
 			nextCursor: next_cursor ?? undefined,
 			append,
 		});
+		return next_cursor ?? undefined;
 	} catch (e) {
 		if (lastIssuedQueryKey === key) lastIssuedQueryKey = null;
-		if (myId !== reportsRequestId) return;
+		if (myId !== reportsRequestId) return undefined;
 		dispatch({ type: "REPORTS_FAILED", error: asError(e), append });
+		return undefined;
 	}
 }
 
@@ -349,6 +354,23 @@ export async function loadMoreReports(dispatch: Dispatch, state: AppState) {
 	const query = buildReportsQuery(state);
 	if (!query) return;
 	await loadReports(dispatch, query, cursor);
+}
+
+// Recursively page through every remaining result, exactly as if the user clicked "Load more"
+// until it disappeared. We follow the cursor returned by each loadReports call rather than the
+// store, so a stale `state` snapshot is fine — the query never changes mid-run. Any page failing
+// (or being superseded by a filter change) yields no cursor, which stops the loop; the error is
+// surfaced the same way a single failed "Load more" would be.
+export async function loadAllReports(dispatch: Dispatch, state: AppState) {
+	if (state.reports.status !== "ready") return;
+	const query = buildReportsQuery(state);
+	if (!query) return;
+	let cursor = state.reports.data.nextCursor;
+	while (cursor) {
+		const next = await loadReports(dispatch, query, cursor);
+		if (!next || next === cursor) break;
+		cursor = next;
+	}
 }
 
 // Mirrors the reportsRequestId cancellation idiom: a monotonic counter so a later
