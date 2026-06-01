@@ -911,6 +911,13 @@ export function reducer(state: AppState, action: Action): AppState {
 	}
 }
 
+// Compare two inbox lists by id and name (order-sensitive — the API returns them in a stable
+// order). Used to decide whether a refresh actually moved the report between inboxes.
+function sameInboxes(a: InboxRef[], b: InboxRef[]): boolean {
+	if (a.length !== b.length) return false;
+	return a.every((x, i) => x.id === b[i].id && x.name === b[i].name);
+}
+
 // Reconcile the inbox-list row for `reportId` against a freshly fetched detail. Only the
 // fields that overlap between ReportSummary and ReportDetail are touched; everything else
 // (assignee, last_activity_at) is left as-is since the detail endpoint doesn't carry it.
@@ -933,7 +940,8 @@ function applyDetailToReports(
 			r.issue_tracker_reference_id === detail.issue_tracker_reference_id &&
 			r.issue_tracker_reference_url === detail.issue_tracker_reference_url &&
 			r.reporter.id === detail.reporter.id &&
-			sameAsset
+			sameAsset &&
+			sameInboxes(r.inboxes, detail.inboxes)
 		) {
 			return r;
 		}
@@ -947,6 +955,7 @@ function applyDetailToReports(
 			issue_tracker_reference_url: detail.issue_tracker_reference_url,
 			asset: detail.asset,
 			reporter: detail.reporter,
+			inboxes: detail.inboxes,
 		};
 	});
 	if (!changed) return reports;
