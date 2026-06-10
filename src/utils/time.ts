@@ -6,7 +6,8 @@ export function formatRelativeTime(isoDate: string): string {
 
 	if (diffSec < 60) return `${diffSec}s ago`;
 	if (diffSec < 3600) return `${Math.round(diffSec / 60)}m ago`;
-	if (diffSec < 86400) return `${Math.round(diffSec / 3600)}h ago`;
+	if (diffSec < (86400*2)) return `${Math.round(diffSec / 3600)}h ago`;
+
 	const sameYear = then.getFullYear() === new Date(now).getFullYear();
 	return then.toLocaleDateString(undefined, {
 		month: "short",

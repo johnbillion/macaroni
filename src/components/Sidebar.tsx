@@ -49,7 +49,7 @@ export function Sidebar() {
 
 			<div class="side-section">
 				<div class="side-h">
-					<span>STATE</span>
+					<span>State</span>
 				</div>
 
 				<StateFacetGroup heading="Open" facets={OPEN_STATES} />
@@ -148,7 +148,7 @@ function SeveritySection() {
 						checked={allChecked}
 						onChange={toggleAll}
 					/>
-					SEVERITY
+					Severity
 				</label>
 			</div>
 			{SEVERITY_FACETS.map((f) => (
@@ -173,7 +173,7 @@ function AssetSection({ state }: { state: AsyncState<Asset[]> | undefined }) {
 				<div class="side-h">
 					<label class="check-h">
 						<input type="checkbox" class="cb" disabled />
-						ASSET
+						Asset
 					</label>
 				</div>
 				{!state || state.status === "idle" || state.status === "loading" ? (
@@ -225,7 +225,7 @@ function AssetSectionReady({ assets }: { assets: Asset[] }) {
 						onChange={toggleAll}
 						disabled={assets.length === 0}
 					/>
-					ASSET
+					Asset
 				</label>
 			</div>
 			{assets.length === 0 ? (

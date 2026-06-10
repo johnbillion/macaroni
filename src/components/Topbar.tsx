@@ -51,21 +51,19 @@ export function Topbar() {
 
 	return (
 		<div class="topbar" data-tauri-drag-region>
-			<div class="brand">
-				Macaroni
-			</div>
+			<div class="brand">Macaroni</div>
 			<div class="crumbs">
-				PROGRAM / <b>{programHandle.toUpperCase()}</b> / INBOX
+				Program / <b>{programHandle}</b> / Inbox
 			</div>
 			<div class="topbar-stats">
 				<div class="tick">
-					NEW <b class="pos">—</b>
+					New <b class="pos">—</b>
 				</div>
 				<div class="tick">
-					TRIAGED <b>—</b>
+					Triaged <b>—</b>
 				</div>
 				<div class="tick">
-					AWAITING REPORTER <b>—</b>
+					Awaiting reporter <b>—</b>
 				</div>
 			</div>
 			<div class="status-cluster">
@@ -102,9 +100,7 @@ export function Topbar() {
 					class="theme-toggle"
 					aria-label="Toggle detail panel position"
 					title={
-						placement === "right"
-							? "Move detail panel to bottom"
-							: "Move detail panel to right"
+						placement === "right" ? "Move detail panel to bottom" : "Move detail panel to right"
 					}
 					onClick={toggleDetailPlacement}
 				>

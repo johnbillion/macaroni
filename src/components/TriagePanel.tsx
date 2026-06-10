@@ -34,7 +34,7 @@ export function TriagePanel() {
 	const id = state.selectedReportId;
 
 	if (!id) {
-		return <div class="detail-empty">SELECT A REPORT</div>;
+		return <div class="detail-empty">Select a report</div>;
 	}
 
 	const detail = state.detail[id];
@@ -71,14 +71,14 @@ export function TriagePanel() {
 		return (
 			<div class="triage">
 				<div class="triage-head">
-					<div class="triage-title">AI-ASSISTED TRIAGE</div>
+					<div class="triage-title">AI-assisted triage</div>
 					<div class="triage-sub">
 						Choose a working directory before running triage — the local checkout where Claude
 						investigates the report. You can also set this in Settings.
 					</div>
 					<TriageWorkingDirField />
 				</div>
-				{saved ? <AnalysisSection record={saved} heading="PREVIOUS ANALYSIS" /> : null}
+				{saved ? <AnalysisSection record={saved} heading="Previous analysis" /> : null}
 			</div>
 		);
 	}
@@ -96,13 +96,13 @@ export function TriagePanel() {
 						<TriageEventLog events={triage.events} live={false} />
 					</details>
 				) : null}
-				<AnalysisSection record={triage.result} heading="AI-ASSISTED ANALYSIS" />
+				<AnalysisSection record={triage.result} heading="AI-assisted analysis" />
 				<PromptEditor
 					key={`${id}-ready`}
 					reportId={id}
 					reportTitle={reportTitle}
 					reportBody={reportBody}
-					buttonLabel="RE-RUN"
+					buttonLabel="Re-run"
 				/>
 			</div>
 		);
@@ -118,11 +118,11 @@ export function TriagePanel() {
 					reportBody={reportBody}
 					subtitle={`Failed: ${formatError(triage.error)}`}
 					subtitleClass="triage-error"
-					buttonLabel="RETRY"
+					buttonLabel="Retry"
 				/>
 				{triage.events.length > 0 ? <TriageEventLog events={triage.events} live={false} /> : null}
 				{triage.saved ? (
-					<AnalysisSection record={triage.saved} heading="PREVIOUS ANALYSIS" />
+					<AnalysisSection record={triage.saved} heading="Previous analysis" />
 				) : null}
 			</div>
 		);
@@ -136,7 +136,7 @@ export function TriagePanel() {
 				reportTitle={reportTitle}
 				reportBody={reportBody}
 				subtitle="Review and edit the prompt below before starting the triage."
-				buttonLabel="START TRIAGE"
+				buttonLabel="Start triage"
 			/>
 		</div>
 	);
@@ -185,7 +185,7 @@ function PromptEditor({
 
 	return (
 		<div class="triage-head">
-			<div class="triage-title">AI-ASSISTED TRIAGE</div>
+			<div class="triage-title">AI-assisted triage</div>
 			<div class={`triage-sub${subtitleClass ? ` ${subtitleClass}` : ""}`}>{subtitle}</div>
 			{loadError ? (
 				<div class="triage-error">Could not load prompt: {loadError}</div>
@@ -230,10 +230,10 @@ function RunningView({
 	return (
 		<div class="triage">
 			<div class="triage-head">
-				<div class="triage-title">AI-ASSISTED TRIAGE</div>
+				<div class="triage-title">AI-assisted triage</div>
 				<div class="triage-sub">{stopping ? "Stopping…" : "Running… events stream in below."}</div>
 				<button type="button" class="triage-run triage-stop" onClick={onStop} disabled={stopping}>
-					{stopping ? "STOPPING…" : "STOP"}
+					{stopping ? "Stopping…" : "Stop"}
 				</button>
 			</div>
 			<TriageEventLog events={events} live />
@@ -535,7 +535,7 @@ export function TriageDisclosure() {
 			onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
 		>
 			<summary class="triage-disclosure-summary">
-				<span class="triage-disclosure-label">TRIAGE</span>
+				<span class="triage-disclosure-label">Triage</span>
 				{running ? (
 					<Spinner class="triage-disclosure-spinner" />
 				) : validity ? (

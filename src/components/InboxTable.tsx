@@ -218,19 +218,19 @@ export function InboxTable() {
 								onChange={onToggleAll}
 							/>
 						</th>
-						{visibility.id ? <th>ID</th> : null}
-						{visibility.opened ? <th>OPENED</th> : null}
-						{visibility.updated ? <th>UPDATED</th> : null}
-						{visibility.status ? <th>STATUS</th> : null}
-						{visibility.severity ? <th class="th-severity">SEVERITY</th> : null}
-						{visibility.asset ? <th class="th-asset">ASSET</th> : null}
-						{visibility.inboxes ? <th class="th-inboxes">INBOX</th> : null}
-						{visibility.title ? <th class="th-title">TITLE</th> : null}
-						{visibility.triage ? <th class="th-triage">TRIAGE</th> : null}
-						{visibility.reporter ? <th class="th-person">REPORTER</th> : null}
-						{visibility.assignee ? <th class="th-person">ASSIGNEE</th> : null}
-						{visibility.reference ? <th>REFERENCE</th> : null}
-						{visibility.bounty ? <th class="th-bounty">BOUNTY</th> : null}
+						{visibility.id ? <th>Id</th> : null}
+						{visibility.opened ? <th>Opened</th> : null}
+						{visibility.updated ? <th>Updated</th> : null}
+						{visibility.status ? <th>Status</th> : null}
+						{visibility.severity ? <th class="th-severity">Severity</th> : null}
+						{visibility.asset ? <th class="th-asset">Asset</th> : null}
+						{visibility.inboxes ? <th class="th-inboxes">Inbox</th> : null}
+						{visibility.title ? <th class="th-title">Title</th> : null}
+						{visibility.triage ? <th class="th-triage">Triage</th> : null}
+						{visibility.reporter ? <th class="th-person">Reporter</th> : null}
+						{visibility.assignee ? <th class="th-person">Assignee</th> : null}
+						{visibility.reference ? <th>Reference</th> : null}
+						{visibility.bounty ? <th class="th-bounty">Bounty</th> : null}
 					</tr>
 				</thead>
 				<tbody>

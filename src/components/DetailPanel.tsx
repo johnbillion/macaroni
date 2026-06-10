@@ -24,7 +24,7 @@ function isHackbotPreSubmissionTrigger(a: Activity | undefined): boolean {
 function CopyButton({
 	text,
 	label,
-	copiedLabel = "COPIED!",
+	copiedLabel = "Copied!",
 	class: className,
 }: {
 	text: string;
@@ -175,7 +175,7 @@ function ReportTab() {
 	const id = state.selectedReportId;
 
 	if (!id) {
-		return <div class="detail-empty">SELECT A REPORT</div>;
+		return <div class="detail-empty">Select a report</div>;
 	}
 
 	const detail = state.detail[id];
@@ -239,7 +239,7 @@ function ReportTab() {
 				<div class="dh-meta">
 					<span>#{r.id}</span>
 					<span>
-						SUBMITTED {submittedClock}
+						Submitted {submittedClock}
 						{r.submitted_at ? (
 							<>
 								{" · "}
@@ -254,13 +254,13 @@ function ReportTab() {
 					) : (
 						<span class={`pill ${pill.className}`}>{pill.label}</span>
 					)}
-					<CopyButton text={r.id} label="COPY ID" class="dh-action dh-action-first" />
+					<CopyButton text={r.id} label="Copy ID" class="dh-action dh-action-first" />
 					<button
 						type="button"
 						class="dh-action"
 						onClick={() => openUrl(`https://hackerone.com/reports/${r.id}`)}
 					>
-						OPEN ↗
+						Open ↗
 					</button>
 				</div>
 				<h1 class="dh-title">{r.title}</h1>
@@ -273,7 +273,7 @@ function ReportTab() {
 							<span class="kv-missing">None</span>
 						)}
 					</dd>
-					<dt>Inboxes</dt>
+					<dt>Inbox</dt>
 					<dd>
 						{inboxes.length > 0 ? (
 							<span class="kv-inboxes">
@@ -336,11 +336,11 @@ function ReportTab() {
 
 			<div class="section">
 				<div class="section-h">
-					DESCRIPTION
+					Description
 					{r.vulnerability_information && (
 						<CopyButton
 							text={r.vulnerability_information}
-							label="COPY MARKDOWN"
+							label="Copy markdown"
 							class="section-action"
 						/>
 					)}
@@ -357,7 +357,7 @@ function ReportTab() {
 			</div>
 
 			<div class="section">
-				<div class="section-h">DISCUSSION</div>
+				<div class="section-h">Discussion</div>
 				{activities.length === 0 ? (
 					<div class="placeholder">No activity yet.</div>
 				) : (

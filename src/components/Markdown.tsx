@@ -43,7 +43,7 @@ function CodeCopyButton({ text }: { text: string }) {
 				setCopied(true);
 			}}
 		>
-			{copied ? "COPIED!" : "COPY"}
+			{copied ? "Copied!" : "Copy"}
 		</button>
 	);
 }
