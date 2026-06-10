@@ -1,4 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
+import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
 import type { Activity, DetailToast } from "../state/store";
@@ -7,7 +8,7 @@ import { formatClock } from "../utils/time";
 import { TriageDisclosure } from "./TriagePanel";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { Avatar } from "./Avatar";
-import { renderActivity } from "./activity/renderActivity";
+import { describeEvent, renderActivity } from "./activity/renderActivity";
 import { BulkEditPanel } from "./BulkEditPanel";
 import { Markdown } from "./Markdown";
 import { RelativeTime } from "./RelativeTime";
@@ -108,8 +109,32 @@ function scrollToActivity(activityId: string) {
 	}
 }
 
+// Render the same rich verb-phrase the activity log uses (via describeEvent), prefixed
+// with the actor, for toasts that describe a single event activity. Returns null for
+// comments, state changes, and event kinds describeEvent doesn't phrase — those fall back
+// to the toast's plain `message`, which already reads well for them.
+function toastDescription(
+	activity: DetailToast["activity"],
+	programCurrency: string | null,
+): JSX.Element | null {
+	if (!activity || activity.type !== "event") return null;
+	const phrase = describeEvent(activity, null, programCurrency);
+	if (!phrase) return null;
+	const actor = activity.actor?.username ?? "system";
+	return (
+		<>
+			<b>{actor}</b> {phrase}
+		</>
+	);
+}
+
 function ToastStack({ toasts }: { toasts: DetailToast[] }) {
 	const dispatch = useDispatch();
+	const state = useAppState();
+	const programCurrency =
+		state.reports.status === "ready"
+			? (state.reports.data.items.find((it) => it.bounty?.currency)?.bounty?.currency ?? null)
+			: null;
 	useEffect(() => {
 		if (toasts.length === 0) return;
 		const timers = toasts.map((t) =>
@@ -151,7 +176,9 @@ function ToastStack({ toasts }: { toasts: DetailToast[] }) {
 								: undefined
 						}
 					>
-						<span class="detail-toast-msg">{t.message}</span>
+						<span class="detail-toast-msg">
+							{toastDescription(t.activity, programCurrency) ?? t.message}
+						</span>
 						<button
 							type="button"
 							class="detail-toast-close"

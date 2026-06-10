@@ -99,6 +99,8 @@ export type Activity =
 			group_name: string | null;
 			old_severity: string | null;
 			new_severity: string | null;
+			old_title: string | null;
+			new_title: string | null;
 			bounty_amount: number | null;
 			bonus_amount: number | null;
 			assigned_user: UserRef | null;
@@ -130,6 +132,10 @@ export type DetailToast = {
 	// When set, clicking the toast should scroll the matching activity element into view.
 	// Only populated for toasts describing new activities (single-item or summary).
 	activityId?: string;
+	// The activity this toast describes, carried so the view can render the same rich
+	// phrasing as the activity log (via describeEvent) instead of the plain `message`.
+	// Only set for single-activity toasts — summary/detail-change toasts leave it unset.
+	activity?: Activity;
 };
 
 export type DetailPlacement = "right" | "bottom";
@@ -993,9 +999,14 @@ function describeDetailChange(field: string, next: ReportDetail): string | null 
 }
 
 let toastSeq = 0;
-function makeToast(reportId: string, message: string, activityId?: string): DetailToast {
+function makeToast(
+	reportId: string,
+	message: string,
+	activityId?: string,
+	activity?: Activity,
+): DetailToast {
 	toastSeq += 1;
-	return { id: `${Date.now()}-${toastSeq}`, reportId, message, activityId };
+	return { id: `${Date.now()}-${toastSeq}`, reportId, message, activityId, activity };
 }
 
 // Compare two ReportDetail snapshots and produce toasts describing what changed.
@@ -1008,10 +1019,10 @@ function diffReportDetail(prev: ReportDetail, next: ReportDetail, reportId: stri
 	const newActivities = next.activities.filter((a) => !prevIds.has(a.id));
 	if (newActivities.length === 1) {
 		const a = newActivities[0];
-		toasts.push(makeToast(reportId, describeNewActivity(a), a.id));
+		toasts.push(makeToast(reportId, describeNewActivity(a), a.id, a));
 	} else if (newActivities.length === 2) {
 		for (const a of newActivities) {
-			toasts.push(makeToast(reportId, describeNewActivity(a), a.id));
+			toasts.push(makeToast(reportId, describeNewActivity(a), a.id, a));
 		}
 	} else if (newActivities.length > 2) {
 		// Summary toast jumps to the first new activity — the others are immediately

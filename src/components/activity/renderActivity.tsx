@@ -10,7 +10,7 @@ import { SeverityMeter } from "../SeverityMeter";
 
 type EventActivity = Extract<Activity, { type: "event" }>;
 
-function humanizeKind(kind: string): string {
+export function humanizeKind(kind: string): string {
 	return kind.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -25,11 +25,26 @@ function humanizeKind(kind: string): string {
  * inbox on the `report-organization-inboxes-updated` activity itself, so we can
  * only reliably name it on the event that produced the current inbox state.
  */
-function describeEvent(
+export function describeEvent(
 	activity: EventActivity,
 	currentInboxNames: string[] | null,
+	programCurrency: string | null,
 ): JSX.Element | null {
 	switch (activity.kind) {
+		case "bounty-suggested":
+		case "bounty-awarded":
+			return activity.bounty_amount !== null ? (
+				<>
+					{activity.kind === "bounty-awarded" ? "awarded" : "suggested"} a bounty of{" "}
+					<b>{formatMoney(activity.bounty_amount, programCurrency)}</b>
+					{activity.bonus_amount ? (
+						<>
+							{" "}
+							+ <b>{formatMoney(activity.bonus_amount, programCurrency)}</b> bonus
+						</>
+					) : null}
+				</>
+			) : null;
 		case "external-user-invited":
 			return activity.invitee ? (
 				<>
@@ -78,6 +93,14 @@ function describeEvent(
 				</>
 			) : (
 				<>assigned this report to a group</>
+			);
+		case "report-title-updated":
+			return activity.new_title ? (
+				<>
+					changed the title to <b>{activity.new_title}</b>
+				</>
+			) : (
+				<>changed the report title</>
 			);
 		case "report-organization-inboxes-updated":
 			return currentInboxNames && currentInboxNames.length > 0 ? (
@@ -166,7 +189,7 @@ export function renderActivity(
 
 	// Non-state-change events with no message body collapse to a one-line tick.
 	if (activity.type === "event" && !newState && !hasMessage) {
-		const description = describeEvent(activity, currentInboxNames);
+		const description = describeEvent(activity, currentInboxNames, programCurrency);
 		const tickClasses = ["event-tick", activity.internal ? "internal" : ""]
 			.filter(Boolean)
 			.join(" ");
@@ -235,6 +258,16 @@ export function renderActivity(
 				) : event?.kind === "bounty-suggested" && event.bounty_amount !== null ? (
 					<span class="msg-event-action">
 						suggested a bounty of <b>{formatMoney(event.bounty_amount, programCurrency)}</b>
+						{event.bonus_amount ? (
+							<>
+								{" "}
+								+ <b>{formatMoney(event.bonus_amount, programCurrency)}</b> bonus
+							</>
+						) : null}
+					</span>
+				) : event?.kind === "bounty-awarded" && event.bounty_amount !== null ? (
+					<span class="msg-event-action">
+						awarded a bounty of <b>{formatMoney(event.bounty_amount, programCurrency)}</b>
 						{event.bonus_amount ? (
 							<>
 								{" "}

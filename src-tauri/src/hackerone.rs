@@ -160,8 +160,12 @@ pub enum Activity {
         /// `old_severity` / `new_severity` ratings on `activity-report-severity-updated`.
         old_severity: Option<String>,
         new_severity: Option<String>,
+        /// `old_title` / `new_title` on `activity-report-title-updated`.
+        old_title: Option<String>,
+        new_title: Option<String>,
         /// `bounty_amount` / `bonus_amount` on `activity-bounty-suggested` (the suggested
-        /// award and report-quality bonus). The activity carries no currency code.
+        /// award and report-quality bonus) and `activity-bounty-awarded` (the actual award).
+        /// The activity carries no currency code.
         bounty_amount: Option<f64>,
         bonus_amount: Option<f64>,
         /// `assigned_user` on `activity-user-assigned-to-bug` — the user the report was
@@ -787,7 +791,17 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
         } else {
             (None, None)
         };
-        let (bounty_amount, bonus_amount) = if kind_short == "bounty-suggested" {
+        let (old_title, new_title) = if kind_short == "report-title-updated" {
+            (
+                attrs.get("old_title").and_then(|v| v.as_str()).map(String::from),
+                attrs.get("new_title").and_then(|v| v.as_str()).map(String::from),
+            )
+        } else {
+            (None, None)
+        };
+        let (bounty_amount, bonus_amount) = if kind_short == "bounty-suggested"
+            || kind_short == "bounty-awarded"
+        {
             (
                 attrs.get("bounty_amount").map(|v| parse_money(Some(v))),
                 attrs.get("bonus_amount").map(|v| parse_money(Some(v))),
@@ -816,6 +830,8 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
             group_name,
             old_severity,
             new_severity,
+            old_title,
+            new_title,
             bounty_amount,
             bonus_amount,
             assigned_user,
