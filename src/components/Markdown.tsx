@@ -4,17 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
-import { api } from "../api/client";
 import type { Attachment } from "../state/store";
-
-function suggestedFilename(src: string, alt?: string): string {
-	if (alt?.trim()) return alt.trim();
-	try {
-		const last = new URL(src).pathname.split("/").pop();
-		if (last) return decodeURIComponent(last);
-	} catch {}
-	return "image";
-}
 
 function extractText(node: unknown): string {
 	if (node == null || typeof node === "boolean") return "";
@@ -48,20 +38,32 @@ function CodeCopyButton({ text }: { text: string }) {
 	);
 }
 
-function ImageWithControls({ src, alt }: { src?: string; alt?: string; title?: string }) {
+// Code blocks longer than this many lines become scrollable, capped at SCROLL_LINES tall.
+// Shorter blocks always render in full.
+const SCROLL_THRESHOLD = 30;
+const SCROLL_LINES = 20;
+
+function CodeBlock({ children }: { children?: ComponentChildren }) {
+	const text = extractText(children);
+	const lineCount = text.replace(/\n$/, "").split("\n").length;
+	const scrollable = lineCount > SCROLL_THRESHOLD;
+	return (
+		<pre
+			class={scrollable ? "code-block-scroll" : undefined}
+			style={scrollable ? { maxHeight: `calc(${SCROLL_LINES} * 1lh + 20px)` } : undefined}
+		>
+			<CodeCopyButton text={text} />
+			{children}
+		</pre>
+	);
+}
+
+function ImageWithControls({ src }: { src?: string; alt?: string; title?: string }) {
 	const dialogRef = useRef<HTMLDialogElement | null>(null);
-	const handleDownload = async () => {
-		if (!src) return;
-		try {
-			await api.saveAttachment(src, suggestedFilename(src, alt));
-		} catch (e) {
-			console.error("[image-download] failed", e);
-		}
-	};
 	return (
 		<span class="markdown-image-wrap">
-			{/* biome-ignore lint/a11y/useKeyWithClickEvents: the MAX button next to this image is the keyboard-accessible affordance for opening the dialog. */}
-			{/* biome-ignore lint/a11y/noStaticElementInteractions: same reason — click-to-zoom is a bonus on top of the explicit MAX button. */}
+			{/* biome-ignore lint/a11y/useKeyWithClickEvents: click-to-zoom is a bonus affordance; the dialog's Close button is keyboard-accessible. */}
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: same reason — click-to-zoom is a bonus on top of the dialog controls. */}
 			<img
 				src={src}
 				alt=""
@@ -69,25 +71,6 @@ function ImageWithControls({ src, alt }: { src?: string; alt?: string; title?: s
 				class="markdown-image"
 				onClick={() => dialogRef.current?.showModal()}
 			/>
-			<span class="markdown-image-controls">
-				<button type="button" class="markdown-image-control" onClick={handleDownload}>
-					DOWNLOAD
-				</button>
-				<button
-					type="button"
-					class="markdown-image-control markdown-image-control-icon"
-					aria-label="Maximize"
-					onClick={() => dialogRef.current?.showModal()}
-				>
-					<svg viewBox="0 0 12 12" aria-hidden="true">
-						<title>Maximize</title>
-						<path d="M2 5V2h3" fill="none" stroke="currentColor" stroke-width="1.5" />
-						<path d="M10 5V2H7" fill="none" stroke="currentColor" stroke-width="1.5" />
-						<path d="M2 7v3h3" fill="none" stroke="currentColor" stroke-width="1.5" />
-						<path d="M10 7v3H7" fill="none" stroke="currentColor" stroke-width="1.5" />
-					</svg>
-				</button>
-			</span>
 			<dialog ref={dialogRef} class="app-dialog markdown-image-dialog">
 				<img src={src} alt="" />
 				<span class="markdown-image-controls markdown-image-controls-reverse">
@@ -98,9 +81,6 @@ function ImageWithControls({ src, alt }: { src?: string; alt?: string; title?: s
 						onClick={() => dialogRef.current?.close()}
 					>
 						×
-					</button>
-					<button type="button" class="markdown-image-control" onClick={handleDownload}>
-						DOWNLOAD
 					</button>
 				</span>
 			</dialog>
@@ -128,12 +108,7 @@ function substituteAttachmentTokens(source: string, attachments: Attachment[]): 
 
 // react-markdown's `Components` type is typed against React; cast through to keep Preact JSX happy.
 const components = {
-	pre: ({ children }: { children?: ComponentChildren }) => (
-		<pre>
-			<CodeCopyButton text={extractText(children)} />
-			{children}
-		</pre>
-	),
+	pre: ({ children }: { children?: ComponentChildren }) => <CodeBlock>{children}</CodeBlock>,
 	img: ({ src, alt, title }: { src?: string; alt?: string; title?: string }) => (
 		<ImageWithControls src={src} alt={alt} title={title} />
 	),

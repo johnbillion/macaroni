@@ -1,12 +1,7 @@
 import { useEffect, useRef } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
 import { buildReportsQuery, cancelPendingReportsLoad, loadReports } from "../state/effects";
-import {
-	CLOSED_STATES,
-	OPEN_STATES,
-	SEVERITY_FACETS,
-	type StateFacet,
-} from "../state/filters";
+import { CLOSED_STATES, OPEN_STATES, SEVERITY_FACETS, type StateFacet } from "../state/filters";
 import type { Asset, AsyncState } from "../state/store";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { SeverityMeter } from "./SeverityMeter";
@@ -38,9 +33,7 @@ export function Sidebar() {
 						autoCorrect="off"
 						autoCapitalize="off"
 						spellcheck={false}
-						onInput={(e) =>
-							dispatch({ type: "SEARCH_SET", search: e.currentTarget.value })
-						}
+						onInput={(e) => dispatch({ type: "SEARCH_SET", search: e.currentTarget.value })}
 					/>
 				</div>
 			</form>

@@ -2,12 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { api } from "../api/client";
 import { useAppState, useDispatch } from "../state/context";
 import { runTriage, stopTriage } from "../state/effects";
-import type {
-	AppError,
-	TriageEvent,
-	TriageRecord,
-	TriageValidity,
-} from "../state/store";
+import type { AppError, TriageEvent, TriageRecord, TriageValidity } from "../state/store";
 import { Markdown } from "./Markdown";
 import { Spinner } from "./Spinner";
 import { TriageWorkingDirField } from "./TriageWorkingDirField";
@@ -263,18 +258,10 @@ export function ValidityBadge({ validity }: { validity: TriageValidity }) {
 	);
 }
 
-function AnalysisSection({
-	record,
-	heading,
-}: {
-	record: TriageRecord;
-	heading: string;
-}) {
+function AnalysisSection({ record, heading }: { record: TriageRecord; heading: string }) {
 	return (
 		<>
-			<div class="section-h">
-				{heading}
-			</div>
+			<div class="section-h">{heading}</div>
 			<Markdown source={record.summary} class="body-text" />
 		</>
 	);
