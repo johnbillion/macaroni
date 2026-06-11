@@ -218,7 +218,7 @@ export function InboxTable() {
 								onChange={onToggleAll}
 							/>
 						</th>
-						{visibility.id ? <th>Id</th> : null}
+						{visibility.id ? <th class="th-id">Id</th> : null}
 						{visibility.opened ? <th>Opened</th> : null}
 						{visibility.updated ? <th>Updated</th> : null}
 						{visibility.status ? <th>Status</th> : null}
