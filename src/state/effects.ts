@@ -122,7 +122,9 @@ export async function loadTeamMembers(
 }
 
 export async function loadReportDetail(dispatch: Dispatch, reportId: string) {
-	dispatch({ type: "DETAIL_REQUESTED", reportId });
+	// Seed the pane from the list summary so it populates immediately, then fetch the full
+	// report in the background and overwrite the seed via DETAIL_SUCCEEDED when it arrives.
+	dispatch({ type: "DETAIL_SEEDED", reportId });
 	try {
 		const detail = await api.getReport(reportId);
 		dispatch({ type: "DETAIL_SUCCEEDED", reportId, detail });

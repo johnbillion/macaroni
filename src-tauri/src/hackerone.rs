@@ -33,6 +33,10 @@ pub struct Program {
 pub struct ReportSummary {
     pub id: String,
     pub title: String,
+    // The full report description. The /reports list endpoint already returns this, so we carry
+    // it on the summary to populate the detail pane immediately on selection (before get_report
+    // returns). It's a large field, so it noticeably inflates list responses.
+    pub vulnerability_information: String,
     pub state: String,
     pub severity_rating: Option<String>,
     pub created_at: String,
@@ -40,6 +44,7 @@ pub struct ReportSummary {
     pub issue_tracker_reference_id: Option<String>,
     pub issue_tracker_reference_url: Option<String>,
     pub asset: Option<AssetRef>,
+    pub weakness: Option<WeaknessRef>,
     pub reporter: UserRef,
     pub assignee: Option<AssigneeRef>,
     pub inboxes: Vec<InboxRef>,
@@ -182,7 +187,6 @@ pub struct ReportDetail {
     pub main_state: String,
     pub severity_rating: Option<String>,
     pub created_at: String,
-    pub submitted_at: Option<String>,
     pub vulnerability_information: String,
     pub issue_tracker_reference_id: Option<String>,
     pub issue_tracker_reference_url: Option<String>,
@@ -434,6 +438,11 @@ impl HackerOneApi for ReqwestClient {
                 Some(ReportSummary {
                     id: item.get("id")?.as_str()?.to_string(),
                     title: attrs.get("title")?.as_str()?.to_string(),
+                    vulnerability_information: attrs
+                        .get("vulnerability_information")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     state: attrs.get("state").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                     severity_rating: parse_severity_rating(rel),
                     created_at: attrs
@@ -456,6 +465,7 @@ impl HackerOneApi for ReqwestClient {
                     asset: rel
                         .and_then(|r| r.get("structured_scope"))
                         .and_then(parse_asset_ref),
+                    weakness: rel.and_then(|r| r.get("weakness")).and_then(parse_weakness_ref),
                     reporter: rel.and_then(|r| r.get("reporter")).and_then(parse_user_ref)?,
                     assignee: rel.and_then(|r| r.get("assignee")).and_then(parse_assignee_ref),
                     inboxes: parse_inboxes(rel),
@@ -866,7 +876,6 @@ fn parse_report_detail(body: &serde_json::Value) -> Option<ReportDetail> {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
-        submitted_at: attrs.get("submitted_at").and_then(|v| v.as_str()).map(String::from),
         vulnerability_information: attrs
             .get("vulnerability_information")
             .and_then(|v| v.as_str())

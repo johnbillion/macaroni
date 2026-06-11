@@ -32,6 +32,9 @@ export type Asset = {
 export type ReportSummary = {
 	id: string;
 	title: string;
+	// Full report description, carried from the /reports list so the detail pane can show it
+	// immediately on selection. Large field — it inflates list responses noticeably.
+	vulnerability_information: string;
 	state: string;
 	severity_rating: string | null;
 	created_at: string;
@@ -39,6 +42,7 @@ export type ReportSummary = {
 	issue_tracker_reference_id: string | null;
 	issue_tracker_reference_url: string | null;
 	asset: AssetRef | null;
+	weakness: WeaknessRef | null;
 	reporter: UserRef;
 	assignee: AssigneeRef | null;
 	inboxes: InboxRef[];
@@ -113,7 +117,6 @@ export type ReportDetail = {
 	main_state: string;
 	severity_rating: string | null;
 	created_at: string;
-	submitted_at: string | null;
 	vulnerability_information: string;
 	issue_tracker_reference_id: string | null;
 	issue_tracker_reference_url: string | null;
@@ -267,6 +270,10 @@ export type AppState = {
 	bulkOperation: BulkOperationState;
 	detailActiveTab: "report" | "bulk";
 	detail: Record<string, AsyncState<ReportDetail>>;
+	// Reports whose detail pane is currently showing summary-derived placeholder data while the
+	// full get_report fetch is in flight. Used to render "loading" affordances for the fields the
+	// list summary doesn't carry (description, discussion). Cleared once the fetch resolves.
+	detailPending: Record<string, true>;
 	triage: Record<string, TriageState>;
 	// Lightweight per-report triage status surfaced in the inbox row (`null` means a triage
 	// was saved but no validity verdict was recorded — e.g. legacy entries or parse failures).
@@ -336,7 +343,8 @@ export type Action =
 			type: "TRIAGE_VALIDITY_LOADED";
 			entries: { id: string; validity: TriageValidity | null }[];
 	  }
-	| { type: "DETAIL_REQUESTED"; reportId: string }
+	// Populate the detail pane immediately from the list summary while get_report is in flight.
+	| { type: "DETAIL_SEEDED"; reportId: string }
 	| { type: "DETAIL_SUCCEEDED"; reportId: string; detail: ReportDetail }
 	| { type: "DETAIL_FAILED"; reportId: string; error: AppError }
 	| { type: "DETAIL_REFRESHED"; reportId: string; detail: ReportDetail }
@@ -395,6 +403,7 @@ export const initialState: AppState = {
 	bulkOperation: { status: "idle" },
 	detailActiveTab: "report",
 	detail: {},
+	detailPending: {},
 	triage: {},
 	triageValidityByReport: {},
 	detailToasts: [],
@@ -826,31 +835,60 @@ export function reducer(state: AppState, action: Action): AppState {
 			for (const e of action.entries) next[e.id] = e.validity;
 			return { ...state, triageValidityByReport: next };
 		}
-		case "DETAIL_REQUESTED":
+		case "DETAIL_SEEDED": {
+			const existing = state.detail[action.reportId];
+			// Don't clobber a report we've already fully fetched (e.g. reselecting one we have).
+			if (existing && existing.status === "ready") return state;
+			// Populate the pane immediately from the list summary if we have one, so the user
+			// sees the report's known fields without waiting for get_report. Fall back to a bare
+			// loading state if there's no summary to seed from (e.g. deep-linked selection).
+			const summary =
+				state.reports.status === "ready"
+					? state.reports.data.items.find((r) => r.id === action.reportId)
+					: undefined;
+			if (!summary) {
+				return {
+					...state,
+					detail: { ...state.detail, [action.reportId]: { status: "loading" } },
+				};
+			}
 			return {
 				...state,
-				detail: { ...state.detail, [action.reportId]: { status: "loading" } },
+				detail: {
+					...state.detail,
+					[action.reportId]: { status: "ready", data: summaryToPartialDetail(summary) },
+				},
+				detailPending: { ...state.detailPending, [action.reportId]: true },
 			};
-		case "DETAIL_SUCCEEDED":
+		}
+		case "DETAIL_SUCCEEDED": {
 			// The inbox row was loaded from /reports earlier — it may be stale by the time
 			// the user clicks in. Reconcile it against the freshly fetched detail so the
 			// summary fields (state, severity, title, asset, etc.) match what's in the pane.
+			const detailPending = { ...state.detailPending };
+			delete detailPending[action.reportId];
 			return {
 				...state,
 				detail: {
 					...state.detail,
 					[action.reportId]: { status: "ready", data: action.detail },
 				},
+				detailPending,
 				reports: applyDetailToReports(state.reports, action.reportId, action.detail),
 			};
-		case "DETAIL_FAILED":
+		}
+		case "DETAIL_FAILED": {
+			const detailPending = { ...state.detailPending };
+			delete detailPending[action.reportId];
 			return {
 				...state,
 				detail: {
 					...state.detail,
 					[action.reportId]: { status: "error", error: action.error },
 				},
+				detailPending,
 			};
+		}
 		case "DETAIL_REFRESHED": {
 			const existing = state.detail[action.reportId];
 			const nextDetail: AppState["detail"] = {
@@ -858,20 +896,25 @@ export function reducer(state: AppState, action: Action): AppState {
 				[action.reportId]: { status: "ready", data: action.detail },
 			};
 			const nextReports = applyDetailToReports(state.reports, action.reportId, action.detail);
-			// First time the data lands (refresh raced ahead of the initial fetch finishing) —
-			// no prior data to diff against, so just install the detail with no toasts.
-			if (!existing || existing.status !== "ready") {
-				return { ...state, detail: nextDetail, reports: nextReports };
+			const detailPending = { ...state.detailPending };
+			delete detailPending[action.reportId];
+			// First time the full data lands — either the refresh raced ahead of the initial
+			// fetch, or it's replacing the summary-derived seed. Either way there's no prior
+			// *fetched* snapshot to diff against, so install it with no toasts. (`pending` marks
+			// a seed: a "ready" entry that's only placeholder data, so don't diff against it.)
+			if (!existing || existing.status !== "ready" || state.detailPending[action.reportId]) {
+				return { ...state, detail: nextDetail, detailPending, reports: nextReports };
 			}
 			// Only surface toasts when the refresh is for the currently selected report —
 			// otherwise the user would see notifications inside a pane that isn't visible.
 			if (state.selectedReportId !== action.reportId) {
-				return { ...state, detail: nextDetail, reports: nextReports };
+				return { ...state, detail: nextDetail, detailPending, reports: nextReports };
 			}
 			const newToasts = diffReportDetail(existing.data, action.detail, action.reportId);
 			return {
 				...state,
 				detail: nextDetail,
+				detailPending,
 				reports: nextReports,
 				detailToasts: [...state.detailToasts, ...newToasts],
 			};
@@ -929,6 +972,34 @@ function sameInboxes(a: InboxRef[], b: InboxRef[]): boolean {
 // (assignee, last_activity_at) is left as-is since the detail endpoint doesn't carry it.
 // Returns the same reports state reference when nothing actually changed so consumers can
 // skip re-renders via reference identity.
+// Build a placeholder ReportDetail from the list summary so the detail pane can render
+// immediately on selection, before get_report returns. Fields the summary doesn't carry
+// (activities, attachments) are left empty and filled in once the real fetch lands — the
+// `detailPending` flag tells the view which of those are still loading
+// rather than genuinely absent. The description (vulnerability_information) and weakness ARE
+// carried by the summary, so they show right away; only the description's inline attachment
+// images wait for the fetch. `main_state` has no summary equivalent; reuse `state`, which
+// drives the same pill.
+function summaryToPartialDetail(s: ReportSummary): ReportDetail {
+	return {
+		id: s.id,
+		title: s.title,
+		state: s.state,
+		main_state: s.state,
+		severity_rating: s.severity_rating,
+		created_at: s.created_at,
+		vulnerability_information: s.vulnerability_information,
+		issue_tracker_reference_id: s.issue_tracker_reference_id,
+		issue_tracker_reference_url: s.issue_tracker_reference_url,
+		reporter: s.reporter,
+		weakness: s.weakness,
+		asset: s.asset,
+		inboxes: s.inboxes,
+		activities: [],
+		attachments: [],
+	};
+}
+
 function applyDetailToReports(
 	reports: AppState["reports"],
 	reportId: string,

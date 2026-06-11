@@ -250,8 +250,9 @@ function ReportTab() {
 	}
 
 	const r = detail.data;
+	const pending = !!state.detailPending[id];
 	const pill = pillFor(r.state);
-	const submittedClock = r.submitted_at ? formatClock(r.submitted_at) : "";
+	const submittedClock = formatClock(r.created_at);
 	const reporterUsername = r.reporter.username;
 	const reporterName = r.reporter.name;
 	const activities = isHackbotPreSubmissionTrigger(r.activities[0])
@@ -299,12 +300,8 @@ function ReportTab() {
 					<span>#{r.id}</span>
 					<span>
 						Submitted {submittedClock}
-						{r.submitted_at ? (
-							<>
-								{" · "}
-								<RelativeTime iso={r.submitted_at} />
-							</>
-						) : null}
+						{" · "}
+						<RelativeTime iso={r.created_at} />
 					</span>
 					{duplicateOf ? (
 						<span class={`pill ${pill.className}`}>
@@ -426,7 +423,7 @@ function ReportTab() {
 			<div class="section">
 				<div class="section-h">Discussion</div>
 				{activities.length === 0 ? (
-					<div class="placeholder">No activity yet.</div>
+					<div class="placeholder">{pending ? "Loading discussion…" : "No activity yet."}</div>
 				) : (
 					<div class="thread">
 						{activities.map((a) =>
