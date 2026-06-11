@@ -539,3 +539,30 @@ pub async fn save_attachment(
     std::fs::write(&path, &bytes).map_err(AppError::other)?;
     Ok(true)
 }
+
+// Show a native save-file dialog for arbitrary text content and, if the user confirms a path,
+// write the text to disk. Returns true if a file was written, false if the user cancelled.
+#[tauri::command]
+pub async fn save_text_file(
+    app: tauri::AppHandle,
+    contents: String,
+    suggested_filename: String,
+) -> AppResult<bool> {
+    use tauri_plugin_dialog::DialogExt;
+
+    #[cfg(debug_assertions)]
+    println!("[save] save dialog for {suggested_filename}");
+
+    let path = app
+        .dialog()
+        .file()
+        .set_file_name(&suggested_filename)
+        .blocking_save_file();
+    let Some(path) = path else {
+        return Ok(false);
+    };
+    let path = path.into_path().map_err(AppError::other)?;
+
+    std::fs::write(&path, contents.as_bytes()).map_err(AppError::other)?;
+    Ok(true)
+}

@@ -996,6 +996,11 @@ input[type="radio"] {
 .section-action {
 	margin-left: auto;
 }
+/* When several actions sit in a header, only the first is pushed to the right edge;
+   the rest follow it with the header's normal gap rather than each grabbing the slack. */
+.section-action ~ .section-action {
+	margin-left: 0;
+}
 
 .body-text {
 	font-size: var(--fs-lg);

@@ -120,6 +120,7 @@ pub fn run() {
             commands::get_report,
             commands::update_report_asset,
             commands::save_attachment,
+            commands::save_text_file,
             commands::get_settings,
             commands::set_triage_working_dir,
             commands::pick_directory,

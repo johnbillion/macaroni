@@ -1,6 +1,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { api } from "../api/client";
 import { useAppState, useDispatch } from "../state/context";
 import type { Activity, DetailToast } from "../state/store";
 import { pillFor } from "../utils/pill";
@@ -49,6 +50,37 @@ function CopyButton({
 			}}
 		>
 			{copied ? copiedLabel : label}
+		</button>
+	);
+}
+
+function SaveFileButton({
+	contents,
+	filename,
+	label,
+	class: className,
+}: {
+	contents: string;
+	filename: string;
+	label: string;
+	class?: string;
+}) {
+	const [busy, setBusy] = useState(false);
+	return (
+		<button
+			type="button"
+			class={className}
+			disabled={busy}
+			onClick={async () => {
+				setBusy(true);
+				try {
+					await api.saveTextFile(contents, filename);
+				} finally {
+					setBusy(false);
+				}
+			}}
+		>
+			{label}
 		</button>
 	);
 }
@@ -365,11 +397,19 @@ function ReportTab() {
 				<div class="section-h">
 					Description
 					{r.vulnerability_information && (
-						<CopyButton
-							text={r.vulnerability_information}
-							label="Copy markdown"
-							class="section-action"
-						/>
+						<>
+							<CopyButton
+								text={r.vulnerability_information}
+								label="Copy markdown"
+								class="section-action"
+							/>
+							<SaveFileButton
+								contents={r.vulnerability_information}
+								filename={`${r.id}.md`}
+								label="Save as file"
+								class="section-action"
+							/>
+						</>
 					)}
 				</div>
 				{r.vulnerability_information ? (

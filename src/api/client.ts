@@ -44,6 +44,8 @@ export const api = {
 		call<void>("update_report_asset", { reportId, assetId }),
 	saveAttachment: (url: string, suggestedFilename: string) =>
 		call<boolean>("save_attachment", { url, suggestedFilename }),
+	saveTextFile: (contents: string, suggestedFilename: string) =>
+		call<boolean>("save_text_file", { contents, suggestedFilename }),
 	getSettings: () => call<Settings>("get_settings"),
 	setTriageWorkingDir: (dir: string | null) => call<Settings>("set_triage_working_dir", { dir }),
 	pickDirectory: () => call<string | null>("pick_directory"),
