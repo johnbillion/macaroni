@@ -566,3 +566,56 @@ pub async fn save_text_file(
     std::fs::write(&path, contents.as_bytes()).map_err(AppError::other)?;
     Ok(true)
 }
+
+// A single named text document destined for a zip archive built by `save_zip_file`.
+#[derive(serde::Deserialize)]
+pub struct ZipEntry {
+    pub filename: String,
+    pub contents: String,
+}
+
+// Show a native save-file dialog and, if the user confirms a path, write the given named text
+// documents into a single deflate-compressed zip archive at that path. Returns true if a file
+// was written, false if the user cancelled.
+#[tauri::command]
+pub async fn save_zip_file(
+    app: tauri::AppHandle,
+    entries: Vec<ZipEntry>,
+    suggested_filename: String,
+) -> AppResult<bool> {
+    use std::io::Write as _;
+    use tauri_plugin_dialog::DialogExt;
+
+    #[cfg(debug_assertions)]
+    println!(
+        "[save] zip save dialog for {suggested_filename} ({} entries)",
+        entries.len()
+    );
+
+    let path = app
+        .dialog()
+        .file()
+        .set_file_name(&suggested_filename)
+        .blocking_save_file();
+    let Some(path) = path else {
+        return Ok(false);
+    };
+    let path = path.into_path().map_err(AppError::other)?;
+
+    let mut cursor = std::io::Cursor::new(Vec::<u8>::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut cursor);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for entry in &entries {
+            zip.start_file(&entry.filename, options)
+                .map_err(AppError::other)?;
+            zip.write_all(entry.contents.as_bytes())
+                .map_err(AppError::other)?;
+        }
+        zip.finish().map_err(AppError::other)?;
+    }
+
+    std::fs::write(&path, cursor.into_inner()).map_err(AppError::other)?;
+    Ok(true)
+}

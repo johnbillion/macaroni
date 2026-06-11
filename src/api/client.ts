@@ -46,6 +46,8 @@ export const api = {
 		call<boolean>("save_attachment", { url, suggestedFilename }),
 	saveTextFile: (contents: string, suggestedFilename: string) =>
 		call<boolean>("save_text_file", { contents, suggestedFilename }),
+	saveZipFile: (entries: { filename: string; contents: string }[], suggestedFilename: string) =>
+		call<boolean>("save_zip_file", { entries, suggestedFilename }),
 	getSettings: () => call<Settings>("get_settings"),
 	setTriageWorkingDir: (dir: string | null) => call<Settings>("set_triage_working_dir", { dir }),
 	pickDirectory: () => call<string | null>("pick_directory"),

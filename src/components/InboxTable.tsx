@@ -2,6 +2,7 @@ import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { CheckMenuItem, Menu } from "@tauri-apps/api/menu";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { api } from "../api/client";
 import { useAppState, useDispatch } from "../state/context";
 import { buildReportsQuery, loadAllReports, loadMoreReports, loadReports } from "../state/effects";
 import { isOpenOnlyStateFilter } from "../state/filters";
@@ -178,6 +179,21 @@ export function InboxTable() {
 	const onRefreshReports = () => {
 		const query = buildReportsQuery(state);
 		if (query) loadReports(dispatch, query, undefined, true);
+	};
+
+	const [downloading, setDownloading] = useState(false);
+	const onDownloadReports = async () => {
+		if (items.length === 0 || downloading) return;
+		setDownloading(true);
+		try {
+			const entries = items.map((r) => ({
+				filename: `${r.id}.md`,
+				contents: r.vulnerability_information ?? "",
+			}));
+			await api.saveZipFile(entries, "reports.zip");
+		} finally {
+			setDownloading(false);
+		}
 	};
 
 	const body = (() => {
@@ -427,6 +443,17 @@ export function InboxTable() {
 							disabled={state.reportsRefreshing}
 						>
 							↻
+						</button>
+					) : null}
+					{showColumnsMenu ? (
+						<button
+							type="button"
+							class="columns-menu-btn"
+							aria-label="Download reports"
+							onClick={onDownloadReports}
+							disabled={downloading}
+						>
+							⤓
 						</button>
 					) : null}
 					{showColumnsMenu ? <ColumnsMenu visibility={visibility} onToggle={toggle} /> : null}

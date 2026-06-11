@@ -37,4 +37,5 @@ serde_urlencoded = "0.7.1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 libc = "0.2"
 zeroize = { version = "1.8", features = ["derive"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
