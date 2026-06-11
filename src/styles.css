@@ -20,6 +20,7 @@
 	--row-lead: 20px;
 
 	--bg: #f0ebde;
+	--bg-0: #e0d9c8;
 	--bg-1: #e6e0d0;
 	--bg-2: #ddd6c3;
 	--bg-3: #cdc5af;
@@ -1072,8 +1073,7 @@ a[target="_blank"]::after {
 .markdown code {
 	font-family: var(--mono);
 	font-size: var(--fs-md);
-	background: var(--bg-2);
-	border: 1px solid var(--border);
+	background: var(--bg-0);
 	padding: 0 4px;
 	border-radius: 2px;
 	/* Treat each inline-code span as an atomic unit: an inline-block shrink-wraps to its
