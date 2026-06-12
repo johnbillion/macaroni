@@ -79,12 +79,23 @@ export function describeEvent(
 				<>updated the vulnerability types</>
 			);
 		case "user-assigned-to-bug":
-			return activity.assigned_user ? (
+			if (!activity.assigned_user) {
+				return <>assigned this report to a user</>;
+			}
+			return activity.actor && activity.actor.id === activity.assigned_user.id ? (
+				<>claimed this report</>
+			) : (
 				<>
 					assigned this report to <b>{activity.assigned_user.username}</b>
 				</>
+			);
+		case "reference-id-added":
+			return activity.reference ? (
+				<>
+					added reference id <b>{activity.reference}</b>
+				</>
 			) : (
-				<>assigned this report to a user</>
+				<>added a reference id</>
 			);
 		case "group-assigned-to-bug":
 			return activity.group_name ? (

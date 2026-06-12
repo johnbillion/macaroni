@@ -108,6 +108,7 @@ export type Activity =
 			bounty_amount: number | null;
 			bonus_amount: number | null;
 			assigned_user: UserRef | null;
+			reference: string | null;
 	  };
 
 export type ReportDetail = {

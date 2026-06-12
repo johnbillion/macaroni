@@ -180,6 +180,9 @@ pub enum Activity {
         /// `assigned_user` on `activity-user-assigned-to-bug` — the user the report was
         /// assigned to (distinct from `actor`, who performed the assignment).
         assigned_user: Option<UserRef>,
+        /// `reference` on `activity-reference-id-added` — the external issue-tracker
+        /// reference id linked to the report (sometimes a bare id, sometimes a full URL).
+        reference: Option<String>,
     },
 }
 
@@ -903,6 +906,14 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
         } else {
             None
         };
+        let reference = if kind_short == "reference-id-added" {
+            attrs
+                .get("reference")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        } else {
+            None
+        };
         Some(Activity::Event {
             id,
             created_at,
@@ -924,6 +935,7 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
             bounty_amount,
             bonus_amount,
             assigned_user,
+            reference,
         })
     }
 }

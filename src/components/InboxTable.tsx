@@ -12,10 +12,10 @@ import { pillFor } from "../utils/pill";
 import { formatRelativeTime } from "../utils/time";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { Avatar } from "./Avatar";
+import { ReportLink } from "./ReportLink";
 import { SeverityMeter } from "./SeverityMeter";
 import { Spinner } from "./Spinner";
 import { ValidityBadge } from "./TriagePanel";
-import { ReportLink } from "./ReportLink";
 
 const COLUMN_DEFS = [
 	{ key: "id", label: "ID", defaultVisible: true },

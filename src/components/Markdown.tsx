@@ -106,6 +106,22 @@ function substituteAttachmentTokens(source: string, attachments: Attachment[]): 
 	});
 }
 
+// Comments sometimes contain root-relative (`/reports/123`) or protocol-relative
+// (`//example.com`) URLs. Resolve them to absolute links so they open correctly from
+// the Tauri webview; root-relative URLs are anchored to HackerOne.
+const HACKERONE_BASE = "https://hackerone.com";
+
+function resolveHref(href: string): { href: string; isExternal: boolean } {
+	if (href.startsWith("#")) return { href, isExternal: false };
+	// Already absolute, e.g. https:, mailto:.
+	if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return { href, isExternal: true };
+	// Protocol-relative.
+	if (href.startsWith("//")) return { href: `https:${href}`, isExternal: true };
+	// Root-relative — anchor to HackerOne.
+	if (href.startsWith("/")) return { href: `${HACKERONE_BASE}${href}`, isExternal: true };
+	return { href, isExternal: false };
+}
+
 // react-markdown's `Components` type is typed against React; cast through to keep Preact JSX happy.
 const components = {
 	pre: ({ children }: { children?: ComponentChildren }) => <CodeBlock>{children}</CodeBlock>,
@@ -113,17 +129,19 @@ const components = {
 		<ImageWithControls src={src} alt={alt} title={title} />
 	),
 	a: ({ href, children }: { href?: string; children?: ComponentChildren }) => {
-		const isExternal = !!href && /^[a-z][a-z0-9+.-]*:/i.test(href) && !href.startsWith("#");
+		const { href: resolvedHref, isExternal } = href
+			? resolveHref(href)
+			: { href: undefined, isExternal: false };
 		return (
 			<a
-				href={href}
+				href={resolvedHref}
 				target={isExternal ? "_blank" : undefined}
 				rel={isExternal ? "noopener noreferrer" : undefined}
 				onClick={
-					isExternal && href
+					isExternal && resolvedHref
 						? (e) => {
 								e.preventDefault();
-								openUrl(href);
+								openUrl(resolvedHref);
 							}
 						: undefined
 				}
