@@ -230,15 +230,17 @@ export function InboxTable() {
 				<thead>
 					<tr>
 						<th class="th-check">
-							<input
-								ref={headerCheckRef}
-								type="checkbox"
-								class="cb"
-								aria-label="Select all"
-								checked={allSelected}
-								disabled={bulkRunning}
-								onChange={onToggleAll}
-							/>
+							<label class="check-label">
+								<input
+									ref={headerCheckRef}
+									type="checkbox"
+									class="cb"
+									aria-label="Select all"
+									checked={allSelected}
+									disabled={bulkRunning}
+									onChange={onToggleAll}
+								/>
+							</label>
 						</th>
 						{visibility.id ? <th class="th-id">ID</th> : null}
 						{visibility.opened ? <th>Opened</th> : null}
@@ -267,10 +269,17 @@ export function InboxTable() {
 						if (isUnread) classes.push("unread");
 						if (showBulkSelected) classes.push("bulk-selected");
 						return (
-							<tr key={r.id} class={classes.join(" ")} onClick={() => onSelect(r.id)}>
+							<tr
+								key={r.id}
+								class={classes.join(" ")}
+								onClick={(e) => {
+									// Clicks inside the select-report label toggle the checkbox; don't also open the report.
+									if ((e.target as HTMLElement).closest(".check-label")) return;
+									onSelect(r.id);
+								}}
+							>
 								<td class="check">
-									{/* biome-ignore lint/a11y/useKeyWithClickEvents: the wrapped checkbox handles keyboard; the click only stops row selection */}
-									<label class="check-label" onClick={(e) => e.stopPropagation()}>
+									<label class="check-label">
 										<input
 											type="checkbox"
 											class="cb"
@@ -281,7 +290,11 @@ export function InboxTable() {
 										/>
 									</label>
 								</td>
-								{visibility.id ? <td class="id"><ReportLink id={r.id} /></td> : null}
+								{visibility.id ? (
+									<td class="id">
+										<ReportLink id={r.id} />
+									</td>
+								) : null}
 								{visibility.opened ? (
 									<td class="date">{formatRelativeTime(r.created_at)}</td>
 								) : null}

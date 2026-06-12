@@ -57,8 +57,8 @@ export function DuplicatesPanel() {
 			<div class="triage-head">
 				<div class="triage-title">Duplicate check</div>
 				<div class="triage-sub">
-					Ask Claude whether these reports duplicate one another. The
-					oldest report is treated as canonical.
+					Ask Claude whether these reports duplicate one another. The oldest report is treated as
+					canonical.
 				</div>
 				<ul class="dup-report-list">
 					{displayReports.map((r) => (

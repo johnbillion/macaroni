@@ -618,6 +618,11 @@ input[type="radio"] {
 .row.bulk-selected.selected .check-label:hover {
 	background: var(--bg-3);
 }
+/* Selected (but not bulk-selected) rows are tinted green; layering another
+   glow-acc on hover yields a green a touch darker than the row background. */
+.row.selected .check-label:hover {
+	background: var(--glow-acc);
+}
 .row {
 	cursor: pointer;
 
