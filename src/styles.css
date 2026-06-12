@@ -582,10 +582,41 @@ input[type="radio"] {
 .inbox-table tbody td .triage-cell-spinner {
 	vertical-align: middle;
 }
-.inbox-table th.th-check,
-.inbox-table td.check {
+.inbox-table th.th-check {
 	padding-left: 10px;
 	padding-right: 10px;
+}
+/* Let the label fill the whole cell so the hover target spans it. A percentage
+   height on a table-cell child doesn't resolve in WebKit, so position the label
+   absolutely to span the cell; the column width comes from the header cell. */
+.inbox-table td.check {
+	padding: 0;
+	position: relative;
+}
+.check-label {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+	padding: 11px 10px;
+	cursor: pointer;
+}
+/* Fixed size + offset nudges the checkbox down to sit centered on the row's
+   leading line, aligning it with the first line of the title (see .facet). */
+.inbox-table td.check .cb {
+	width: 13px;
+	height: 13px;
+	margin-top: calc((var(--row-lead) - 13px) / 2);
+}
+.check-label:hover {
+	background: var(--bg-2);
+}
+.row.bulk-selected .check-label:hover {
+	background: var(--bg-3);
+}
+.row.bulk-selected.selected .check-label:hover {
+	background: var(--bg-3);
 }
 .row {
 	cursor: pointer;
@@ -2008,42 +2039,32 @@ a[target="_blank"]::after {
 .triage-error {
 	color: var(--crit);
 }
+.dup-panel {
+	padding-inline: 26px;
+}
 .dup-report-list {
 	list-style: none;
-	margin: 8px 0 0;
+	margin: 20px 0;
 	padding: 0;
 	display: flex;
 	flex-direction: column;
 	gap: 4px;
+	border-top: 1px solid var(--border);
 }
 .dup-report {
+	border-bottom: 1px solid var(--border);
 	display: flex;
 	align-items: baseline;
 	gap: 8px;
-	font-size: var(--fs-sm);
+	padding: 12px 0;
 }
 .dup-report-id {
 	flex: none;
-	display: inline-flex;
-	align-items: baseline;
-	gap: 6px;
 	color: var(--text-2);
 	font-variant-numeric: tabular-nums;
 }
-.dup-report-canonical {
-	font-size: var(--fs-xs);
-	text-transform: uppercase;
-	letter-spacing: 0.04em;
-	color: var(--bg);
-	background: var(--text-2);
-	border-radius: 3px;
-	padding: 0 5px;
-}
 .dup-report-title {
 	color: var(--text);
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 }
 .triage-run {
 	align-self: flex-start;

@@ -3,6 +3,7 @@ import { useAppState, useDispatch } from "../state/context";
 import { runDuplicateCheck, stopDuplicateCheck } from "../state/effects";
 import type { AppError, DuplicateInput } from "../state/store";
 import { Markdown } from "./Markdown";
+import { ReportLink } from "./ReportLink";
 import { TriageEventLog } from "./TriagePanel";
 
 function formatError(error: AppError): string {
@@ -42,8 +43,9 @@ export function DuplicatesPanel() {
 		.sort((a, b) => Number(a.id) - Number(b.id))
 		.map((r) => ({ id: r.id, title: r.title, body: r.vulnerability_information }));
 
-	const canonicalId = reports[0]?.id ?? null;
 	const requestId = requestIdFor(reports);
+
+	const displayReports = reports.slice().reverse();
 
 	const onRun = () => {
 		if (reports.length < 2) return;
@@ -51,19 +53,18 @@ export function DuplicatesPanel() {
 	};
 
 	return (
-		<div class="triage">
+		<div class="triage dup-panel">
 			<div class="triage-head">
 				<div class="triage-title">Duplicate check</div>
 				<div class="triage-sub">
-					Ask Claude whether these {reports.length} reports are duplicates of one another. The
-					lowest report ID{canonicalId ? ` (#${canonicalId})` : ""} is treated as canonical.
+					Ask Claude whether these reports duplicate one another. The
+					oldest report is treated as canonical.
 				</div>
 				<ul class="dup-report-list">
-					{reports.map((r) => (
+					{displayReports.map((r) => (
 						<li key={r.id} class="dup-report">
 							<span class="dup-report-id">
-								#{r.id}
-								{r.id === canonicalId ? <span class="dup-report-canonical">canonical</span> : null}
+								<ReportLink id={r.id} />
 							</span>
 							<span class="dup-report-title">{r.title}</span>
 						</li>

@@ -15,6 +15,7 @@ import { Avatar } from "./Avatar";
 import { SeverityMeter } from "./SeverityMeter";
 import { Spinner } from "./Spinner";
 import { ValidityBadge } from "./TriagePanel";
+import { ReportLink } from "./ReportLink";
 
 const COLUMN_DEFS = [
 	{ key: "id", label: "ID", defaultVisible: true },
@@ -145,6 +146,8 @@ export function InboxTable() {
 	const allSelected = items.length > 0 && items.every((r) => selected.has(r.id));
 	const someSelected = items.some((r) => selected.has(r.id));
 	const bulkRunning = state.bulkOperation.status === "running";
+	const selectionTabActive =
+		state.detailActiveTab === "bulk" || state.detailActiveTab === "duplicates";
 	const headerCheckRef = useRef<HTMLInputElement>(null);
 	useEffect(() => {
 		if (headerCheckRef.current) {
@@ -255,11 +258,10 @@ export function InboxTable() {
 				<tbody>
 					{items.map((r) => {
 						const pill = pillFor(r.state);
-						const showSelected =
-							state.selectedReportId === r.id && state.detailActiveTab !== "bulk";
+						const showSelected = state.selectedReportId === r.id && !selectionTabActive;
 						const isUnread = !state.readReports[r.id];
 						const isBulkSelected = selected.has(r.id);
-						const showBulkSelected = isBulkSelected && state.detailActiveTab === "bulk";
+						const showBulkSelected = isBulkSelected && selectionTabActive;
 						const classes = ["row"];
 						if (showSelected) classes.push("selected");
 						if (isUnread) classes.push("unread");
@@ -267,17 +269,19 @@ export function InboxTable() {
 						return (
 							<tr key={r.id} class={classes.join(" ")} onClick={() => onSelect(r.id)}>
 								<td class="check">
-									<input
-										type="checkbox"
-										class="cb"
-										aria-label="Select report"
-										checked={isBulkSelected}
-										disabled={bulkRunning}
-										onClick={(e) => e.stopPropagation()}
-										onChange={() => onToggleRow(r.id)}
-									/>
+									{/* biome-ignore lint/a11y/useKeyWithClickEvents: the wrapped checkbox handles keyboard; the click only stops row selection */}
+									<label class="check-label" onClick={(e) => e.stopPropagation()}>
+										<input
+											type="checkbox"
+											class="cb"
+											aria-label="Select report"
+											checked={isBulkSelected}
+											disabled={bulkRunning}
+											onChange={() => onToggleRow(r.id)}
+										/>
+									</label>
 								</td>
-								{visibility.id ? <td class="id">#{r.id}</td> : null}
+								{visibility.id ? <td class="id"><ReportLink id={r.id} /></td> : null}
 								{visibility.opened ? (
 									<td class="date">{formatRelativeTime(r.created_at)}</td>
 								) : null}
