@@ -14,7 +14,9 @@ pub enum AppError {
 
 impl AppError {
     pub fn other(e: impl std::fmt::Display) -> Self {
-        AppError::Other { message: e.to_string() }
+        AppError::Other {
+            message: e.to_string(),
+        }
     }
 
     pub fn from_status(status: u16, body: &str) -> Self {
@@ -79,14 +81,18 @@ impl From<keyring::Error> for AppError {
                 };
                 AppError::Keychain { message }
             }
-            _ => AppError::Other { message: format!("keyring: {e}") },
+            _ => AppError::Other {
+                message: format!("keyring: {e}"),
+            },
         }
     }
 }
 
 impl From<serde_json::Error> for AppError {
     fn from(e: serde_json::Error) -> Self {
-        AppError::Other { message: format!("json: {e}") }
+        AppError::Other {
+            message: format!("json: {e}"),
+        }
     }
 }
 

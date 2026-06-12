@@ -83,18 +83,12 @@ pub async fn list_organizations(ctx: State<'_, AppContext>) -> AppResult<Vec<Org
 }
 
 #[tauri::command]
-pub async fn list_programs(
-    ctx: State<'_, AppContext>,
-    org_id: String,
-) -> AppResult<Vec<Program>> {
+pub async fn list_programs(ctx: State<'_, AppContext>, org_id: String) -> AppResult<Vec<Program>> {
     ctx.api.list_programs(&org_id).await
 }
 
 #[tauri::command]
-pub async fn list_assets(
-    ctx: State<'_, AppContext>,
-    org_id: String,
-) -> AppResult<Vec<Asset>> {
+pub async fn list_assets(ctx: State<'_, AppContext>, org_id: String) -> AppResult<Vec<Asset>> {
     ctx.api.list_assets(&org_id).await
 }
 
@@ -107,10 +101,7 @@ pub async fn list_program_members(
 }
 
 #[tauri::command]
-pub async fn list_reports(
-    ctx: State<'_, AppContext>,
-    query: ReportQuery,
-) -> AppResult<ReportPage> {
+pub async fn list_reports(ctx: State<'_, AppContext>, query: ReportQuery) -> AppResult<ReportPage> {
     let page = ctx.api.list_reports(query).await?;
     let ids: Vec<&str> = page.items.iter().map(|r| r.id.as_str()).collect();
     ctx.reports.upsert(&ids)?;
@@ -141,10 +132,7 @@ pub async fn get_read_ids(
 }
 
 #[tauri::command]
-pub async fn get_report(
-    ctx: State<'_, AppContext>,
-    report_id: String,
-) -> AppResult<ReportDetail> {
+pub async fn get_report(ctx: State<'_, AppContext>, report_id: String) -> AppResult<ReportDetail> {
     ctx.api.get_report(&report_id).await
 }
 
@@ -219,10 +207,10 @@ fn extract_triage_json(s: &str) -> Option<serde_json::Value> {
                     depth -= 1;
                     if depth == 0 {
                         let candidate = &s[start..=end];
-                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(candidate) {
-                            if v.get("summary").is_some() {
-                                return Some(v);
-                            }
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(candidate)
+                            && v.get("summary").is_some()
+                        {
+                            return Some(v);
                         }
                         break;
                     }
@@ -241,32 +229,32 @@ fn extract_triage_json(s: &str) -> Option<serde_json::Value> {
 // embedded object that has the right shape. Falls back to the raw text with no validity and
 // no files when nothing parses. `new_files` is optional and defaults to empty.
 fn parse_triage_result(raw: &str) -> (String, Option<String>, Vec<String>) {
-    if let Some(value) = extract_triage_json(raw) {
-        if let Some(summary) = value.get("summary").and_then(|v| v.as_str()) {
-            let validity = value
-                .get("validity")
-                .and_then(|v| v.as_str())
-                .map(|s| s.trim().to_lowercase())
-                .filter(|v| {
-                    matches!(
-                        v.as_str(),
-                        "valid" | "partially-valid" | "invalid" | "indeterminate"
-                    )
-                });
-            let new_files = value
-                .get("new_files")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str())
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                        .map(str::to_owned)
-                        .collect()
-                })
-                .unwrap_or_default();
-            return (summary.to_owned(), validity, new_files);
-        }
+    if let Some(value) = extract_triage_json(raw)
+        && let Some(summary) = value.get("summary").and_then(|v| v.as_str())
+    {
+        let validity = value
+            .get("validity")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_lowercase())
+            .filter(|v| {
+                matches!(
+                    v.as_str(),
+                    "valid" | "partially-valid" | "invalid" | "indeterminate"
+                )
+            });
+        let new_files = value
+            .get("new_files")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        return (summary.to_owned(), validity, new_files);
     }
     (raw.to_owned(), None, Vec::new())
 }
@@ -286,8 +274,7 @@ mod triage_parse_tests {
 
     #[test]
     fn json_embedded_after_prose() {
-        let raw =
-            "Some commentary above.\n\n{\"validity\":\"invalid\",\"summary\":\"## Why\\n\\nReason\"}";
+        let raw = "Some commentary above.\n\n{\"validity\":\"invalid\",\"summary\":\"## Why\\n\\nReason\"}";
         let (summary, validity, _) = parse_triage_result(raw);
         assert_eq!(summary, "## Why\n\nReason");
         assert_eq!(validity.as_deref(), Some("invalid"));
@@ -295,8 +282,7 @@ mod triage_parse_tests {
 
     #[test]
     fn json_wrapped_in_code_fence() {
-        let raw =
-            "```json\n{\"validity\":\"partially-valid\",\"summary\":\"Notes\"}\n```";
+        let raw = "```json\n{\"validity\":\"partially-valid\",\"summary\":\"Notes\"}\n```";
         let (summary, validity, _) = parse_triage_result(raw);
         assert_eq!(summary, "Notes");
         assert_eq!(validity.as_deref(), Some("partially-valid"));
@@ -331,7 +317,10 @@ mod triage_parse_tests {
     fn new_files_parsed_and_blanks_dropped() {
         let raw = "{\"validity\":\"valid\",\"summary\":\"s\",\"new_files\":[\"/tmp/a.php\",\"  \",\"/tmp/b.txt\"]}";
         let (_, _, new_files) = parse_triage_result(raw);
-        assert_eq!(new_files, vec!["/tmp/a.php".to_string(), "/tmp/b.txt".to_string()]);
+        assert_eq!(
+            new_files,
+            vec!["/tmp/a.php".to_string(), "/tmp/b.txt".to_string()]
+        );
     }
 
     #[test]
@@ -363,9 +352,7 @@ pub async fn set_triage_working_dir(
     dir: Option<String>,
 ) -> AppResult<Settings> {
     let mut settings = ctx.settings.load()?;
-    settings.triage_working_dir = dir
-        .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty());
+    settings.triage_working_dir = dir.map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
     ctx.settings.save(&settings)?;
     Ok(settings)
 }
@@ -423,10 +410,7 @@ pub async fn run_triage(
     // Register the PID before any await so a STOP issued in the very first moment after
     // spawn still has something to signal. The guard removes it on every exit path.
     let _guard = if let Some(pid) = child.id() {
-        ctx.triages
-            .lock()
-            .unwrap()
-            .insert(report_id.clone(), pid);
+        ctx.triages.lock().unwrap().insert(report_id.clone(), pid);
         Some(TriageGuard {
             triages: ctx.triages.clone(),
             report_id: report_id.clone(),
@@ -479,10 +463,10 @@ pub async fn run_triage(
                     Ok(value) => {
                         // Capture the final result before forwarding so the UI sees it land
                         // in the same event stream it's been showing.
-                        if value.get("type").and_then(|v| v.as_str()) == Some("result") {
-                            if let Some(text) = value.get("result").and_then(|v| v.as_str()) {
-                                final_result = Some(text.to_string());
-                            }
+                        if value.get("type").and_then(|v| v.as_str()) == Some("result")
+                            && let Some(text) = value.get("result").and_then(|v| v.as_str())
+                        {
+                            final_result = Some(text.to_string());
                         }
                         let _ = app.emit(&event_name, &value);
                     }
@@ -565,7 +549,10 @@ fn assemble_duplicates_prompt(reports: &[DuplicateInput]) -> String {
         } else {
             r.body.as_str()
         };
-        prompt.push_str(&format!("\n\n### Report #{}: {}\n\n{}", r.id, r.title, body));
+        prompt.push_str(&format!(
+            "\n\n### Report #{}: {}\n\n{}",
+            r.id, r.title, body
+        ));
     }
     prompt
 }
@@ -606,10 +593,7 @@ pub async fn run_duplicates(
     // Register the PID before any await, same as run_triage, so an early STOP has something to
     // signal. TriageGuard removes the key on every exit path.
     let _guard = if let Some(pid) = child.id() {
-        ctx.triages
-            .lock()
-            .unwrap()
-            .insert(request_id.clone(), pid);
+        ctx.triages.lock().unwrap().insert(request_id.clone(), pid);
         Some(TriageGuard {
             triages: ctx.triages.clone(),
             report_id: request_id.clone(),
@@ -658,10 +642,10 @@ pub async fn run_duplicates(
                 }
                 match serde_json::from_str::<serde_json::Value>(&line) {
                     Ok(value) => {
-                        if value.get("type").and_then(|v| v.as_str()) == Some("result") {
-                            if let Some(text) = value.get("result").and_then(|v| v.as_str()) {
-                                final_result = Some(text.to_string());
-                            }
+                        if value.get("type").and_then(|v| v.as_str()) == Some("result")
+                            && let Some(text) = value.get("result").and_then(|v| v.as_str())
+                        {
+                            final_result = Some(text.to_string());
                         }
                         let _ = app.emit(&event_name, &value);
                     }
@@ -682,7 +666,11 @@ pub async fn run_duplicates(
     let stderr_text = stderr_task.await.unwrap_or_default();
     if !status.success() {
         return Err(AppError::Other {
-            message: format!("claude exited with status {}: {}", status, stderr_text.trim()),
+            message: format!(
+                "claude exited with status {}: {}",
+                status,
+                stderr_text.trim()
+            ),
         });
     }
 

@@ -56,8 +56,8 @@ export function describeEvent(
 		case "external-user-joined":
 			return activity.duplicate_report_id ? (
 				<>
-					filed a duplicate (<ReportLink id={activity.duplicate_report_id} />) and was
-					invited to participate in this report
+					filed a duplicate (<ReportLink id={activity.duplicate_report_id} />) and was invited to
+					participate in this report
 				</>
 			) : (
 				<>joined this report as a participant</>
@@ -207,10 +207,9 @@ export function renderActivity(
 				</span>
 				<span class="event-time">
 					{activity.internal && (
-						<span class="icon-padlock" title="Internal" aria-label="Internal" />
+						<span class="icon-padlock" role="img" title="Internal" aria-label="Internal" />
 					)}
 					<RelativeTime iso={activity.created_at} />
-
 				</span>
 			</div>
 		);
@@ -284,10 +283,9 @@ export function renderActivity(
 				) : null}
 				<span class="msg-time">
 					{activity.internal && (
-						<span class="icon-padlock" title="Internal" aria-label="Internal" />
+						<span class="icon-padlock" role="img" title="Internal" aria-label="Internal" />
 					)}
 					<RelativeTime iso={activity.created_at} />
-
 				</span>
 			</div>
 			{hasMessage && (

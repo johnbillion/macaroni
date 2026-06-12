@@ -45,9 +45,7 @@ function BulkIdle() {
 			? assetsState.data
 					.filter((a) => a.in_scope)
 					.slice()
-					.sort((a, b) =>
-						assetSortKey(a.identifier).localeCompare(assetSortKey(b.identifier)),
-					)
+					.sort((a, b) => assetSortKey(a.identifier).localeCompare(assetSortKey(b.identifier)))
 			: [];
 
 	const [pickedAssetId, setPickedAssetId] = useState<string>(NO_CHANGE);
@@ -79,7 +77,9 @@ function BulkIdle() {
 	return (
 		<div class="bulk-panel">
 			<div class="bulk-head">
-				<h2 class="bulk-title">Editing {count} {count === 1 ? "report" : "reports"}</h2>
+				<h2 class="bulk-title">
+					Editing {count} {count === 1 ? "report" : "reports"}
+				</h2>
 			</div>
 
 			<div class="bulk-field">
@@ -115,7 +115,8 @@ function BulkIdle() {
 			</div>
 
 			<div class="bulk-callout" role="note">
-				Bulk editing isn't connected to the HackerOne API yet. Submitting won't change anything on real reports.
+				Bulk editing isn't connected to the HackerOne API yet. Submitting won't change anything on
+				real reports.
 			</div>
 
 			<div class="bulk-actions">
@@ -135,11 +136,16 @@ function BulkIdle() {
 			<dialog ref={confirmRef} class="app-dialog bulk-confirm">
 				<form method="dialog">
 					<p class="bulk-confirm-msg">
-						About to change the asset on {count} {count === 1 ? "report" : "reports"}. This
-						can't be undone.
+						About to change the asset on {count} {count === 1 ? "report" : "reports"}. This can't be
+						undone.
 					</p>
 					<div class="bulk-confirm-actions">
-						<button type="button" class="bulk-btn bulk-btn-secondary" value="cancel" onClick={() => confirmRef.current?.close()}>
+						<button
+							type="button"
+							class="bulk-btn bulk-btn-secondary"
+							value="cancel"
+							onClick={() => confirmRef.current?.close()}
+						>
 							Cancel
 						</button>
 						<button type="button" class="bulk-btn bulk-btn-primary" onClick={onConfirm}>
@@ -236,4 +242,3 @@ function FailureList({ failures }: { failures: BulkFailure[] }) {
 		</div>
 	);
 }
-

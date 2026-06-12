@@ -26,7 +26,7 @@ export function SeverityMeter({
 	const label = LABELS[key] ?? "No rating";
 	return (
 		<span class="sev-meter" data-rating={fill === 0 ? "none-set" : key}>
-			<span class="sev-bars" aria-label={`Severity: ${label}`}>
+			<span class="sev-bars" role="img" aria-label={`Severity: ${label}`}>
 				{[0, 1, 2, 3, 4].map((i) => (
 					<span key={i} class={`sev-bar ${i < fill ? "on" : ""}`} />
 				))}

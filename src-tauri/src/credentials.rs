@@ -38,7 +38,10 @@ pub struct KeyringStore {
 
 impl KeyringStore {
     pub fn new() -> Self {
-        Self { service: SERVICE.to_string(), account: ACCOUNT.to_string() }
+        Self {
+            service: SERVICE.to_string(),
+            account: ACCOUNT.to_string(),
+        }
     }
 
     fn entry(&self) -> AppResult<keyring::Entry> {
@@ -92,7 +95,9 @@ pub struct InMemoryStore {
 #[cfg(test)]
 impl InMemoryStore {
     pub fn new() -> Self {
-        Self { inner: std::sync::Mutex::new(None) }
+        Self {
+            inner: std::sync::Mutex::new(None),
+        }
     }
 }
 
@@ -117,7 +122,10 @@ mod tests {
 
     #[test]
     fn debug_redacts_token() {
-        let creds = Credentials { username: "alice".into(), token: "super-secret-token".into() };
+        let creds = Credentials {
+            username: "alice".into(),
+            token: "super-secret-token".into(),
+        };
         let rendered = format!("{creds:?}");
         assert!(rendered.contains("alice"));
         assert!(!rendered.contains("super-secret-token"));
@@ -129,7 +137,10 @@ mod tests {
         let store = InMemoryStore::new();
         assert!(store.load().unwrap().is_none());
         store
-            .save(&Credentials { username: "u".into(), token: "t".into() })
+            .save(&Credentials {
+                username: "u".into(),
+                token: "t".into(),
+            })
             .unwrap();
         let loaded = store.load().unwrap().unwrap();
         assert_eq!(loaded.username, "u");

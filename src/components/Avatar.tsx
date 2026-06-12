@@ -12,15 +12,7 @@ export function Avatar({ user }: Props) {
 	const isAbsolute = !!url && /^https:\/\//i.test(url);
 	if (isAbsolute) {
 		return (
-			<img
-				class="avatar"
-				src={url}
-				alt=""
-				loading="lazy"
-				decoding="async"
-				width={18}
-				height={18}
-			/>
+			<img class="avatar" src={url} alt="" loading="lazy" decoding="async" width={18} height={18} />
 		);
 	}
 	return <div class="avatar">{initial}</div>;

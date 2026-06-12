@@ -13,8 +13,8 @@ use credentials::KeyringStore;
 use hackerone::ReqwestClient;
 use local_db::SqliteStore;
 use settings::FileSettingsStore;
-use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::Manager;
+use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -47,9 +47,7 @@ pub fn run() {
                 .version(Some(env!("CARGO_PKG_VERSION")))
                 .copyright(Some("© 2026 John Blackbourn"))
                 .icon(Some(icon))
-                .credits(Some(
-                    "A desktop inbox for HackerOne bug bounty programs",
-                ))
+                .credits(Some("A desktop inbox for HackerOne bug bounty programs"))
                 .build();
 
             let app_menu = SubmenuBuilder::new(app, "Macaroni")
@@ -98,14 +96,19 @@ pub fn run() {
             let api = Arc::new(
                 ReqwestClient::new(creds.clone()).expect("failed to build HackerOne HTTP client"),
             );
-            let reports = Arc::new(
-                SqliteStore::open(&data_dir.join("macaroni.db")).expect("open local db"),
-            );
+            let reports =
+                Arc::new(SqliteStore::open(&data_dir.join("macaroni.db")).expect("open local db"));
             let settings = Arc::new(FileSettingsStore::new(data_dir.join("settings.json")));
 
             let triages = Arc::new(Mutex::new(HashMap::new()));
 
-            app.manage(AppContext { creds, api, reports, settings, triages });
+            app.manage(AppContext {
+                creds,
+                api,
+                reports,
+                settings,
+                triages,
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

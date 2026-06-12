@@ -106,11 +106,16 @@ export function Resizer({
 		[value, step, bounds, isHorizontal, invert],
 	);
 
-	const cls = ["resizer", isHorizontal ? "resizer-h" : "resizer-v", dragging ? "resizer-dragging" : null]
+	const cls = [
+		"resizer",
+		isHorizontal ? "resizer-h" : "resizer-v",
+		dragging ? "resizer-dragging" : null,
+	]
 		.filter(Boolean)
 		.join(" ");
 
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: a focusable, draggable splitter needs the separator role on a <div>; <hr> can't carry tabIndex, pointer/key handlers, or aria-valuenow.
 		<div
 			class={cls}
 			role="separator"

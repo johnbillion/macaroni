@@ -27,7 +27,10 @@ pub struct FileSettingsStore {
 
 impl FileSettingsStore {
     pub fn new(path: PathBuf) -> Self {
-        Self { path, lock: Mutex::new(()) }
+        Self {
+            path,
+            lock: Mutex::new(()),
+        }
     }
 }
 
@@ -69,7 +72,9 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let store = FileSettingsStore::new(path.clone());
         store
-            .save(&Settings { triage_working_dir: Some("/tmp/wp".into()) })
+            .save(&Settings {
+                triage_working_dir: Some("/tmp/wp".into()),
+            })
             .unwrap();
         let loaded = store.load().unwrap();
         assert_eq!(loaded.triage_working_dir.as_deref(), Some("/tmp/wp"));

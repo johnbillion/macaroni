@@ -129,6 +129,10 @@ pub struct Attachment {
     pub expiring_url: String,
 }
 
+// `Event` carries far more fields than `Comment`, so the variants differ a lot in size. These are
+// short-lived API DTOs held in small per-report `Vec`s, so the disparity isn't worth boxing fields
+// (which would only uglify the polymorphic match in `parse_activity` and the frontend serde shape).
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Activity {
@@ -270,10 +274,9 @@ impl ReqwestClient {
     async fn get_json(&self, url: &str) -> AppResult<serde_json::Value> {
         Self::ensure_api_url(url)?;
 
-        let creds = self
-            .creds
-            .load()?
-            .ok_or(AppError::Unauthorized { message: "No credentials saved".into() })?;
+        let creds = self.creds.load()?.ok_or(AppError::Unauthorized {
+            message: "No credentials saved".into(),
+        })?;
 
         // Built fresh per request and wiped immediately after the builder copies it into the
         // request's header map, so the base64'd secret isn't left sitting on the heap.
@@ -300,15 +303,21 @@ impl ReqwestClient {
 #[async_trait]
 impl HackerOneApi for ReqwestClient {
     async fn validate(&self) -> AppResult<()> {
-        self.get_json(&format!("{BASE_URL}/me/organizations")).await?;
+        self.get_json(&format!("{BASE_URL}/me/organizations"))
+            .await?;
         Ok(())
     }
 
     async fn list_organizations(&self) -> AppResult<Vec<Organization>> {
-        let body = self.get_json(&format!("{BASE_URL}/me/organizations?page%5Bsize%5D=100")).await?;
-        let data = body.get("data").and_then(|v| v.as_array()).ok_or_else(|| {
-            AppError::Other { message: "Unexpected response shape from /me/organizations".into() }
-        })?;
+        let body = self
+            .get_json(&format!("{BASE_URL}/me/organizations?page%5Bsize%5D=100"))
+            .await?;
+        let data = body
+            .get("data")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| AppError::Other {
+                message: "Unexpected response shape from /me/organizations".into(),
+            })?;
         Ok(data
             .iter()
             .filter_map(|item| {
@@ -321,12 +330,14 @@ impl HackerOneApi for ReqwestClient {
     }
 
     async fn list_programs(&self, org_id: &str) -> AppResult<Vec<Program>> {
-        let url =
-            format!("{BASE_URL}/organizations/{org_id}/programs?page%5Bsize%5D=100");
+        let url = format!("{BASE_URL}/organizations/{org_id}/programs?page%5Bsize%5D=100");
         let body = self.get_json(&url).await?;
-        let data = body.get("data").and_then(|v| v.as_array()).ok_or_else(|| {
-            AppError::Other { message: "Unexpected response shape from /programs".into() }
-        })?;
+        let data = body
+            .get("data")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| AppError::Other {
+                message: "Unexpected response shape from /programs".into(),
+            })?;
         Ok(data
             .iter()
             .filter_map(|item| {
@@ -339,12 +350,14 @@ impl HackerOneApi for ReqwestClient {
     }
 
     async fn list_assets(&self, org_id: &str) -> AppResult<Vec<Asset>> {
-        let url =
-            format!("{BASE_URL}/organizations/{org_id}/assets?page%5Bsize%5D=100");
+        let url = format!("{BASE_URL}/organizations/{org_id}/assets?page%5Bsize%5D=100");
         let body = self.get_json(&url).await?;
-        let data = body.get("data").and_then(|v| v.as_array()).ok_or_else(|| {
-            AppError::Other { message: "Unexpected response shape from /assets".into() }
-        })?;
+        let data = body
+            .get("data")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| AppError::Other {
+                message: "Unexpected response shape from /assets".into(),
+            })?;
         Ok(data
             .iter()
             .filter_map(|item| {
@@ -352,7 +365,10 @@ impl HackerOneApi for ReqwestClient {
                 Some(Asset {
                     id: item.get("id")?.as_str()?.to_string(),
                     identifier: attrs.get("identifier")?.as_str()?.to_string(),
-                    asset_type: attrs.get("asset_type").and_then(|v| v.as_str()).map(String::from),
+                    asset_type: attrs
+                        .get("asset_type")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                     in_scope: attrs
                         .get("coverage")
                         .and_then(|v| v.as_str())
@@ -368,24 +384,36 @@ impl HackerOneApi for ReqwestClient {
         let mut members: Vec<TeamMember> = Vec::new();
         loop {
             let body = self.get_json(&url).await?;
-            let data = body.get("data").and_then(|v| v.as_array()).ok_or_else(|| {
-                AppError::Other {
-                    message: "Unexpected response shape from /programs/.../members".into(),
-                }
-            })?;
+            let data =
+                body.get("data")
+                    .and_then(|v| v.as_array())
+                    .ok_or_else(|| AppError::Other {
+                        message: "Unexpected response shape from /programs/.../members".into(),
+                    })?;
             for item in data {
-                let Some(attrs) = item.get("attributes") else { continue };
+                let Some(attrs) = item.get("attributes") else {
+                    continue;
+                };
                 let Some(user_id) = attrs.get("user_id").and_then(|v| {
-                    v.as_str().map(String::from).or_else(|| v.as_u64().map(|n| n.to_string()))
+                    v.as_str()
+                        .map(String::from)
+                        .or_else(|| v.as_u64().map(|n| n.to_string()))
                 }) else {
                     continue;
                 };
                 let Some(username) = attrs.get("username").and_then(|v| v.as_str()) else {
                     continue;
                 };
-                members.push(TeamMember { id: user_id, username: username.to_string() });
+                members.push(TeamMember {
+                    id: user_id,
+                    username: username.to_string(),
+                });
             }
-            match body.get("links").and_then(|l| l.get("next")).and_then(|n| n.as_str()) {
+            match body
+                .get("links")
+                .and_then(|l| l.get("next"))
+                .and_then(|n| n.as_str())
+            {
                 Some(next) => url = next.to_string(),
                 None => break,
             }
@@ -398,7 +426,10 @@ impl HackerOneApi for ReqwestClient {
             Some(cursor) => cursor.to_string(),
             None => {
                 let mut params = vec![
-                    ("filter[program][]".to_string(), query.program_handle.clone()),
+                    (
+                        "filter[program][]".to_string(),
+                        query.program_handle.clone(),
+                    ),
                     ("sort".to_string(), "-reports.created_at".to_string()),
                     ("page[size]".to_string(), "50".to_string()),
                 ];
@@ -411,10 +442,20 @@ impl HackerOneApi for ReqwestClient {
                 for asset_id in &query.asset_ids {
                     params.push(("filter[asset_ids][]".to_string(), asset_id.clone()));
                 }
-                if let Some(keyword) = query.keyword.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                if let Some(keyword) = query
+                    .keyword
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
                     params.push(("filter[keyword]".to_string(), keyword.to_string()));
                 }
-                if let Some(since) = query.since_created_at.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                if let Some(since) = query
+                    .since_created_at
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
                     params.push(("filter[created_at__gt]".to_string(), since.to_string()));
                 }
                 let qs = serde_urlencoded::to_string(&params).map_err(AppError::other)?;
@@ -426,9 +467,12 @@ impl HackerOneApi for ReqwestClient {
         println!("[reports] GET {url}");
 
         let body = self.get_json(&url).await?;
-        let data = body.get("data").and_then(|v| v.as_array()).ok_or_else(|| {
-            AppError::Other { message: "Unexpected response shape from /reports".into() }
-        })?;
+        let data = body
+            .get("data")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| AppError::Other {
+                message: "Unexpected response shape from /reports".into(),
+            })?;
 
         let items = data
             .iter()
@@ -443,7 +487,11 @@ impl HackerOneApi for ReqwestClient {
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string(),
-                    state: attrs.get("state").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    state: attrs
+                        .get("state")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     severity_rating: parse_severity_rating(rel),
                     created_at: attrs
                         .get("created_at")
@@ -465,9 +513,15 @@ impl HackerOneApi for ReqwestClient {
                     asset: rel
                         .and_then(|r| r.get("structured_scope"))
                         .and_then(parse_asset_ref),
-                    weakness: rel.and_then(|r| r.get("weakness")).and_then(parse_weakness_ref),
-                    reporter: rel.and_then(|r| r.get("reporter")).and_then(parse_user_ref)?,
-                    assignee: rel.and_then(|r| r.get("assignee")).and_then(parse_assignee_ref),
+                    weakness: rel
+                        .and_then(|r| r.get("weakness"))
+                        .and_then(parse_weakness_ref),
+                    reporter: rel
+                        .and_then(|r| r.get("reporter"))
+                        .and_then(parse_user_ref)?,
+                    assignee: rel
+                        .and_then(|r| r.get("assignee"))
+                        .and_then(parse_assignee_ref),
                     inboxes: parse_inboxes(rel),
                     bounty: parse_bounty(rel),
                 })
@@ -484,7 +538,9 @@ impl HackerOneApi for ReqwestClient {
     }
 
     async fn get_report(&self, report_id: &str) -> AppResult<ReportDetail> {
-        let body = self.get_json(&format!("{BASE_URL}/reports/{report_id}")).await?;
+        let body = self
+            .get_json(&format!("{BASE_URL}/reports/{report_id}"))
+            .await?;
         parse_report_detail(&body).ok_or_else(|| AppError::Other {
             message: format!("Could not parse report {report_id}"),
         })
@@ -536,29 +592,6 @@ fn pseudo_rand_u64() -> u64 {
         .unwrap_or(0)
 }
 
-#[cfg(test)]
-mod auth_url_tests {
-    use super::*;
-
-    #[test]
-    fn accepts_hackerone_https_urls() {
-        assert!(ReqwestClient::ensure_api_url(&format!("{BASE_URL}/reports")).is_ok());
-        assert!(ReqwestClient::ensure_api_url("https://api.hackerone.com/v1/me/organizations").is_ok());
-    }
-
-    #[test]
-    fn rejects_other_hosts_and_schemes() {
-        // A tampered `links.next` pointing elsewhere must not receive the credentials.
-        assert!(ReqwestClient::ensure_api_url("https://evil.example.com/v1/reports").is_err());
-        // Look-alike hosts.
-        assert!(ReqwestClient::ensure_api_url("https://api.hackerone.com.evil.com/v1").is_err());
-        // Downgraded scheme.
-        assert!(ReqwestClient::ensure_api_url("http://api.hackerone.com/v1/reports").is_err());
-        // Garbage.
-        assert!(ReqwestClient::ensure_api_url("not a url").is_err());
-    }
-}
-
 fn parse_user_ref(rel: &serde_json::Value) -> Option<UserRef> {
     let data = rel.get("data")?;
     let attrs = data.get("attributes")?;
@@ -587,7 +620,10 @@ fn parse_assignee_ref(rel: &serde_json::Value) -> Option<AssigneeRef> {
     let kind = data.get("type")?.as_str()?.to_string();
     let id = data.get("id")?.as_str()?.to_string();
     let attrs = data.get("attributes")?;
-    let username = attrs.get("username").and_then(|v| v.as_str()).map(String::from);
+    let username = attrs
+        .get("username")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     let name = attrs.get("name").and_then(|v| v.as_str()).and_then(|s| {
         let trimmed = s.trim();
         if trimmed.is_empty() {
@@ -601,7 +637,13 @@ fn parse_assignee_ref(rel: &serde_json::Value) -> Option<AssigneeRef> {
         .and_then(|p| p.get("62x62"))
         .and_then(|v| v.as_str())
         .map(String::from);
-    Some(AssigneeRef { kind, id, username, name, profile_picture_url })
+    Some(AssigneeRef {
+        kind,
+        id,
+        username,
+        name,
+        profile_picture_url,
+    })
 }
 
 fn parse_weakness_ref(rel: &serde_json::Value) -> Option<WeaknessRef> {
@@ -671,7 +713,10 @@ fn parse_bounty(rel: Option<&serde_json::Value>) -> Option<BountyTotal> {
         amount += parse_money(attrs.get("awarded_amount"));
         amount += parse_money(attrs.get("awarded_bonus_amount"));
         if currency.is_none() {
-            currency = attrs.get("awarded_currency").and_then(|v| v.as_str()).map(String::from);
+            currency = attrs
+                .get("awarded_currency")
+                .and_then(|v| v.as_str())
+                .map(String::from);
         }
     }
     Some(BountyTotal { amount, currency })
@@ -683,7 +728,10 @@ fn parse_asset_ref(rel: &serde_json::Value) -> Option<AssetRef> {
     Some(AssetRef {
         id: data.get("id")?.as_str()?.to_string(),
         asset_identifier: attrs.get("asset_identifier")?.as_str()?.to_string(),
-        asset_type: attrs.get("asset_type").and_then(|v| v.as_str()).map(String::from),
+        asset_type: attrs
+            .get("asset_type")
+            .and_then(|v| v.as_str())
+            .map(String::from),
     })
 }
 
@@ -697,9 +745,15 @@ fn parse_attachment(item: &serde_json::Value) -> Option<Attachment> {
             .and_then(|v| v.as_str())
             .unwrap_or("attachment")
             .to_string(),
-        content_type: attrs.get("content_type").and_then(|v| v.as_str()).map(String::from),
+        content_type: attrs
+            .get("content_type")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         file_size: attrs.get("file_size").and_then(|v| v.as_u64()),
-        expiring_url: attrs.get("expiring_url").and_then(|v| v.as_str())?.to_string(),
+        expiring_url: attrs
+            .get("expiring_url")
+            .and_then(|v| v.as_str())?
+            .to_string(),
     })
 }
 
@@ -716,10 +770,18 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
     let kind = item.get("type")?.as_str()?.to_string();
     let attrs = item.get("attributes")?;
     let created_at = attrs.get("created_at")?.as_str()?.to_string();
-    let internal = attrs.get("internal").and_then(|v| v.as_bool()).unwrap_or(false);
-    let message = attrs.get("message").and_then(|v| v.as_str()).map(String::from);
+    let internal = attrs
+        .get("internal")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let message = attrs
+        .get("message")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     let relationships = item.get("relationships");
-    let actor = relationships.and_then(|r| r.get("actor")).and_then(parse_user_ref);
+    let actor = relationships
+        .and_then(|r| r.get("actor"))
+        .and_then(parse_user_ref);
 
     if kind == "activity-comment" {
         Some(Activity::Comment {
@@ -733,21 +795,28 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
     } else {
         let kind_short = kind.strip_prefix("activity-").unwrap_or(&kind).to_string();
         let invitee = if kind_short == "external-user-invited" {
-            attrs.get("email").and_then(|v| v.as_str()).map(String::from)
+            attrs
+                .get("email")
+                .and_then(|v| v.as_str())
+                .map(String::from)
         } else {
             None
         };
         let duplicate_report_id = if kind_short == "external-user-joined" {
-            attrs
-                .get("duplicate_report_id")
-                .and_then(|v| v.as_u64().map(|n| n.to_string()).or_else(|| v.as_str().map(String::from)))
+            attrs.get("duplicate_report_id").and_then(|v| {
+                v.as_u64()
+                    .map(|n| n.to_string())
+                    .or_else(|| v.as_str().map(String::from))
+            })
         } else {
             None
         };
         let original_report_id = if kind_short == "bug-duplicate" {
-            attrs
-                .get("original_report_id")
-                .and_then(|v| v.as_u64().map(|n| n.to_string()).or_else(|| v.as_str().map(String::from)))
+            attrs.get("original_report_id").and_then(|v| {
+                v.as_u64()
+                    .map(|n| n.to_string())
+                    .or_else(|| v.as_str().map(String::from))
+            })
         } else {
             None
         };
@@ -797,30 +866,40 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
                 .map(String::from)
         };
         let (old_severity, new_severity) = if kind_short == "report-severity-updated" {
-            (severity_rating("old_severity"), severity_rating("new_severity"))
+            (
+                severity_rating("old_severity"),
+                severity_rating("new_severity"),
+            )
         } else {
             (None, None)
         };
         let (old_title, new_title) = if kind_short == "report-title-updated" {
             (
-                attrs.get("old_title").and_then(|v| v.as_str()).map(String::from),
-                attrs.get("new_title").and_then(|v| v.as_str()).map(String::from),
+                attrs
+                    .get("old_title")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                attrs
+                    .get("new_title")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
             )
         } else {
             (None, None)
         };
-        let (bounty_amount, bonus_amount) = if kind_short == "bounty-suggested"
-            || kind_short == "bounty-awarded"
-        {
-            (
-                attrs.get("bounty_amount").map(|v| parse_money(Some(v))),
-                attrs.get("bonus_amount").map(|v| parse_money(Some(v))),
-            )
-        } else {
-            (None, None)
-        };
+        let (bounty_amount, bonus_amount) =
+            if kind_short == "bounty-suggested" || kind_short == "bounty-awarded" {
+                (
+                    attrs.get("bounty_amount").map(|v| parse_money(Some(v))),
+                    attrs.get("bonus_amount").map(|v| parse_money(Some(v))),
+                )
+            } else {
+                (None, None)
+            };
         let assigned_user = if kind_short == "user-assigned-to-bug" {
-            relationships.and_then(|r| r.get("assigned_user")).and_then(parse_user_ref)
+            relationships
+                .and_then(|r| r.get("assigned_user"))
+                .and_then(parse_user_ref)
         } else {
             None
         };
@@ -864,7 +943,11 @@ fn parse_report_detail(body: &serde_json::Value) -> Option<ReportDetail> {
     Some(ReportDetail {
         id: data.get("id")?.as_str()?.to_string(),
         title: attrs.get("title")?.as_str()?.to_string(),
-        state: attrs.get("state").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        state: attrs
+            .get("state")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         main_state: attrs
             .get("main_state")
             .and_then(|v| v.as_str())
@@ -889,11 +972,42 @@ fn parse_report_detail(body: &serde_json::Value) -> Option<ReportDetail> {
             .get("issue_tracker_reference_url")
             .and_then(|v| v.as_str())
             .map(String::from),
-        reporter: rel.and_then(|r| r.get("reporter")).and_then(parse_user_ref)?,
-        weakness: rel.and_then(|r| r.get("weakness")).and_then(parse_weakness_ref),
-        asset: rel.and_then(|r| r.get("structured_scope")).and_then(parse_asset_ref),
+        reporter: rel
+            .and_then(|r| r.get("reporter"))
+            .and_then(parse_user_ref)?,
+        weakness: rel
+            .and_then(|r| r.get("weakness"))
+            .and_then(parse_weakness_ref),
+        asset: rel
+            .and_then(|r| r.get("structured_scope"))
+            .and_then(parse_asset_ref),
         inboxes: parse_inboxes(rel),
         activities,
         attachments: parse_attachments(rel),
     })
+}
+
+#[cfg(test)]
+mod auth_url_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_hackerone_https_urls() {
+        assert!(ReqwestClient::ensure_api_url(&format!("{BASE_URL}/reports")).is_ok());
+        assert!(
+            ReqwestClient::ensure_api_url("https://api.hackerone.com/v1/me/organizations").is_ok()
+        );
+    }
+
+    #[test]
+    fn rejects_other_hosts_and_schemes() {
+        // A tampered `links.next` pointing elsewhere must not receive the credentials.
+        assert!(ReqwestClient::ensure_api_url("https://evil.example.com/v1/reports").is_err());
+        // Look-alike hosts.
+        assert!(ReqwestClient::ensure_api_url("https://api.hackerone.com.evil.com/v1").is_err());
+        // Downgraded scheme.
+        assert!(ReqwestClient::ensure_api_url("http://api.hackerone.com/v1/reports").is_err());
+        // Garbage.
+        assert!(ReqwestClient::ensure_api_url("not a url").is_err());
+    }
 }

@@ -1,5 +1,5 @@
 use crate::error::{AppError, AppResult};
-use rusqlite::{params, params_from_iter, Connection};
+use rusqlite::{Connection, params, params_from_iter};
 use serde::Serialize;
 use std::path::Path;
 use std::sync::Mutex;
@@ -53,7 +53,9 @@ impl SqliteStore {
         let _ = conn.execute("ALTER TABLE reports ADD COLUMN triage TEXT", []);
         let _ = conn.execute("ALTER TABLE reports ADD COLUMN triage_validity TEXT", []);
         let _ = conn.execute("ALTER TABLE reports ADD COLUMN triage_new_files TEXT", []);
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 }
 
@@ -109,10 +111,10 @@ impl ReportStore for SqliteStore {
             return Ok(vec![]);
         }
         let c = self.conn.lock().unwrap();
-        let placeholders = std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(",");
-        let sql = format!(
-            "SELECT id FROM reports WHERE read = 1 AND id IN ({placeholders})"
-        );
+        let placeholders = std::iter::repeat_n("?", ids.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!("SELECT id FROM reports WHERE read = 1 AND id IN ({placeholders})");
         let mut stmt = c.prepare(&sql).map_err(AppError::other)?;
         let rows = stmt
             .query_map(params_from_iter(ids.iter()), |row| row.get::<_, String>(0))
@@ -186,7 +188,9 @@ impl ReportStore for SqliteStore {
             return Ok(vec![]);
         }
         let c = self.conn.lock().unwrap();
-        let placeholders = std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(",");
+        let placeholders = std::iter::repeat_n("?", ids.len())
+            .collect::<Vec<_>>()
+            .join(",");
         let sql = format!(
             "SELECT id, triage_validity FROM reports
              WHERE triage IS NOT NULL AND id IN ({placeholders})"
@@ -217,7 +221,9 @@ mod tests {
             );",
         )
         .unwrap();
-        SqliteStore { conn: Mutex::new(conn) }
+        SqliteStore {
+            conn: Mutex::new(conn),
+        }
     }
 
     #[test]
@@ -236,19 +242,24 @@ mod tests {
         s.mark_read_many(&["a", "b", "c"]).unwrap();
         let mut read = s.list_read(&["a", "b", "c"]).unwrap();
         read.sort();
-        assert_eq!(read, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        assert_eq!(
+            read,
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
     }
 
     #[test]
     fn triage_new_files_round_trip() {
         let s = in_memory();
         let files = vec!["/tmp/a.php".to_string(), "/tmp/b.txt".to_string()];
-        s.set_triage("r1", "summary", Some("valid"), &files).unwrap();
+        s.set_triage("r1", "summary", Some("valid"), &files)
+            .unwrap();
         let rec = s.get_triage("r1").unwrap().unwrap();
         assert_eq!(rec.new_files, files);
 
         // Deleting one rewrites just the list, leaving the summary/validity intact.
-        s.set_triage_new_files("r1", &["/tmp/b.txt".to_string()]).unwrap();
+        s.set_triage_new_files("r1", &["/tmp/b.txt".to_string()])
+            .unwrap();
         let rec = s.get_triage("r1").unwrap().unwrap();
         assert_eq!(rec.summary, "summary");
         assert_eq!(rec.validity.as_deref(), Some("valid"));

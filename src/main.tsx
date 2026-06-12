@@ -6,9 +6,7 @@ import "./styles.css";
 if (import.meta.env.DEV) {
 	import("@tauri-apps/plugin-log").then((log) => {
 		const format = (args: unknown[]) =>
-			args
-				.map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
-				.join(" ");
+			args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
 		const originalError = console.error.bind(console);
 		console.error = (...args) => {
 			originalError(...args);

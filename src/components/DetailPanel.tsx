@@ -6,7 +6,6 @@ import { useAppState, useDispatch } from "../state/context";
 import type { Activity, DetailToast } from "../state/store";
 import { pillFor } from "../utils/pill";
 import { formatClock } from "../utils/time";
-import { TriageDisclosure } from "./TriagePanel";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { Avatar } from "./Avatar";
 import { describeEvent, renderActivity } from "./activity/renderActivity";
@@ -16,6 +15,7 @@ import { Markdown } from "./Markdown";
 import { RelativeTime } from "./RelativeTime";
 import { ReportLink } from "./ReportLink";
 import { SeverityMeter } from "./SeverityMeter";
+import { TriageDisclosure } from "./TriagePanel";
 
 function isHackbotPreSubmissionTrigger(a: Activity | undefined): boolean {
 	if (!a) return false;
@@ -103,7 +103,6 @@ export function DetailPanel() {
 		if (!bulkActive && prevBulkActive.current) setActiveTab("report");
 		prevBulkActive.current = bulkActive;
 		// setActiveTab dispatches via context and never changes identity
-		// biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
 	}, [bulkActive]);
 
 	return (
@@ -214,6 +213,7 @@ function ToastStack({ toasts }: { toasts: DetailToast[] }) {
 						}
 					: undefined;
 				return (
+					// biome-ignore lint/a11y/noStaticElementInteractions: role, tabIndex, and handlers are all gated on `clickable`; a <button> can't be used here because the toast wraps a nested close <button>.
 					<div
 						key={t.id}
 						class={`detail-toast${clickable ? " clickable" : ""}`}

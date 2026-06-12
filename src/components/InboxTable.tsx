@@ -7,14 +7,14 @@ import { useAppState, useDispatch } from "../state/context";
 import { buildReportsQuery, loadAllReports, loadMoreReports, loadReports } from "../state/effects";
 import { isOpenOnlyStateFilter } from "../state/filters";
 import type { AppError, AssigneeRef, UserRef } from "../state/store";
-import { pillFor } from "../utils/pill";
 import { formatBounty } from "../utils/money";
+import { pillFor } from "../utils/pill";
 import { formatRelativeTime } from "../utils/time";
-import { ValidityBadge } from "./TriagePanel";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { Avatar } from "./Avatar";
 import { SeverityMeter } from "./SeverityMeter";
 import { Spinner } from "./Spinner";
+import { ValidityBadge } from "./TriagePanel";
 
 const COLUMN_DEFS = [
 	{ key: "id", label: "ID", defaultVisible: true },
@@ -234,7 +234,7 @@ export function InboxTable() {
 								onChange={onToggleAll}
 							/>
 						</th>
-						{visibility.id ? <th class="th-id">Id</th> : null}
+						{visibility.id ? <th class="th-id">ID</th> : null}
 						{visibility.opened ? <th>Opened</th> : null}
 						{visibility.updated ? <th>Updated</th> : null}
 						{visibility.status ? <th>Status</th> : null}

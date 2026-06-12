@@ -1,5 +1,22 @@
 This is a Tauri and Preact app that displays an inbox for a HackerOne bug bounty program.
 
+## Linting, formatting, and tests
+
+After you've completed a task, such as fixing a bug or building a new feature, run the linting and testing and fix any issues that are reported.
+
+**Frontend** — run from the repo root:
+
+- `npm run check` — Biome lint, applies fixes in place
+- `npm run lint` — Biome lint only, no writes.
+- `npm run format` — Biome format, applies fixes in place
+- `npx tsc --noEmit` — Type check
+
+**Rust** — run from the `src-tauri` directory:
+
+- `cargo fmt` — Rust format, applies fixes in place
+- `cargo clippy --all-targets --fix` — Rust lint, applies fixes in place
+- `cargo test` — Unit tests
+
 ## HackerOne API
 
 The app calls the [HackerOne v1 API](https://api.hackerone.com/customer-resources/) from the Rust side using HTTP Basic auth (API username + token, entered via Settings, stored in the OS keychain). Base URL: `https://api.hackerone.com/v1`.

@@ -13,8 +13,8 @@ import {
 	loadTriage,
 	markReportRead,
 	pollNewReports,
-	refreshReportDetail,
 	type ReportsQuery,
+	refreshReportDetail,
 } from "../state/effects";
 import { CredentialsGate } from "./CredentialsGate";
 import { DetailPanel } from "./DetailPanel";
@@ -104,7 +104,6 @@ export function App() {
 		// Debounce rapid filter toggles so a burst of checkbox clicks only fires one request.
 		return debounceLoadReports(dispatch, query);
 		// We key on the joined strings so reference identity churn doesn't refetch on every render.
-		// biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
 	}, [handle, statesKey, severitiesKey, assetsKey, searchKey, eligibleAssetKey, dispatch]);
 
 	// Selecting a report (whether by click or by the reducer's auto-select on a fresh load)
@@ -119,7 +118,6 @@ export function App() {
 		} else if (existing.status === "ready" && !state.readReports[selectedReportId]) {
 			markReportRead(dispatch, selectedReportId);
 		}
-		// biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
 	}, [selectedReportId, dispatch]);
 
 	// Hydrate any saved triage for the selected report so the AI Triage tab shows immediately.
