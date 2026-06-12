@@ -209,8 +209,13 @@ export type TriageValidity = "valid" | "partially-valid" | "invalid" | "indeterm
 
 // What we store per report — the markdown summary plus an optional structured verdict.
 // `validity` is null for legacy entries written before claude was asked for JSON output,
-// or for runs where claude didn't emit a parseable verdict.
-export type TriageRecord = { summary: string; validity: TriageValidity | null };
+// or for runs where claude didn't emit a parseable verdict. `new_files` lists absolute paths
+// to files claude wrote during the run (may be empty), each individually deletable from the UI.
+export type TriageRecord = {
+	summary: string;
+	validity: TriageValidity | null;
+	new_files: string[];
+};
 
 export type TriageState =
 	| { status: "idle" }
@@ -218,6 +223,21 @@ export type TriageState =
 	| { status: "running"; events: TriageEvent[]; saved: TriageRecord | null }
 	| { status: "ready"; result: TriageRecord; events: TriageEvent[] }
 	| { status: "error"; error: AppError; events: TriageEvent[]; saved: TriageRecord | null };
+
+// One report's text sent to Claude for duplicate comparison. Built from the loaded report
+// summaries, so no extra fetch is needed.
+export type DuplicateInput = { id: string; title: string; body: string };
+
+// Claude's brief markdown verdict on whether the selected reports are duplicates.
+export type DuplicateResult = { summary: string };
+
+// The duplicate check is keyed to the current bulk selection, so there's a single instance of
+// this state rather than a per-report map. Events stream in while running, same as triage.
+export type DuplicateCheckState =
+	| { status: "idle" }
+	| { status: "running"; events: TriageEvent[] }
+	| { status: "ready"; result: DuplicateResult; events: TriageEvent[] }
+	| { status: "error"; error: AppError; events: TriageEvent[] };
 
 export type BulkFailure = { reportId: string; error: AppError };
 
@@ -268,7 +288,10 @@ export type AppState = {
 	// Multi-selection for bulk-edit mode. Non-empty Set => app is in bulk-edit mode.
 	selectedReportIds: Set<string>;
 	bulkOperation: BulkOperationState;
-	detailActiveTab: "report" | "bulk";
+	// Result of the "are these reports duplicates" check over the current selection. Reset to
+	// idle whenever the selection changes, since a verdict only applies to the set it ran on.
+	duplicateCheck: DuplicateCheckState;
+	detailActiveTab: "report" | "bulk" | "duplicates";
 	detail: Record<string, AsyncState<ReportDetail>>;
 	// Reports whose detail pane is currently showing summary-derived placeholder data while the
 	// full get_report fetch is in flight. Used to render "loading" affordances for the fields the
@@ -332,13 +355,19 @@ export type Action =
 	| { type: "BULK_FINISHED"; cancelled: boolean }
 	| { type: "BULK_RESULT_DISMISSED" }
 	| { type: "BULK_RETRY_FAILED" }
-	| { type: "DETAIL_TAB_SET"; tab: "report" | "bulk" }
+	| { type: "DETAIL_TAB_SET"; tab: "report" | "bulk" | "duplicates" }
+	| { type: "DUP_CHECK_STARTED" }
+	| { type: "DUP_CHECK_EVENT"; event: TriageEvent }
+	| { type: "DUP_CHECK_SUCCEEDED"; result: DuplicateResult }
+	| { type: "DUP_CHECK_FAILED"; error: AppError }
 	| { type: "TRIAGE_LOAD_REQUESTED"; reportId: string }
 	| { type: "TRIAGE_LOAD_SUCCEEDED"; reportId: string; result: TriageRecord | null }
 	| { type: "TRIAGE_RUN_STARTED"; reportId: string }
 	| { type: "TRIAGE_EVENT"; reportId: string; event: TriageEvent }
 	| { type: "TRIAGE_RUN_SUCCEEDED"; reportId: string; result: TriageRecord }
 	| { type: "TRIAGE_RUN_FAILED"; reportId: string; error: AppError }
+	// A triage new-file was deleted from disk; `remaining` is the pruned list to store.
+	| { type: "TRIAGE_FILE_DELETED"; reportId: string; remaining: string[] }
 	| {
 			type: "TRIAGE_VALIDITY_LOADED";
 			entries: { id: string; validity: TriageValidity | null }[];
@@ -401,6 +430,7 @@ export const initialState: AppState = {
 	selectedReportId: null,
 	selectedReportIds: new Set(),
 	bulkOperation: { status: "idle" },
+	duplicateCheck: { status: "idle" },
 	detailActiveTab: "report",
 	detail: {},
 	detailPending: {},
@@ -653,7 +683,7 @@ export function reducer(state: AppState, action: Action): AppState {
 			const next = new Set(state.selectedReportIds);
 			if (next.has(action.reportId)) next.delete(action.reportId);
 			else next.add(action.reportId);
-			return { ...state, selectedReportIds: next };
+			return { ...state, selectedReportIds: next, duplicateCheck: { status: "idle" } };
 		}
 		case "SELECTION_SET": {
 			const next = new Set(state.selectedReportIds);
@@ -661,10 +691,10 @@ export function reducer(state: AppState, action: Action): AppState {
 				if (action.checked) next.add(id);
 				else next.delete(id);
 			}
-			return { ...state, selectedReportIds: next };
+			return { ...state, selectedReportIds: next, duplicateCheck: { status: "idle" } };
 		}
 		case "SELECTION_CLEARED":
-			return { ...state, selectedReportIds: new Set() };
+			return { ...state, selectedReportIds: new Set(), duplicateCheck: { status: "idle" } };
 		case "BULK_STARTED":
 			return {
 				...state,
@@ -753,6 +783,31 @@ export function reducer(state: AppState, action: Action): AppState {
 		}
 		case "DETAIL_TAB_SET":
 			return { ...state, detailActiveTab: action.tab };
+		case "DUP_CHECK_STARTED":
+			return { ...state, duplicateCheck: { status: "running", events: [] } };
+		case "DUP_CHECK_EVENT": {
+			const prev = state.duplicateCheck;
+			if (prev.status !== "running") return state;
+			return { ...state, duplicateCheck: { ...prev, events: [...prev.events, action.event] } };
+		}
+		case "DUP_CHECK_SUCCEEDED": {
+			const prev = state.duplicateCheck;
+			// Ignore a result that lands after the selection changed (which resets us to idle) —
+			// the verdict only applies to the set the run started on.
+			if (prev.status !== "running") return state;
+			return {
+				...state,
+				duplicateCheck: { status: "ready", result: action.result, events: prev.events },
+			};
+		}
+		case "DUP_CHECK_FAILED": {
+			const prev = state.duplicateCheck;
+			if (prev.status !== "running") return state;
+			return {
+				...state,
+				duplicateCheck: { status: "error", error: action.error, events: prev.events },
+			};
+		}
 		case "TRIAGE_LOAD_REQUESTED":
 			return {
 				...state,
@@ -828,6 +883,25 @@ export function reducer(state: AppState, action: Action): AppState {
 					...state.triage,
 					[action.reportId]: { status: "error", error: action.error, events, saved },
 				},
+			};
+		}
+		case "TRIAGE_FILE_DELETED": {
+			const prev = state.triage[action.reportId];
+			if (!prev) return state;
+			// The record holding new_files lives in different slots per status. Update whichever
+			// one is present; leave idle/loading untouched (no record to prune).
+			let updated: TriageState | null = null;
+			if (prev.status === "ready") {
+				updated = { ...prev, result: { ...prev.result, new_files: action.remaining } };
+			} else if (prev.status === "running" || prev.status === "error") {
+				updated = prev.saved
+					? { ...prev, saved: { ...prev.saved, new_files: action.remaining } }
+					: prev;
+			}
+			if (!updated) return state;
+			return {
+				...state,
+				triage: { ...state.triage, [action.reportId]: updated },
 			};
 		}
 		case "TRIAGE_VALIDITY_LOADED": {

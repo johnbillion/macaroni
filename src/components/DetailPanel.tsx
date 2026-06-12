@@ -11,6 +11,7 @@ import { AssetIdentifier } from "./AssetIdentifier";
 import { Avatar } from "./Avatar";
 import { describeEvent, renderActivity } from "./activity/renderActivity";
 import { BulkEditPanel } from "./BulkEditPanel";
+import { DuplicatesPanel } from "./DuplicatesPanel";
 import { Markdown } from "./Markdown";
 import { RelativeTime } from "./RelativeTime";
 import { ReportLink } from "./ReportLink";
@@ -89,8 +90,13 @@ export function DetailPanel() {
 	const state = useAppState();
 	const dispatch = useDispatch();
 	const bulkActive = state.selectedReportIds.size > 0;
-	const activeTab = state.detailActiveTab;
-	const setActiveTab = (tab: "report" | "bulk") => dispatch({ type: "DETAIL_TAB_SET", tab });
+	// The duplicate check only makes sense for two or more reports, so its tab appears only then.
+	const canCheckDuplicates = state.selectedReportIds.size > 1;
+	const setActiveTab = (tab: "report" | "bulk" | "duplicates") =>
+		dispatch({ type: "DETAIL_TAB_SET", tab });
+	// Fall back off the duplicates tab if the selection has dropped below two — its tab is gone.
+	const activeTab =
+		state.detailActiveTab === "duplicates" && !canCheckDuplicates ? "bulk" : state.detailActiveTab;
 	const prevBulkActive = useRef(false);
 	useEffect(() => {
 		if (bulkActive && !prevBulkActive.current) setActiveTab("bulk");
@@ -123,9 +129,26 @@ export function DetailPanel() {
 						>
 							Bulk edit ({state.selectedReportIds.size})
 						</button>
+						{canCheckDuplicates ? (
+							<button
+								type="button"
+								role="tab"
+								aria-selected={activeTab === "duplicates"}
+								class={`detail-tab${activeTab === "duplicates" ? " active" : ""}`}
+								onClick={() => setActiveTab("duplicates")}
+							>
+								Duplicates
+							</button>
+						) : null}
 					</div>
 				) : null}
-				{bulkActive && activeTab === "bulk" ? <BulkEditPanel /> : <ReportTab />}
+				{bulkActive && activeTab === "bulk" ? (
+					<BulkEditPanel />
+				) : bulkActive && activeTab === "duplicates" ? (
+					<DuplicatesPanel />
+				) : (
+					<ReportTab />
+				)}
 			</div>
 			{!bulkActive || activeTab === "report" ? <ToastStack toasts={state.detailToasts} /> : null}
 		</aside>

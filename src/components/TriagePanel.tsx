@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api } from "../api/client";
 import { useAppState, useDispatch } from "../state/context";
-import { runTriage, stopTriage } from "../state/effects";
+import { deleteTriageFile, runTriage, stopTriage } from "../state/effects";
 import type { AppError, TriageEvent, TriageRecord, TriageValidity } from "../state/store";
 import { Markdown } from "./Markdown";
 import { Spinner } from "./Spinner";
@@ -73,7 +73,9 @@ export function TriagePanel() {
 					</div>
 					<TriageWorkingDirField />
 				</div>
-				{saved ? <AnalysisSection record={saved} heading="Previous analysis" /> : null}
+				{saved ? (
+					<AnalysisSection record={saved} heading="Previous analysis" reportId={id} />
+				) : null}
 			</div>
 		);
 	}
@@ -91,7 +93,7 @@ export function TriagePanel() {
 						<TriageEventLog events={triage.events} live={false} />
 					</details>
 				) : null}
-				<AnalysisSection record={triage.result} heading="AI-assisted analysis" />
+				<AnalysisSection record={triage.result} heading="AI-assisted analysis" reportId={id} />
 				<PromptEditor
 					key={`${id}-ready`}
 					reportId={id}
@@ -117,7 +119,7 @@ export function TriagePanel() {
 				/>
 				{triage.events.length > 0 ? <TriageEventLog events={triage.events} live={false} /> : null}
 				{triage.saved ? (
-					<AnalysisSection record={triage.saved} heading="Previous analysis" />
+					<AnalysisSection record={triage.saved} heading="Previous analysis" reportId={id} />
 				) : null}
 			</div>
 		);
@@ -258,16 +260,70 @@ export function ValidityBadge({ validity }: { validity: TriageValidity }) {
 	);
 }
 
-function AnalysisSection({ record, heading }: { record: TriageRecord; heading: string }) {
+function AnalysisSection({
+	record,
+	heading,
+	reportId,
+}: {
+	record: TriageRecord;
+	heading: string;
+	reportId: string;
+}) {
 	return (
 		<>
 			<div class="section-h">{heading}</div>
 			<Markdown source={record.summary} class="body-text" />
+			<NewFilesSection reportId={reportId} files={record.new_files} />
 		</>
 	);
 }
 
-function TriageEventLog({ events, live }: { events: TriageEvent[]; live: boolean }) {
+// Lists the files claude wrote during the run, each with a delete button. `new_files` is often
+// empty (a triage that created nothing), in which case the whole section is omitted.
+function NewFilesSection({ reportId, files }: { reportId: string; files: string[] }) {
+	if (files.length === 0) return null;
+	return (
+		<>
+			<div class="section-h">Files created during triage</div>
+			<ul class="triage-files">
+				{files.map((path) => (
+					<TriageFileRow key={path} reportId={reportId} path={path} />
+				))}
+			</ul>
+		</>
+	);
+}
+
+function TriageFileRow({ reportId, path }: { reportId: string; path: string }) {
+	const dispatch = useDispatch();
+	const [deleting, setDeleting] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	const onDelete = () => {
+		setDeleting(true);
+		setError(null);
+		// On success the file drops out of state and this row unmounts, so there's nothing to
+		// reset; only re-enable the button if the delete failed.
+		deleteTriageFile(dispatch, reportId, path).catch((e: AppError) => {
+			setError(e.message || "Failed to delete file");
+			setDeleting(false);
+		});
+	};
+
+	return (
+		<li class="triage-file">
+			<span class="triage-file-path" title={path}>
+				{path}
+			</span>
+			<button type="button" class="triage-file-delete" onClick={onDelete} disabled={deleting}>
+				{deleting ? "Deleting…" : "Delete"}
+			</button>
+			{error ? <span class="triage-file-error">{error}</span> : null}
+		</li>
+	);
+}
+
+export function TriageEventLog({ events, live }: { events: TriageEvent[]; live: boolean }) {
 	const ref = useRef<HTMLDivElement | null>(null);
 	useEffect(() => {
 		if (!live) return;

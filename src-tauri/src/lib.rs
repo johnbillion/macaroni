@@ -133,6 +133,9 @@ pub fn run() {
             commands::list_triage_validity,
             commands::run_triage,
             commands::stop_triage,
+            commands::run_duplicates,
+            commands::stop_duplicates,
+            commands::delete_triage_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

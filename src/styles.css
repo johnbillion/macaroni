@@ -2008,6 +2008,43 @@ a[target="_blank"]::after {
 .triage-error {
 	color: var(--crit);
 }
+.dup-report-list {
+	list-style: none;
+	margin: 8px 0 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.dup-report {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	font-size: var(--fs-sm);
+}
+.dup-report-id {
+	flex: none;
+	display: inline-flex;
+	align-items: baseline;
+	gap: 6px;
+	color: var(--text-2);
+	font-variant-numeric: tabular-nums;
+}
+.dup-report-canonical {
+	font-size: var(--fs-xs);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--bg);
+	background: var(--text-2);
+	border-radius: 3px;
+	padding: 0 5px;
+}
+.dup-report-title {
+	color: var(--text);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
 .triage-run {
 	align-self: flex-start;
 	margin-top: 6px;
@@ -2246,5 +2283,53 @@ html.dark .triage-prompt {
 .triage-events[open] summary,
 .triage-prev[open] summary {
 	margin-bottom: 8px;
+}
+
+/* New files claude wrote during the run — one deletable row each. */
+.triage-files {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.triage-file {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	border: 1px solid var(--border);
+	background: var(--bg-1);
+	padding: 6px 8px;
+}
+.triage-file-path {
+	flex: 1;
+	min-width: 0;
+	overflow-wrap: anywhere;
+	font-family: var(--mono);
+	font-size: var(--fs-xs);
+	color: var(--text);
+}
+.triage-file-delete {
+	flex: none;
+	background: var(--bg-2);
+	border: 1px solid var(--border);
+	color: var(--crit);
+	padding: 4px 12px;
+	font-family: inherit;
+	font-size: var(--fs-xs);
+	cursor: pointer;
+}
+.triage-file-delete:hover {
+	background: var(--bg-3);
+}
+.triage-file-delete:disabled {
+	cursor: not-allowed;
+	opacity: 0.6;
+}
+.triage-file-error {
+	flex: none;
+	color: var(--crit);
+	font-size: var(--fs-xs);
 }
 

@@ -235,11 +235,12 @@ fn extract_triage_json(s: &str) -> Option<serde_json::Value> {
 }
 
 // Try to interpret claude's final result text as the structured JSON we asked for in the
-// prompt: `{"validity": "valid|partially-valid|invalid|indeterminate", "summary": "..."}`.
-// We don't require the JSON to be the *entire* response — claude often wraps it in prose
-// or fences despite being told not to — so we scan for the first embedded object that has
-// the right shape. Falls back to the raw text with no validity when nothing parses.
-fn parse_triage_result(raw: &str) -> (String, Option<String>) {
+// prompt: `{"validity": "valid|partially-valid|invalid|indeterminate", "summary": "...",
+// "new_files": ["..."]}`. We don't require the JSON to be the *entire* response — claude
+// often wraps it in prose or fences despite being told not to — so we scan for the first
+// embedded object that has the right shape. Falls back to the raw text with no validity and
+// no files when nothing parses. `new_files` is optional and defaults to empty.
+fn parse_triage_result(raw: &str) -> (String, Option<String>, Vec<String>) {
     if let Some(value) = extract_triage_json(raw) {
         if let Some(summary) = value.get("summary").and_then(|v| v.as_str()) {
             let validity = value
@@ -252,10 +253,22 @@ fn parse_triage_result(raw: &str) -> (String, Option<String>) {
                         "valid" | "partially-valid" | "invalid" | "indeterminate"
                     )
                 });
-            return (summary.to_owned(), validity);
+            let new_files = value
+                .get("new_files")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            return (summary.to_owned(), validity, new_files);
         }
     }
-    (raw.to_owned(), None)
+    (raw.to_owned(), None, Vec::new())
 }
 
 #[cfg(test)]
@@ -265,16 +278,17 @@ mod triage_parse_tests {
     #[test]
     fn whole_response_is_json() {
         let raw = "{\"validity\":\"valid\",\"summary\":\"## Overview\\n\\nDetails\"}";
-        let (summary, validity) = parse_triage_result(raw);
+        let (summary, validity, new_files) = parse_triage_result(raw);
         assert_eq!(summary, "## Overview\n\nDetails");
         assert_eq!(validity.as_deref(), Some("valid"));
+        assert!(new_files.is_empty());
     }
 
     #[test]
     fn json_embedded_after_prose() {
         let raw =
             "Some commentary above.\n\n{\"validity\":\"invalid\",\"summary\":\"## Why\\n\\nReason\"}";
-        let (summary, validity) = parse_triage_result(raw);
+        let (summary, validity, _) = parse_triage_result(raw);
         assert_eq!(summary, "## Why\n\nReason");
         assert_eq!(validity.as_deref(), Some("invalid"));
     }
@@ -283,7 +297,7 @@ mod triage_parse_tests {
     fn json_wrapped_in_code_fence() {
         let raw =
             "```json\n{\"validity\":\"partially-valid\",\"summary\":\"Notes\"}\n```";
-        let (summary, validity) = parse_triage_result(raw);
+        let (summary, validity, _) = parse_triage_result(raw);
         assert_eq!(summary, "Notes");
         assert_eq!(validity.as_deref(), Some("partially-valid"));
     }
@@ -291,7 +305,7 @@ mod triage_parse_tests {
     #[test]
     fn unknown_validity_dropped() {
         let raw = "{\"validity\":\"maybe\",\"summary\":\"text\"}";
-        let (summary, validity) = parse_triage_result(raw);
+        let (summary, validity, _) = parse_triage_result(raw);
         assert_eq!(summary, "text");
         assert_eq!(validity, None);
     }
@@ -299,17 +313,32 @@ mod triage_parse_tests {
     #[test]
     fn no_json_falls_back_to_raw() {
         let raw = "Plain markdown with no JSON.";
-        let (summary, validity) = parse_triage_result(raw);
+        let (summary, validity, new_files) = parse_triage_result(raw);
         assert_eq!(summary, raw);
         assert_eq!(validity, None);
+        assert!(new_files.is_empty());
     }
 
     #[test]
     fn brace_inside_string_does_not_confuse_scanner() {
         let raw = "{\"validity\":\"valid\",\"summary\":\"contains } and { inside\"}";
-        let (summary, validity) = parse_triage_result(raw);
+        let (summary, validity, _) = parse_triage_result(raw);
         assert_eq!(summary, "contains } and { inside");
         assert_eq!(validity.as_deref(), Some("valid"));
+    }
+
+    #[test]
+    fn new_files_parsed_and_blanks_dropped() {
+        let raw = "{\"validity\":\"valid\",\"summary\":\"s\",\"new_files\":[\"/tmp/a.php\",\"  \",\"/tmp/b.txt\"]}";
+        let (_, _, new_files) = parse_triage_result(raw);
+        assert_eq!(new_files, vec!["/tmp/a.php".to_string(), "/tmp/b.txt".to_string()]);
+    }
+
+    #[test]
+    fn new_files_absent_is_empty() {
+        let raw = "{\"validity\":\"valid\",\"summary\":\"s\"}";
+        let (_, _, new_files) = parse_triage_result(raw);
+        assert!(new_files.is_empty());
     }
 }
 
@@ -485,10 +514,14 @@ pub async fn run_triage(
 
     let raw = final_result
         .ok_or_else(|| AppError::other("claude finished without emitting a result event"))?;
-    let (summary, validity) = parse_triage_result(&raw);
+    let (summary, validity, new_files) = parse_triage_result(&raw);
     ctx.reports
-        .set_triage(&report_id, &summary, validity.as_deref())?;
-    Ok(TriageRecord { summary, validity })
+        .set_triage(&report_id, &summary, validity.as_deref(), &new_files)?;
+    Ok(TriageRecord {
+        summary,
+        validity,
+        new_files,
+    })
 }
 
 #[tauri::command]
@@ -501,6 +534,212 @@ pub async fn stop_triage(ctx: State<'_, AppContext>, report_id: String) -> AppRe
     // returns a non-zero status, and the frontend gets a normal TRIAGE_RUN_FAILED.
     let rc = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
     Ok(rc == 0)
+}
+
+// Prompt template for duplicate detection, embedded at compile time alongside the triage one.
+const DUPLICATES_PROMPT_TEMPLATE: &str = include_str!("../prompts/duplicates.md");
+
+// One report's text as supplied by the frontend for duplicate comparison. The frontend already
+// has the title and description in the loaded report summaries, so there's no need to re-fetch.
+#[derive(serde::Deserialize)]
+pub struct DuplicateInput {
+    pub id: String,
+    pub title: String,
+    pub body: String,
+}
+
+// claude's brief verdict on whether the supplied reports are duplicates of one another.
+#[derive(serde::Serialize)]
+pub struct DuplicateResult {
+    pub summary: String,
+}
+
+// Append each report to the template as its own `### Report #<id>` section. The caller sends the
+// reports already sorted ascending by id, so the lowest-id (canonical) report comes first — which
+// is the ordering the prompt's "lowest ID is canonical" rule refers to.
+fn assemble_duplicates_prompt(reports: &[DuplicateInput]) -> String {
+    let mut prompt = String::from(DUPLICATES_PROMPT_TEMPLATE);
+    for r in reports {
+        let body = if r.body.trim().is_empty() {
+            "(no description)"
+        } else {
+            r.body.as_str()
+        };
+        prompt.push_str(&format!("\n\n### Report #{}: {}\n\n{}", r.id, r.title, body));
+    }
+    prompt
+}
+
+// Ask claude whether the supplied reports are duplicates of one another. Mirrors `run_triage`'s
+// subprocess + stream-json plumbing, but the task is pure text comparison: no working directory is
+// needed, so we spawn in a temp dir, and the final result is taken as-is (a short markdown verdict)
+// rather than parsed for structured fields. Events stream on `duplicates:event:{request_id}` and
+// the PID is registered under `request_id` so `stop_duplicates` can signal it.
+#[tauri::command]
+pub async fn run_duplicates(
+    app: tauri::AppHandle,
+    ctx: State<'_, AppContext>,
+    request_id: String,
+    reports: Vec<DuplicateInput>,
+) -> AppResult<DuplicateResult> {
+    let prompt = assemble_duplicates_prompt(&reports);
+
+    let path_env = std::env::var("PATH").unwrap_or_default();
+    let augmented_path = format!(
+        "{}/.claude/local:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:{}",
+        std::env::var("HOME").unwrap_or_default(),
+        path_env
+    );
+
+    let mut child = tokio::process::Command::new("claude")
+        .args(["-p", "--output-format", "stream-json", "--verbose"])
+        .current_dir(std::env::temp_dir())
+        .env("PATH", &augmented_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| AppError::Other {
+            message: format!("failed to spawn claude: {e}"),
+        })?;
+
+    // Register the PID before any await, same as run_triage, so an early STOP has something to
+    // signal. TriageGuard removes the key on every exit path.
+    let _guard = if let Some(pid) = child.id() {
+        ctx.triages
+            .lock()
+            .unwrap()
+            .insert(request_id.clone(), pid);
+        Some(TriageGuard {
+            triages: ctx.triages.clone(),
+            report_id: request_id.clone(),
+        })
+    } else {
+        None
+    };
+
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| AppError::other("failed to open claude stdin"))?;
+    stdin
+        .write_all(prompt.as_bytes())
+        .await
+        .map_err(AppError::other)?;
+    stdin.shutdown().await.map_err(AppError::other)?;
+    drop(stdin);
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| AppError::other("failed to open claude stdout"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| AppError::other("failed to open claude stderr"))?;
+
+    let stderr_task = tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr);
+        let mut buf = Vec::new();
+        use tokio::io::AsyncReadExt;
+        let _ = reader.read_to_end(&mut buf).await;
+        String::from_utf8_lossy(&buf).into_owned()
+    });
+
+    let event_name = format!("duplicates:event:{request_id}");
+    let mut final_result: Option<String> = None;
+
+    let mut lines = BufReader::new(stdout).lines();
+    loop {
+        match lines.next_line().await {
+            Ok(Some(line)) => {
+                if line.is_empty() {
+                    continue;
+                }
+                match serde_json::from_str::<serde_json::Value>(&line) {
+                    Ok(value) => {
+                        if value.get("type").and_then(|v| v.as_str()) == Some("result") {
+                            if let Some(text) = value.get("result").and_then(|v| v.as_str()) {
+                                final_result = Some(text.to_string());
+                            }
+                        }
+                        let _ = app.emit(&event_name, &value);
+                    }
+                    Err(_) => {
+                        let _ = app.emit(
+                            &event_name,
+                            serde_json::json!({ "type": "raw", "line": line }),
+                        );
+                    }
+                }
+            }
+            Ok(None) => break,
+            Err(e) => return Err(AppError::other(e)),
+        }
+    }
+
+    let status = child.wait().await.map_err(AppError::other)?;
+    let stderr_text = stderr_task.await.unwrap_or_default();
+    if !status.success() {
+        return Err(AppError::Other {
+            message: format!("claude exited with status {}: {}", status, stderr_text.trim()),
+        });
+    }
+
+    let raw = final_result
+        .ok_or_else(|| AppError::other("claude finished without emitting a result event"))?;
+    Ok(DuplicateResult {
+        summary: raw.trim().to_owned(),
+    })
+}
+
+// Stop an in-flight duplicate check. Identical mechanism to stop_triage — the PID lives in the
+// same map, keyed by the duplicate check's request id.
+#[tauri::command]
+pub async fn stop_duplicates(ctx: State<'_, AppContext>, request_id: String) -> AppResult<bool> {
+    let pid = ctx.triages.lock().unwrap().get(&request_id).copied();
+    let Some(pid) = pid else {
+        return Ok(false);
+    };
+    let rc = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+    Ok(rc == 0)
+}
+
+// Delete one of the files claude wrote during a report's triage run, then drop it from the
+// stored new-files list. Returns the remaining files. The path must be one of the report's
+// recorded new files — we refuse to delete arbitrary paths the frontend hasn't been told about.
+// A file that's already gone from disk is treated as success (it's still removed from the list).
+#[tauri::command]
+pub async fn delete_triage_file(
+    ctx: State<'_, AppContext>,
+    report_id: String,
+    path: String,
+) -> AppResult<Vec<String>> {
+    let record = ctx
+        .reports
+        .get_triage(&report_id)?
+        .ok_or_else(|| AppError::other("No triage record found for this report"))?;
+
+    if !record.new_files.iter().any(|f| f == &path) {
+        return Err(AppError::other(
+            "That file is not one of this report's triage files",
+        ));
+    }
+
+    match std::fs::remove_file(&path) {
+        Ok(()) => {}
+        // Already gone — fall through and prune it from the list anyway.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(AppError::other(format!("Failed to delete {path}: {e}"))),
+    }
+
+    let remaining: Vec<String> = record
+        .new_files
+        .into_iter()
+        .filter(|f| f != &path)
+        .collect();
+    ctx.reports.set_triage_new_files(&report_id, &remaining)?;
+    Ok(remaining)
 }
 
 // Show a native save-file dialog for an attachment and, if the user confirms a path,

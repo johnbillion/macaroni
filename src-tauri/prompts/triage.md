@@ -49,10 +49,11 @@ Use some initiative if the exact steps to reproduce don't work, aren't clear, or
 
 ## Output format
 
-Your final response — and only your final response — must be a single JSON object on its own with exactly two fields:
+Your final response — and only your final response — must be a single JSON object on its own with these exact fields:
 
 * `validity`: one of `"valid"`, `"partially-valid"`, `"invalid"`, or `"indeterminate"`
 * `summary`: a markdown-formatted analysis of your findings (what you tested, what you observed, why you reached your verdict)
+* `new_files`: an indexed array of absolute file path strings to all of the new files that you wrote to disk
 
 Do not wrap the JSON in code fences. Do not output any text before or after the JSON. Do not save the summary to a file or use any writing tools for it — the caller captures your final message directly and parses it.
 

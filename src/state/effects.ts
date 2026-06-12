@@ -6,6 +6,7 @@ import type {
 	AppError,
 	AppState,
 	AssetRef,
+	DuplicateInput,
 	TriageEvent,
 	TriageValidity,
 } from "./store";
@@ -175,12 +176,7 @@ async function hydrateReadIds(dispatch: Dispatch, ids: string[]) {
 	}
 }
 
-const VALID_VALIDITIES = new Set<string>([
-	"valid",
-	"partially-valid",
-	"invalid",
-	"indeterminate",
-]);
+const VALID_VALIDITIES = new Set<string>(["valid", "partially-valid", "invalid", "indeterminate"]);
 
 async function hydrateTriageValidity(dispatch: Dispatch, ids: string[]) {
 	if (ids.length === 0) return;
@@ -483,4 +479,41 @@ export async function stopTriage(reportId: string) {
 		// Best-effort — if the signal fails (process already gone, etc.) the normal
 		// completion path will surface whatever state the run ended in.
 	}
+}
+
+// Ask Claude whether the selected reports are duplicates of one another. Mirrors runTriage:
+// subscribe to the streamed event channel, run the command, and dispatch the final verdict.
+export async function runDuplicateCheck(
+	dispatch: Dispatch,
+	requestId: string,
+	reports: DuplicateInput[],
+) {
+	dispatch({ type: "DUP_CHECK_STARTED" });
+	let unlisten: UnlistenFn | null = null;
+	try {
+		unlisten = await listen<TriageEvent>(`duplicates:event:${requestId}`, (e) => {
+			dispatch({ type: "DUP_CHECK_EVENT", event: e.payload });
+		});
+		const result = await api.runDuplicates(requestId, reports);
+		dispatch({ type: "DUP_CHECK_SUCCEEDED", result });
+	} catch (e) {
+		dispatch({ type: "DUP_CHECK_FAILED", error: asError(e) });
+	} finally {
+		if (unlisten) unlisten();
+	}
+}
+
+export async function stopDuplicateCheck(requestId: string) {
+	try {
+		await api.stopDuplicates(requestId);
+	} catch {
+		// Best-effort, same as stopTriage.
+	}
+}
+
+// Delete one of a report's triage new-files from disk and prune it from state. Rethrows so the
+// caller can surface a failure (e.g. a permission error) inline next to the file.
+export async function deleteTriageFile(dispatch: Dispatch, reportId: string, path: string) {
+	const remaining = await api.deleteTriageFile(reportId, path);
+	dispatch({ type: "TRIAGE_FILE_DELETED", reportId, remaining });
 }

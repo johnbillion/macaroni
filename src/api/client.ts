@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
 	AppError,
 	Asset,
+	DuplicateInput,
+	DuplicateResult,
 	Organization,
 	Program,
 	ReportDetail,
@@ -60,6 +62,14 @@ export const api = {
 	runTriage: (reportId: string, prompt: string) =>
 		call<TriageRecord>("run_triage", { reportId, prompt }),
 	stopTriage: (reportId: string) => call<boolean>("stop_triage", { reportId }),
+	// Ask Claude whether the supplied reports are duplicates of one another. `requestId` keys
+	// both the streamed event channel and the stop signal.
+	runDuplicates: (requestId: string, reports: DuplicateInput[]) =>
+		call<DuplicateResult>("run_duplicates", { requestId, reports }),
+	stopDuplicates: (requestId: string) => call<boolean>("stop_duplicates", { requestId }),
+	// Delete one of a report's triage new-files from disk; resolves to the remaining paths.
+	deleteTriageFile: (reportId: string, path: string) =>
+		call<string[]>("delete_triage_file", { reportId, path }),
 	listTriageValidity: (reportIds: string[]) =>
 		call<{ id: string; validity: string | null }[]>("list_triage_validity", { reportIds }),
 };
