@@ -184,9 +184,12 @@ export function InboxTable() {
 	const [downloading, setDownloading] = useState(false);
 	const onDownloadReports = async () => {
 		if (items.length === 0 || downloading) return;
+		// Download only the checked reports when any are selected; otherwise all.
+		const toDownload = someSelected ? items.filter((r) => selected.has(r.id)) : items;
+		if (toDownload.length === 0) return;
 		setDownloading(true);
 		try {
-			const entries = items.map((r) => ({
+			const entries = toDownload.map((r) => ({
 				filename: `${r.id}.md`,
 				contents: r.vulnerability_information ?? "",
 			}));
