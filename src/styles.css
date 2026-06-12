@@ -1338,6 +1338,7 @@ a[target="_blank"]::after {
 	display: inline-flex;
 	align-items: center;
 	gap: 5px;
+	font-size: var(--fs-sm);
 	font-variant-numeric: tabular-nums;
 	margin-left: auto;
 	white-space: nowrap;
@@ -1470,7 +1471,10 @@ a[target="_blank"]::after {
 	align-items: center;
 	gap: 5px;
 	margin-left: auto;
+	font-size: var(--fs-sm);
 	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	flex-shrink: 0;
 }
 .event-tick-text {
 	display: inline-flex;
