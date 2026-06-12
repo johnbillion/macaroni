@@ -107,19 +107,23 @@ function substituteAttachmentTokens(source: string, attachments: Attachment[]): 
 }
 
 // Comments sometimes contain root-relative (`/reports/123`) or protocol-relative
-// (`//example.com`) URLs. Resolve them to absolute links so they open correctly from
-// the Tauri webview; root-relative URLs are anchored to HackerOne.
+// (`//example.com`) URLs. Normalise them to absolute links so they open correctly from
+// the Tauri webview; root-relative URLs are anchored to HackerOne. Anything that isn't an
+// http(s) link after normalisation (e.g. `mailto:`, `tel:`, in-page `#anchors`, bare
+// relative paths) is stripped and rendered as inline code rather than a clickable link.
 const HACKERONE_BASE = "https://hackerone.com";
 
-function resolveHref(href: string): { href: string; isExternal: boolean } {
-	if (href.startsWith("#")) return { href, isExternal: false };
-	// Already absolute, e.g. https:, mailto:.
-	if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return { href, isExternal: true };
-	// Protocol-relative.
-	if (href.startsWith("//")) return { href: `https:${href}`, isExternal: true };
-	// Root-relative — anchor to HackerOne.
-	if (href.startsWith("/")) return { href: `${HACKERONE_BASE}${href}`, isExternal: true };
-	return { href, isExternal: false };
+// Returns the absolute http(s) URL to link to, or null if the href should be stripped.
+function resolveHref(href: string): string | null {
+	let resolved = href;
+	if (href.startsWith("//")) {
+		// Protocol-relative.
+		resolved = `https:${href}`;
+	} else if (href.startsWith("/")) {
+		// Root-relative — anchor to HackerOne.
+		resolved = `${HACKERONE_BASE}${href}`;
+	}
+	return /^https?:\/\//i.test(resolved) ? resolved : null;
 }
 
 // react-markdown's `Components` type is typed against React; cast through to keep Preact JSX happy.
@@ -129,22 +133,18 @@ const components = {
 		<ImageWithControls src={src} alt={alt} title={title} />
 	),
 	a: ({ href, children }: { href?: string; children?: ComponentChildren }) => {
-		const { href: resolvedHref, isExternal } = href
-			? resolveHref(href)
-			: { href: undefined, isExternal: false };
+		const resolved = href ? resolveHref(href) : null;
+		// Non-http(s) links are stripped: keep the visible text but render it as inert code.
+		if (!resolved) return <code>{children}</code>;
 		return (
 			<a
-				href={resolvedHref}
-				target={isExternal ? "_blank" : undefined}
-				rel={isExternal ? "noopener noreferrer" : undefined}
-				onClick={
-					isExternal && resolvedHref
-						? (e) => {
-								e.preventDefault();
-								openUrl(resolvedHref);
-							}
-						: undefined
-				}
+				href={resolved}
+				target="_blank"
+				rel="noopener noreferrer"
+				onClick={(e) => {
+					e.preventDefault();
+					openUrl(resolved);
+				}}
 			>
 				{children}
 			</a>
