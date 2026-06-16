@@ -114,6 +114,10 @@ export function App() {
 		const existing = state.detail[selectedReportId];
 		if (!existing || existing.status === "error") {
 			loadReportDetail(dispatch, selectedReportId);
+		} else if (existing.status === "ready") {
+			// Already-loaded detail: refresh it in the background (like the focus catch-up) so
+			// switching back to a report surfaces anything that changed while it was off screen.
+			refreshReportDetail(dispatch, selectedReportId);
 		}
 	}, [selectedReportId, dispatch]);
 

@@ -541,9 +541,12 @@ impl HackerOneApi for ReqwestClient {
     }
 
     async fn get_report(&self, report_id: &str) -> AppResult<ReportDetail> {
-        let body = self
-            .get_json(&format!("{BASE_URL}/reports/{report_id}"))
-            .await?;
+        let url = format!("{BASE_URL}/reports/{report_id}");
+
+        #[cfg(debug_assertions)]
+        println!("[report] GET {url}");
+
+        let body = self.get_json(&format!("{url}")).await?;
         parse_report_detail(&body).ok_or_else(|| AppError::Other {
             message: format!("Could not parse report {report_id}"),
         })
