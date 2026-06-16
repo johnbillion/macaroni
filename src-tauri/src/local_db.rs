@@ -14,9 +14,6 @@ pub struct TriageRecord {
 
 pub trait ReportStore: Send + Sync {
     fn upsert(&self, ids: &[&str]) -> AppResult<()>;
-    fn mark_read(&self, id: &str) -> AppResult<()>;
-    fn mark_read_many(&self, ids: &[&str]) -> AppResult<()>;
-    fn list_read(&self, ids: &[&str]) -> AppResult<Vec<String>>;
     fn get_triage(&self, id: &str) -> AppResult<Option<TriageRecord>>;
     fn set_triage(
         &self,
@@ -42,7 +39,6 @@ impl SqliteStore {
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS reports (
                 id              TEXT PRIMARY KEY,
-                read            INTEGER NOT NULL DEFAULT 0,
                 triage          TEXT,
                 triage_validity TEXT,
                 triage_new_files TEXT
@@ -68,58 +64,13 @@ impl ReportStore for SqliteStore {
         let tx = c.transaction().map_err(AppError::other)?;
         for id in ids {
             tx.execute(
-                "INSERT OR IGNORE INTO reports (id, read) VALUES (?1, 0)",
+                "INSERT OR IGNORE INTO reports (id) VALUES (?1)",
                 params![id],
             )
             .map_err(AppError::other)?;
         }
         tx.commit().map_err(AppError::other)?;
         Ok(())
-    }
-
-    fn mark_read(&self, id: &str) -> AppResult<()> {
-        let c = self.conn.lock().unwrap();
-        c.execute(
-            "INSERT INTO reports (id, read) VALUES (?1, 1)
-             ON CONFLICT(id) DO UPDATE SET read = 1",
-            params![id],
-        )
-        .map_err(AppError::other)?;
-        Ok(())
-    }
-
-    fn mark_read_many(&self, ids: &[&str]) -> AppResult<()> {
-        if ids.is_empty() {
-            return Ok(());
-        }
-        let mut c = self.conn.lock().unwrap();
-        let tx = c.transaction().map_err(AppError::other)?;
-        for id in ids {
-            tx.execute(
-                "INSERT INTO reports (id, read) VALUES (?1, 1)
-                 ON CONFLICT(id) DO UPDATE SET read = 1",
-                params![id],
-            )
-            .map_err(AppError::other)?;
-        }
-        tx.commit().map_err(AppError::other)?;
-        Ok(())
-    }
-
-    fn list_read(&self, ids: &[&str]) -> AppResult<Vec<String>> {
-        if ids.is_empty() {
-            return Ok(vec![]);
-        }
-        let c = self.conn.lock().unwrap();
-        let placeholders = std::iter::repeat_n("?", ids.len())
-            .collect::<Vec<_>>()
-            .join(",");
-        let sql = format!("SELECT id FROM reports WHERE read = 1 AND id IN ({placeholders})");
-        let mut stmt = c.prepare(&sql).map_err(AppError::other)?;
-        let rows = stmt
-            .query_map(params_from_iter(ids.iter()), |row| row.get::<_, String>(0))
-            .map_err(AppError::other)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(AppError::other)
     }
 
     fn get_triage(&self, id: &str) -> AppResult<Option<TriageRecord>> {
@@ -161,8 +112,8 @@ impl ReportStore for SqliteStore {
         let files_json = serde_json::to_string(new_files).map_err(AppError::other)?;
         let c = self.conn.lock().unwrap();
         c.execute(
-            "INSERT INTO reports (id, read, triage, triage_validity, triage_new_files)
-             VALUES (?1, 0, ?2, ?3, ?4)
+            "INSERT INTO reports (id, triage, triage_validity, triage_new_files)
+             VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(id) DO UPDATE SET triage = excluded.triage,
                                            triage_validity = excluded.triage_validity,
                                            triage_new_files = excluded.triage_new_files",
@@ -214,7 +165,6 @@ mod tests {
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS reports (
                 id              TEXT PRIMARY KEY,
-                read            INTEGER NOT NULL DEFAULT 0,
                 triage          TEXT,
                 triage_validity TEXT,
                 triage_new_files TEXT
@@ -224,28 +174,6 @@ mod tests {
         SqliteStore {
             conn: Mutex::new(conn),
         }
-    }
-
-    #[test]
-    fn upsert_then_read() {
-        let s = in_memory();
-        s.upsert(&["a", "b", "c"]).unwrap();
-        assert!(s.list_read(&["a", "b", "c"]).unwrap().is_empty());
-        s.mark_read("b").unwrap();
-        let read = s.list_read(&["a", "b", "c"]).unwrap();
-        assert_eq!(read, vec!["b".to_string()]);
-    }
-
-    #[test]
-    fn mark_read_many_marks_all() {
-        let s = in_memory();
-        s.mark_read_many(&["a", "b", "c"]).unwrap();
-        let mut read = s.list_read(&["a", "b", "c"]).unwrap();
-        read.sort();
-        assert_eq!(
-            read,
-            vec!["a".to_string(), "b".to_string(), "c".to_string()]
-        );
     }
 
     #[test]
@@ -273,15 +201,5 @@ mod tests {
         s.set_triage("r1", "summary", None, &[]).unwrap();
         let rec = s.get_triage("r1").unwrap().unwrap();
         assert!(rec.new_files.is_empty());
-    }
-
-    #[test]
-    fn upsert_preserves_read_state() {
-        let s = in_memory();
-        s.upsert(&["a"]).unwrap();
-        s.mark_read("a").unwrap();
-        s.upsert(&["a", "b"]).unwrap();
-        let read = s.list_read(&["a", "b"]).unwrap();
-        assert_eq!(read, vec!["a".to_string()]);
     }
 }

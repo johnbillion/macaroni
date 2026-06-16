@@ -307,7 +307,6 @@ export type AppState = {
 	// turns up new activity or detail changes. Tied to the currently selected report only —
 	// cleared on REPORT_SELECTED so they don't bleed across navigations.
 	detailToasts: DetailToast[];
-	readReports: Record<string, true>;
 	detailPlacement: DetailPlacement;
 	panelSizes: PanelSizes;
 	viewport: Viewport;
@@ -379,9 +378,6 @@ export type Action =
 	| { type: "DETAIL_FAILED"; reportId: string; error: AppError }
 	| { type: "DETAIL_REFRESHED"; reportId: string; detail: ReportDetail }
 	| { type: "DETAIL_TOAST_DISMISSED"; toastId: string }
-	| { type: "READ_IDS_LOADED"; ids: string[] }
-	| { type: "REPORT_MARKED_READ"; reportId: string }
-	| { type: "REPORTS_MARKED_READ"; reportIds: string[] }
 	| { type: "DETAIL_PLACEMENT_SET"; placement: DetailPlacement }
 	| { type: "PANEL_SIZE_SET"; panel: PanelKey; size: number }
 	| { type: "VIEWPORT_RESIZED"; width: number; height: number };
@@ -438,7 +434,6 @@ export const initialState: AppState = {
 	triage: {},
 	triageValidityByReport: {},
 	detailToasts: [],
-	readReports: {},
 	detailPlacement: loadDetailPlacement(),
 	panelSizes: loadPanelSizes(readViewport()),
 	viewport: readViewport(),
@@ -999,21 +994,6 @@ export function reducer(state: AppState, action: Action): AppState {
 				...state,
 				detailToasts: state.detailToasts.filter((t) => t.id !== action.toastId),
 			};
-		case "READ_IDS_LOADED": {
-			const next: Record<string, true> = { ...state.readReports };
-			for (const id of action.ids) next[id] = true;
-			return { ...state, readReports: next };
-		}
-		case "REPORT_MARKED_READ":
-			return {
-				...state,
-				readReports: { ...state.readReports, [action.reportId]: true },
-			};
-		case "REPORTS_MARKED_READ": {
-			const next: Record<string, true> = { ...state.readReports };
-			for (const id of action.reportIds) next[id] = true;
-			return { ...state, readReports: next };
-		}
 		case "DETAIL_PLACEMENT_SET":
 			return { ...state, detailPlacement: action.placement };
 		case "PANEL_SIZE_SET":

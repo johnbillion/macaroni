@@ -11,7 +11,6 @@ import {
 	loadSettings,
 	loadTeamMembers,
 	loadTriage,
-	markReportRead,
 	pollNewReports,
 	type ReportsQuery,
 	refreshReportDetail,
@@ -108,15 +107,13 @@ export function App() {
 
 	// Selecting a report (whether by click or by the reducer's auto-select on a fresh load)
 	// should populate the detail pane. We only react to the selection itself changing —
-	// detail/readReports updates are read from the same render's closure and don't re-fire.
+	// detail updates are read from the same render's closure and don't re-fire.
 	const selectedReportId = state.selectedReportId;
 	useEffect(() => {
 		if (!selectedReportId) return;
 		const existing = state.detail[selectedReportId];
 		if (!existing || existing.status === "error") {
 			loadReportDetail(dispatch, selectedReportId);
-		} else if (existing.status === "ready" && !state.readReports[selectedReportId]) {
-			markReportRead(dispatch, selectedReportId);
 		}
 	}, [selectedReportId, dispatch]);
 

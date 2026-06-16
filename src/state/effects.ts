@@ -1,6 +1,6 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api } from "../api/client";
-import { ALL_SEVERITY_KEYS, ALL_STATE_KEYS, CLOSED_STATES } from "./filters";
+import { ALL_SEVERITY_KEYS, ALL_STATE_KEYS } from "./filters";
 import type {
 	Action,
 	AppError,
@@ -10,8 +10,6 @@ import type {
 	TriageEvent,
 	TriageValidity,
 } from "./store";
-
-const CLOSED_STATE_KEYS = new Set(CLOSED_STATES.map((s) => s.key));
 
 type Dispatch = (action: Action) => void;
 
@@ -129,7 +127,6 @@ export async function loadReportDetail(dispatch: Dispatch, reportId: string) {
 	try {
 		const detail = await api.getReport(reportId);
 		dispatch({ type: "DETAIL_SUCCEEDED", reportId, detail });
-		markReportRead(dispatch, reportId);
 	} catch (e) {
 		dispatch({ type: "DETAIL_FAILED", reportId, error: asError(e) });
 	}
@@ -144,35 +141,6 @@ export async function refreshReportDetail(dispatch: Dispatch, reportId: string) 
 		dispatch({ type: "DETAIL_REFRESHED", reportId, detail });
 	} catch {
 		// Best-effort — the next poll will retry.
-	}
-}
-
-export async function markReportRead(dispatch: Dispatch, reportId: string) {
-	dispatch({ type: "REPORT_MARKED_READ", reportId });
-	try {
-		await api.markReportRead(reportId);
-	} catch {
-		// Best-effort — UI already reflects the optimistic update.
-	}
-}
-
-export async function markReportsRead(dispatch: Dispatch, reportIds: string[]) {
-	if (reportIds.length === 0) return;
-	dispatch({ type: "REPORTS_MARKED_READ", reportIds });
-	try {
-		await api.markReportsRead(reportIds);
-	} catch {
-		// Best-effort — UI already reflects the optimistic update.
-	}
-}
-
-async function hydrateReadIds(dispatch: Dispatch, ids: string[]) {
-	if (ids.length === 0) return;
-	try {
-		const readIds = await api.getReadIds(ids);
-		dispatch({ type: "READ_IDS_LOADED", ids: readIds });
-	} catch {
-		// Non-fatal: report list still renders; everything just looks unread.
 	}
 }
 
@@ -273,10 +241,7 @@ export async function loadReports(
 		});
 		if (myId !== reportsRequestId) return undefined;
 		const ids = items.map((i) => i.id);
-		hydrateReadIds(dispatch, ids);
 		hydrateTriageValidity(dispatch, ids);
-		const closedIds = items.filter((i) => CLOSED_STATE_KEYS.has(i.state)).map((i) => i.id);
-		markReportsRead(dispatch, closedIds);
 		dispatch({
 			type: "REPORTS_SUCCEEDED",
 			items,
@@ -327,10 +292,7 @@ export async function pollNewReports(
 		const items = boundaryId ? fetched.filter((i) => i.id !== boundaryId) : fetched;
 		if (items.length === 0) return;
 		const ids = items.map((i) => i.id);
-		hydrateReadIds(dispatch, ids);
 		hydrateTriageValidity(dispatch, ids);
-		const closedIds = items.filter((i) => CLOSED_STATE_KEYS.has(i.state)).map((i) => i.id);
-		markReportsRead(dispatch, closedIds);
 		dispatch({ type: "REPORTS_POLLED", items, replaceCount });
 	} catch {
 		// Best-effort — the next poll will retry.

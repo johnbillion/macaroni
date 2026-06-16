@@ -109,29 +109,6 @@ pub async fn list_reports(ctx: State<'_, AppContext>, query: ReportQuery) -> App
 }
 
 #[tauri::command]
-pub async fn mark_report_read(ctx: State<'_, AppContext>, report_id: String) -> AppResult<()> {
-    ctx.reports.mark_read(&report_id)
-}
-
-#[tauri::command]
-pub async fn mark_reports_read(
-    ctx: State<'_, AppContext>,
-    report_ids: Vec<String>,
-) -> AppResult<()> {
-    let refs: Vec<&str> = report_ids.iter().map(String::as_str).collect();
-    ctx.reports.mark_read_many(&refs)
-}
-
-#[tauri::command]
-pub async fn get_read_ids(
-    ctx: State<'_, AppContext>,
-    report_ids: Vec<String>,
-) -> AppResult<Vec<String>> {
-    let refs: Vec<&str> = report_ids.iter().map(String::as_str).collect();
-    ctx.reports.list_read(&refs)
-}
-
-#[tauri::command]
 pub async fn get_report(ctx: State<'_, AppContext>, report_id: String) -> AppResult<ReportDetail> {
     ctx.api.get_report(&report_id).await
 }

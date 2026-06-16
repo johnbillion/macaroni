@@ -667,21 +667,6 @@ input[type="radio"] {
 .row.selected td:first-child {
 	box-shadow: inset 3px 0 0 var(--accent);
 }
-.row.unread .id::before {
-	content: "";
-	position: absolute;
-	left: 0;
-	top: calc(11px + var(--row-lead) / 2);
-	transform: translateY(-50%);
-	width: 6px;
-	height: 6px;
-	background: var(--accent);
-	border-radius: 50%;
-}
-.row.unread td {
-	color: var(--text);
-	font-weight: 600;
-}
 .person-cell {
 	display: inline-flex;
 	align-items: center;

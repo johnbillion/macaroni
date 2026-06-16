@@ -53,9 +53,6 @@ export const api = {
 	getSettings: () => call<Settings>("get_settings"),
 	setTriageWorkingDir: (dir: string | null) => call<Settings>("set_triage_working_dir", { dir }),
 	pickDirectory: () => call<string | null>("pick_directory"),
-	markReportRead: (reportId: string) => call<void>("mark_report_read", { reportId }),
-	markReportsRead: (reportIds: string[]) => call<void>("mark_reports_read", { reportIds }),
-	getReadIds: (reportIds: string[]) => call<string[]>("get_read_ids", { reportIds }),
 	getTriage: (reportId: string) => call<TriageRecord | null>("get_triage", { reportId }),
 	getTriagePrompt: (reportTitle: string, reportBody: string) =>
 		call<string>("get_triage_prompt", { reportTitle, reportBody }),

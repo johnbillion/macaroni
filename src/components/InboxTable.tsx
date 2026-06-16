@@ -261,12 +261,10 @@ export function InboxTable() {
 					{items.map((r) => {
 						const pill = pillFor(r.state);
 						const showSelected = state.selectedReportId === r.id && !selectionTabActive;
-						const isUnread = !state.readReports[r.id];
 						const isBulkSelected = selected.has(r.id);
 						const showBulkSelected = isBulkSelected && selectionTabActive;
 						const classes = ["row"];
 						if (showSelected) classes.push("selected");
-						if (isUnread) classes.push("unread");
 						if (showBulkSelected) classes.push("bulk-selected");
 						return (
 							<tr
