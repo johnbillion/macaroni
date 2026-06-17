@@ -2,7 +2,7 @@ import { useEffect, useRef } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
 import { buildReportsQuery, cancelPendingReportsLoad, loadReports } from "../state/effects";
 import { CLOSED_STATES, OPEN_STATES, SEVERITY_FACETS, type StateFacet } from "../state/filters";
-import type { Asset, AssigneeOption, AsyncState } from "../state/store";
+import type { Asset, AssigneeOption, AsyncState, TeamMember } from "../state/store";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { SeverityMeter } from "./SeverityMeter";
 
@@ -12,7 +12,10 @@ export function Sidebar() {
 	const orgId = state.filters.orgId;
 	const assets: AsyncState<Asset[]> | undefined = orgId ? state.assetsByOrg[orgId] : undefined;
 	const handle = state.filters.programHandle;
-	const assigneeOptions = handle ? (state.assigneeOptionsByProgram[handle] ?? []) : [];
+	const seenAssignees = handle ? (state.assigneeOptionsByProgram[handle] ?? []) : [];
+	const members = handle ? state.teamMembersByProgram[handle] : undefined;
+	const memberList = members?.status === "ready" ? members.data : [];
+	const assigneeOptions = buildAssigneeOptions(seenAssignees, memberList);
 	const locked = state.selectedReportIds.size > 0;
 	return (
 		<aside class={`side${locked ? " side-locked" : ""}`} aria-disabled={locked}>
@@ -190,6 +193,37 @@ function AssetSection({ state }: { state: AsyncState<Asset[]> | undefined }) {
 
 function assetSortKey(identifier: string): string {
 	return identifier.replace(/^[^\p{L}\p{N}]+/u, "").toLowerCase();
+}
+
+// System/bot accounts (HackerOne's automation users) that are never real assignees — excluded
+// from the picker by username prefix.
+function isSystemUser(username: string): boolean {
+	return username.startsWith("auto-") || username.startsWith("h1_");
+}
+
+// Combine the full program member list (all staff, fetched for activity-log staff detection) with
+// the assignees actually seen on reports. Users come from both sources — members give the complete
+// roster, seen options supply friendlier display names where available — while groups only ever
+// come from report data, since the API has no endpoint to enumerate them. Deduped by token value
+// (username / group name) and sorted by label.
+function buildAssigneeOptions(seen: AssigneeOption[], members: TeamMember[]): AssigneeOption[] {
+	const byValue = new Map<string, AssigneeOption>();
+	for (const option of seen) {
+		if (option.type === "user" && isSystemUser(option.value)) continue;
+		byValue.set(option.value, option);
+	}
+	for (const member of members) {
+		if (isSystemUser(member.username) || byValue.has(member.username)) continue;
+		byValue.set(member.username, {
+			type: "user",
+			value: member.username,
+			label: member.username,
+			profile_picture_url: null,
+		});
+	}
+	return [...byValue.values()].sort((a, b) =>
+		a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
+	);
 }
 
 // A native <select> — fully keyboard- and screen-reader-accessible out of the box, unlike a
