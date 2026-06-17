@@ -2,7 +2,7 @@ import { useEffect, useRef } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
 import { buildReportsQuery, cancelPendingReportsLoad, loadReports } from "../state/effects";
 import { CLOSED_STATES, OPEN_STATES, SEVERITY_FACETS, type StateFacet } from "../state/filters";
-import type { Asset, AsyncState } from "../state/store";
+import type { Asset, AssigneeOption, AsyncState } from "../state/store";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { SeverityMeter } from "./SeverityMeter";
 
@@ -11,6 +11,8 @@ export function Sidebar() {
 	const dispatch = useDispatch();
 	const orgId = state.filters.orgId;
 	const assets: AsyncState<Asset[]> | undefined = orgId ? state.assetsByOrg[orgId] : undefined;
+	const handle = state.filters.programHandle;
+	const assigneeOptions = handle ? (state.assigneeOptionsByProgram[handle] ?? []) : [];
 	const locked = state.selectedReportIds.size > 0;
 	return (
 		<aside class={`side${locked ? " side-locked" : ""}`} aria-disabled={locked}>
@@ -39,6 +41,8 @@ export function Sidebar() {
 			</form>
 
 			<AssetSection key={orgId ?? "none"} state={assets} />
+
+			<AssigneeSection key={handle ?? "none"} options={assigneeOptions} />
 
 			<div class="side-section">
 				<div class="side-h">
@@ -186,6 +190,58 @@ function AssetSection({ state }: { state: AsyncState<Asset[]> | undefined }) {
 
 function assetSortKey(identifier: string): string {
 	return identifier.replace(/^[^\p{L}\p{N}]+/u, "").toLowerCase();
+}
+
+// A native <select> — fully keyboard- and screen-reader-accessible out of the box, unlike a
+// hand-rolled combobox, and unlike <datalist> it actually renders in the macOS WKWebView. Option
+// values are the API filter tokens (username for users, name for groups); users and groups are
+// split into <optgroup>s for clarity.
+function AssigneeSection({ options }: { options: AssigneeOption[] }) {
+	const state = useAppState();
+	const dispatch = useDispatch();
+	const token = state.filters.assignees[0] ?? "";
+	const users = options.filter((o) => o.type === "user");
+	const groups = options.filter((o) => o.type === "group");
+	// A token persisted from a previous session might no longer be in the accumulated options;
+	// keep it selectable so the control reflects the active filter rather than silently blanking.
+	const orphan = token && !options.some((o) => o.value === token) ? token : null;
+
+	return (
+		<div class="side-section">
+			<div class="side-h">
+				<span>Assignee</span>
+			</div>
+			<select
+				class="assignee-select"
+				value={token}
+				onChange={(e) => {
+					const value = e.currentTarget.value;
+					dispatch({ type: "ASSIGNEES_SET", assignees: value ? [value] : [] });
+				}}
+			>
+				<option value="">Any</option>
+				{orphan ? <option value={orphan}>{orphan}</option> : null}
+				{users.length > 0 ? (
+					<optgroup label="Users">
+						{users.map((o) => (
+							<option key={o.value} value={o.value}>
+								{o.label}
+							</option>
+						))}
+					</optgroup>
+				) : null}
+				{groups.length > 0 ? (
+					<optgroup label="Groups">
+						{groups.map((o) => (
+							<option key={o.value} value={o.value}>
+								{o.label}
+							</option>
+						))}
+					</optgroup>
+				) : null}
+			</select>
+		</div>
+	);
 }
 
 function AssetSectionReady({ assets }: { assets: Asset[] }) {

@@ -427,6 +427,22 @@ html.dark .theme-toggle {
 	overflow-wrap: anywhere;
 	min-width: 0;
 }
+.assignee-select {
+	width: 100%;
+	box-sizing: border-box;
+	height: 30px;
+	padding: 0 6px;
+	background: var(--bg-1);
+	border: 1px solid var(--border);
+	border-radius: 2px;
+	color: var(--text);
+	font-family: inherit;
+	font-size: var(--fs-md);
+	outline: none;
+}
+.assignee-select:focus {
+	border-color: var(--text-2);
+}
 .facet .swatch {
 	width: 8px;
 	height: 8px;

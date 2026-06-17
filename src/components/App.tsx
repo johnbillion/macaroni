@@ -89,6 +89,7 @@ export function App() {
 	const statesKey = state.filters.states.join(",");
 	const severitiesKey = state.filters.severities.join(",");
 	const assetsKey = state.filters.assets.join(",");
+	const assigneesKey = state.filters.assignees.join(",");
 	const searchKey = state.filters.search.trim();
 
 	const firstReportsLoadRef = useRef(true);
@@ -103,7 +104,16 @@ export function App() {
 		// Debounce rapid filter toggles so a burst of checkbox clicks only fires one request.
 		return debounceLoadReports(dispatch, query);
 		// We key on the joined strings so reference identity churn doesn't refetch on every render.
-	}, [handle, statesKey, severitiesKey, assetsKey, searchKey, eligibleAssetKey, dispatch]);
+	}, [
+		handle,
+		statesKey,
+		severitiesKey,
+		assetsKey,
+		assigneesKey,
+		searchKey,
+		eligibleAssetKey,
+		dispatch,
+	]);
 
 	// Selecting a report (whether by click or by the reducer's auto-select on a fresh load)
 	// should populate the detail pane. We only react to the selection itself changing —
@@ -254,6 +264,16 @@ export function App() {
 	useEffect(() => {
 		localStorage.setItem("macaroni.panelSizes", JSON.stringify(state.panelSizes));
 	}, [state.panelSizes]);
+
+	// Persist the accumulated assignee filter options so the sidebar list survives a restart —
+	// the reducer returns the same reference when nothing new was learned, so this only writes
+	// when a report with a previously-unseen assignee lands.
+	useEffect(() => {
+		localStorage.setItem(
+			"macaroni.assigneeOptions",
+			JSON.stringify(state.assigneeOptionsByProgram),
+		);
+	}, [state.assigneeOptionsByProgram]);
 
 	if (state.credentials === "unknown") {
 		// We couldn't even determine whether credentials exist — typically the user dismissed

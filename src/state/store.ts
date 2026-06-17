@@ -62,6 +62,17 @@ export type AssigneeRef = {
 	name: string | null;
 	profile_picture_url: string | null;
 };
+
+// A selectable assignee in the sidebar filter. `value` is the exact token the /reports
+// `filter[assignee][]` parameter expects — the username for a user, the name for a group
+// (the API has no id-based assignee filter). Options are derived from the assignees seen on
+// loaded reports and accumulated across sessions, since groups can't be enumerated via the API.
+export type AssigneeOption = {
+	type: "user" | "group";
+	value: string;
+	label: string;
+	profile_picture_url: string | null;
+};
 export type WeaknessRef = { id: string; name: string; external_id: string | null };
 export type AssetRef = { id: string; asset_identifier: string; asset_type: string | null };
 export type InboxRef = { id: string; name: string; kind: string | null };
@@ -269,12 +280,18 @@ export type AppState = {
 	programsByOrg: Record<string, AsyncState<Program[]>>;
 	assetsByOrg: Record<string, AsyncState<Asset[]>>;
 	teamMembersByProgram: Record<string, AsyncState<TeamMember[]>>;
+	// Assignee filter options accumulated per program handle from the assignees seen on loaded
+	// reports. Persisted to localStorage so the list stays useful across launches — groups in
+	// particular can't be enumerated via the API, so they're only ever learned from report data.
+	assigneeOptionsByProgram: Record<string, AssigneeOption[]>;
 	filters: {
 		orgId?: string;
 		programHandle?: string;
 		states: string[];
 		severities: string[];
 		assets: string[];
+		// Selected assignee filter tokens (usernames and group names) — see AssigneeOption.value.
+		assignees: string[];
 		search: string;
 	};
 	reports: AsyncState<{ items: ReportSummary[]; nextCursor?: string }>;
@@ -335,6 +352,7 @@ export type Action =
 	| { type: "STATES_SET"; states: string[] }
 	| { type: "SEVERITIES_SET"; severities: string[] }
 	| { type: "ASSETS_SET"; assets: string[] }
+	| { type: "ASSIGNEES_SET"; assignees: string[] }
 	| { type: "SEARCH_SET"; search: string }
 	| { type: "REPORTS_REQUESTED"; append: boolean }
 	| { type: "REPORTS_SUCCEEDED"; items: ReportSummary[]; nextCursor?: string; append: boolean }
@@ -406,6 +424,18 @@ function loadPanelSizes(vp: Viewport): PanelSizes {
 	return out;
 }
 
+function loadAssigneeOptions(): Record<string, AssigneeOption[]> {
+	try {
+		const raw = localStorage.getItem("macaroni.assigneeOptions");
+		if (!raw) return {};
+		const parsed = JSON.parse(raw);
+		if (parsed && typeof parsed === "object") {
+			return parsed as Record<string, AssigneeOption[]>;
+		}
+	} catch {}
+	return {};
+}
+
 export const initialState: AppState = {
 	credentials: "unknown",
 	username: null,
@@ -414,10 +444,12 @@ export const initialState: AppState = {
 	programsByOrg: {},
 	assetsByOrg: {},
 	teamMembersByProgram: {},
+	assigneeOptionsByProgram: loadAssigneeOptions(),
 	filters: {
 		states: [...DEFAULT_STATE_KEYS],
 		severities: [...DEFAULT_SEVERITY_KEYS],
 		assets: [],
+		assignees: [],
 		search: "",
 	},
 	reports: { status: "idle" },
@@ -562,6 +594,7 @@ export function reducer(state: AppState, action: Action): AppState {
 					states: state.filters.states,
 					severities: state.filters.severities,
 					assets: [],
+					assignees: [],
 					search: state.filters.search,
 				},
 				reports: { status: "idle" },
@@ -572,7 +605,9 @@ export function reducer(state: AppState, action: Action): AppState {
 		case "PROGRAM_SELECTED":
 			return {
 				...state,
-				filters: { ...state.filters, programHandle: action.handle },
+				// Assignee tokens (usernames / group names) are program-scoped, so drop the
+				// selection when switching programs. The accumulated options stay (keyed by handle).
+				filters: { ...state.filters, programHandle: action.handle, assignees: [] },
 				reports: { status: "idle" },
 				selectedReportId: null,
 				selectedReportIds: new Set(),
@@ -592,6 +627,11 @@ export function reducer(state: AppState, action: Action): AppState {
 			return {
 				...state,
 				filters: { ...state.filters, assets: action.assets },
+			};
+		case "ASSIGNEES_SET":
+			return {
+				...state,
+				filters: { ...state.filters, assignees: action.assignees },
 			};
 		case "SEARCH_SET":
 			return {
@@ -630,6 +670,11 @@ export function reducer(state: AppState, action: Action): AppState {
 					status: "ready",
 					data: { items, nextCursor: action.nextCursor },
 				},
+				assigneeOptionsByProgram: accumulateAssigneeOptions(
+					state.assigneeOptionsByProgram,
+					state.filters.programHandle,
+					action.items,
+				),
 			};
 		}
 		case "REPORTS_FAILED":
@@ -667,6 +712,11 @@ export function reducer(state: AppState, action: Action): AppState {
 						nextCursor: state.reports.data.nextCursor,
 					},
 				},
+				assigneeOptionsByProgram: accumulateAssigneeOptions(
+					state.assigneeOptionsByProgram,
+					state.filters.programHandle,
+					fresh,
+				),
 			};
 		}
 		case "REPORT_SELECTED":
@@ -1053,6 +1103,51 @@ function summaryToPartialDetail(s: ReportSummary): ReportDetail {
 		activities: [],
 		attachments: [],
 	};
+}
+
+// Derive the filter token for an assignee. The /reports assignee filter matches on the
+// username for users and the display name for groups (it has no id-based form), so that's
+// what we store as the option's `value`. Returns null when the needed field is absent.
+function assigneeOptionFromRef(a: AssigneeRef): AssigneeOption | null {
+	if (a.type === "group") {
+		return a.name
+			? { type: "group", value: a.name, label: a.name, profile_picture_url: a.profile_picture_url }
+			: null;
+	}
+	return a.username
+		? {
+				type: "user",
+				value: a.username,
+				label: a.name ?? a.username,
+				profile_picture_url: a.profile_picture_url,
+			}
+		: null;
+}
+
+// Fold the assignees seen on a batch of reports into the accumulated options for `handle`,
+// deduping by value and keeping them sorted by label. Returns the same map reference when
+// nothing new was learned, so the localStorage-persisting effect can skip a no-op write.
+function accumulateAssigneeOptions(
+	existing: Record<string, AssigneeOption[]>,
+	handle: string | undefined,
+	items: ReportSummary[],
+): Record<string, AssigneeOption[]> {
+	if (!handle) return existing;
+	const current = existing[handle] ?? [];
+	const byValue = new Map<string, AssigneeOption>(current.map((o) => [o.value, o]));
+	let changed = false;
+	for (const r of items) {
+		if (!r.assignee) continue;
+		const option = assigneeOptionFromRef(r.assignee);
+		if (!option || byValue.has(option.value)) continue;
+		byValue.set(option.value, option);
+		changed = true;
+	}
+	if (!changed) return existing;
+	const merged = [...byValue.values()].sort((a, b) =>
+		a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
+	);
+	return { ...existing, [handle]: merged };
 }
 
 function applyDetailToReports(

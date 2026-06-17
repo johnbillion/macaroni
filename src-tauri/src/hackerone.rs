@@ -214,6 +214,11 @@ pub struct ReportQuery {
     pub severities: Vec<String>,
     #[serde(default)]
     pub asset_ids: Vec<String>,
+    /// Assignee filter tokens — usernames for user assignees, names for group assignees. The
+    /// HackerOne API's `filter[assignee][]` matches on those, not on assignee id. Multiple
+    /// values are OR'd together.
+    #[serde(default)]
+    pub assignees: Vec<String>,
     #[serde(default)]
     pub keyword: Option<String>,
     #[serde(default)]
@@ -444,6 +449,9 @@ impl HackerOneApi for ReqwestClient {
                 }
                 for asset_id in &query.asset_ids {
                     params.push(("filter[asset_ids][]".to_string(), asset_id.clone()));
+                }
+                for assignee in &query.assignees {
+                    params.push(("filter[assignee][]".to_string(), assignee.clone()));
                 }
                 if let Some(keyword) = query
                     .keyword

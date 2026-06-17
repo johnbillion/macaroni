@@ -166,6 +166,7 @@ export type ReportsQuery = {
 	states: string[];
 	severities: string[];
 	assetIds: string[];
+	assignees: string[];
 	keyword: string;
 };
 
@@ -190,6 +191,7 @@ function reportsQueryKey(query: ReportsQuery, pageCursor: string | undefined): s
 		s: [...query.states].sort(),
 		v: [...query.severities].sort(),
 		a: [...query.assetIds].sort(),
+		n: [...query.assignees].sort(),
 		k: query.keyword,
 		c: pageCursor ?? null,
 	});
@@ -236,6 +238,7 @@ export async function loadReports(
 			states: query.states,
 			severities: query.severities,
 			asset_ids: query.assetIds,
+			assignees: query.assignees,
 			keyword: query.keyword || undefined,
 			page_cursor: pageCursor,
 		});
@@ -286,6 +289,7 @@ export async function pollNewReports(
 			states: query.states,
 			severities: query.severities,
 			asset_ids: query.assetIds,
+			assignees: query.assignees,
 			keyword: query.keyword || undefined,
 			since_created_at: sinceCreatedAt ?? undefined,
 		});
@@ -327,6 +331,7 @@ export function buildReportsQuery(state: AppState): ReportsQuery | null {
 		states,
 		severities,
 		assetIds,
+		assignees: state.filters.assignees,
 		keyword: state.filters.search.trim(),
 	};
 }

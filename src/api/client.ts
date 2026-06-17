@@ -37,6 +37,7 @@ export const api = {
 		states: string[];
 		severities: string[];
 		asset_ids: string[];
+		assignees: string[];
 		keyword?: string;
 		page_cursor?: string;
 		since_created_at?: string;
