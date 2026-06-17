@@ -88,6 +88,51 @@ function ImageWithControls({ src }: { src?: string; alt?: string; title?: string
 	);
 }
 
+// IDs of attachments referenced inline via {F<id>} tokens, so callers can avoid
+// re-displaying attachments that already appear within the rendered body.
+export function referencedAttachmentIds(source: string): Set<string> {
+	const ids = new Set<string>();
+	for (const m of source.matchAll(/\{F(\d+)\}/g)) ids.add(m[1]);
+	return ids;
+}
+
+// Render attachments that aren't embedded in the message body — images inline
+// (with the same click-to-zoom affordance as embedded ones), other files as links.
+export function AttachmentGallery({
+	attachments,
+	class: className,
+}: {
+	attachments: Attachment[];
+	class?: string;
+}) {
+	if (attachments.length === 0) return null;
+	return (
+		<div class={`attachment-gallery${className ? ` ${className}` : ""}`}>
+			{attachments.map((a) => {
+				const isImage = (a.content_type ?? "").startsWith("image/");
+				if (isImage) {
+					return <ImageWithControls key={a.id} src={a.expiring_url} alt={a.file_name} />;
+				}
+				return (
+					<a
+						key={a.id}
+						href={a.expiring_url}
+						target="_blank"
+						rel="noopener noreferrer"
+						class="attachment-file"
+						onClick={(e) => {
+							e.preventDefault();
+							openUrl(a.expiring_url);
+						}}
+					>
+						{a.file_name}
+					</a>
+				);
+			})}
+		</div>
+	);
+}
+
 // Escape characters that would otherwise be interpreted as markdown syntax inside the
 // alt-text / link-text we generate when substituting {F<id>} tokens.
 function escapeForMarkdownText(text: string): string {

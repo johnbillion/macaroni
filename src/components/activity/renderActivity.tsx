@@ -3,7 +3,7 @@ import type { Activity } from "../../state/store";
 import { formatMoney } from "../../utils/money";
 import { pillFor } from "../../utils/pill";
 import { Avatar } from "../Avatar";
-import { Markdown } from "../Markdown";
+import { AttachmentGallery, Markdown, referencedAttachmentIds } from "../Markdown";
 import { RelativeTime } from "../RelativeTime";
 import { ReportLink } from "../ReportLink";
 import { SeverityMeter } from "../SeverityMeter";
@@ -12,6 +12,27 @@ type EventActivity = Extract<Activity, { type: "event" }>;
 
 export function humanizeKind(kind: string): string {
 	return kind.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+const SEVERITY_RANK: Record<string, number> = {
+	none: 1,
+	low: 2,
+	medium: 3,
+	high: 4,
+	critical: 5,
+};
+
+/**
+ * Verb for a severity change when both endpoints are known: "upgraded" when the
+ * new rating is higher, "downgraded" when lower, and "changed" as a fallback for
+ * unrecognised ratings (where we can't order them).
+ */
+function severityChangeVerb(oldSeverity: string, newSeverity: string): string {
+	const from = SEVERITY_RANK[oldSeverity.toLowerCase()] ?? 0;
+	const to = SEVERITY_RANK[newSeverity.toLowerCase()] ?? 0;
+	if (from && to && to > from) return "upgraded";
+	if (from && to && to < from) return "downgraded";
+	return "changed";
 }
 
 /**
@@ -113,6 +134,10 @@ export function describeEvent(
 			) : (
 				<>changed the report title</>
 			);
+		case "cve-id-added":
+			// The H1 `activity-cve-id-added` event fires for both adding and removing a
+			// CVE ID and carries no attributes.
+			return <>updated the CVE ID</>;
 		case "report-organization-inboxes-updated":
 			return currentInboxNames && currentInboxNames.length > 0 ? (
 				<>
@@ -123,18 +148,19 @@ export function describeEvent(
 				<>updated the organization inboxes</>
 			);
 		case "report-severity-updated":
-			return activity.new_severity ? (
+			if (!activity.new_severity) {
+				return activity.old_severity ? <>removed the severity</> : <>updated the severity</>;
+			}
+			return activity.old_severity ? (
 				<>
-					changed severity{" "}
-					{activity.old_severity && (
-						<>
-							from <SeverityMeter rating={activity.old_severity} showLabel />{" "}
-						</>
-					)}
-					to <SeverityMeter rating={activity.new_severity} showLabel />
+					{severityChangeVerb(activity.old_severity, activity.new_severity)} severity from{" "}
+					<SeverityMeter rating={activity.old_severity} showLabel /> to{" "}
+					<SeverityMeter rating={activity.new_severity} showLabel />
 				</>
 			) : (
-				<>updated the severity</>
+				<>
+					changed severity to <SeverityMeter rating={activity.new_severity} showLabel />
+				</>
 			);
 		default:
 			return null;
@@ -191,6 +217,9 @@ export function renderActivity(
 	const message = isComment ? activity.message : (activity.message ?? "");
 	const hasMessage = message.trim().length > 0;
 	const messageAttachments = activity.type === "comment" ? activity.attachments : undefined;
+	// Attachments not embedded in the body via {F<id>} are shown below the message.
+	const referencedIds = referencedAttachmentIds(message);
+	const extraAttachments = (messageAttachments ?? []).filter((a) => !referencedIds.has(a.id));
 	const newState = !isComment ? bugStateFromKind(activity.kind) : null;
 	const isStaff = !!activity.actor && teamMemberIds.has(activity.actor.id);
 	const staffFlag =
@@ -254,7 +283,9 @@ export function renderActivity(
 				) : event?.kind === "report-severity-updated" && event.new_severity ? (
 					event.old_severity ? (
 						<>
-							<span class="msg-event-action">changed severity from</span>
+							<span class="msg-event-action">
+								{severityChangeVerb(event.old_severity, event.new_severity)} severity from
+							</span>
 							<SeverityMeter rating={event.old_severity} showLabel />
 							<span class="msg-event-action">to</span>
 							<SeverityMeter rating={event.new_severity} showLabel />
@@ -299,8 +330,11 @@ export function renderActivity(
 					<RelativeTime iso={activity.created_at} />
 				</span>
 			</div>
-			{hasMessage && (
-				<Markdown source={message} attachments={messageAttachments} class="msg-bubble" />
+			{(hasMessage || extraAttachments.length > 0) && (
+				<div class="msg-bubble">
+					{hasMessage && <Markdown source={message} attachments={messageAttachments} />}
+					<AttachmentGallery attachments={extraAttachments} class="msg-attachments" />
+				</div>
 			)}
 		</div>
 	);
