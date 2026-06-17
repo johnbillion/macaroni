@@ -723,6 +723,8 @@ export function reducer(state: AppState, action: Action): AppState {
 			return {
 				...state,
 				selectedReportId: action.reportId,
+				// Clicking a report opens it in the Report tab, even while bulk-selecting.
+				detailActiveTab: action.reportId ? "report" : state.detailActiveTab,
 				detailToasts: [],
 			};
 		case "SELECTION_TOGGLED": {
