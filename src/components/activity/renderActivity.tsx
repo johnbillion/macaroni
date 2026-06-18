@@ -1,5 +1,5 @@
 import type { JSX } from "preact";
-import type { Activity } from "../../state/store";
+import type { Activity, UserRef } from "../../state/store";
 import { formatMoney } from "../../utils/money";
 import { pillFor } from "../../utils/pill";
 import { Avatar } from "../Avatar";
@@ -9,6 +9,17 @@ import { ReportLink } from "../ReportLink";
 import { SeverityMeter } from "../SeverityMeter";
 
 type EventActivity = Extract<Activity, { type: "event" }>;
+
+/**
+ * HackerOne's own staff (CSMs, managed triage) are added to a program's member
+ * list, so the program-membership check alone mislabels them as program staff.
+ * They use a reserved `h1_` username prefix, which is the only reliable signal —
+ * `user_type` ("company") and `hackerone_triager` (false for CSMs) don't tell
+ * them apart from genuine program staff.
+ */
+export function isHackerOneStaff(user: UserRef | null): boolean {
+	return !!user && user.username.startsWith("h1_");
+}
 
 export function humanizeKind(kind: string): string {
 	return kind.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -66,6 +77,8 @@ export function describeEvent(
 					) : null}
 				</>
 			) : null;
+		case "bounty-cancelled":
+			return <>cancelled the bounty</>;
 		case "external-user-invited":
 			return activity.invitee ? (
 				<>
@@ -200,6 +213,7 @@ export function isProgramSide(
 	const actorId = activity.actor?.id;
 	if (!actorId) return false;
 	if (actorId === reporterId) return false;
+	if (isHackerOneStaff(activity.actor)) return true;
 	return teamMemberIds.has(actorId);
 }
 
@@ -221,11 +235,13 @@ export function renderActivity(
 	const referencedIds = referencedAttachmentIds(message);
 	const extraAttachments = (messageAttachments ?? []).filter((a) => !referencedIds.has(a.id));
 	const newState = !isComment ? bugStateFromKind(activity.kind) : null;
+	const actorIsHackerOneStaff = isHackerOneStaff(activity.actor);
 	const isStaff = !!activity.actor && teamMemberIds.has(activity.actor.id);
-	const staffFlag =
-		isStaff && programHandle ? (
-			<span class="msg-staff-flag">{programHandle.toUpperCase()} STAFF</span>
-		) : null;
+	const staffFlag = actorIsHackerOneStaff ? (
+		<span class="msg-staff-flag hackerone">HACKERONE STAFF</span>
+	) : isStaff && programHandle ? (
+		<span class="msg-staff-flag">{programHandle.toUpperCase()} STAFF</span>
+	) : null;
 
 	// Non-state-change events with no message body collapse to a one-line tick.
 	if (activity.type === "event" && !newState && !hasMessage) {
@@ -320,6 +336,8 @@ export function renderActivity(
 					<span class="msg-event-action">
 						assigned to <b>{event.assigned_user.username}</b>
 					</span>
+				) : event?.kind === "bounty-cancelled" ? (
+					<span class="msg-event-action">cancelled the bounty</span>
 				) : !isComment ? (
 					<span class="msg-event-kind">{humanizeKind(activity.kind)}</span>
 				) : null}

@@ -54,6 +54,7 @@
 
 html.dark {
 	--bg: #0a0c0e;
+	--bg-0: #1d2226;
 	--bg-1: #101316;
 	--bg-2: #161a1e;
 	--bg-3: #1d2226;
@@ -1407,6 +1408,12 @@ a[target="_blank"]::after {
 	font-weight: 700;
 	white-space: nowrap;
 	flex-shrink: 0;
+}
+
+.msg-staff-flag.hackerone {
+	background: transparent;
+	border: 1px solid var(--text-3);
+	color: var(--text-2);
 }
 
 .msg-event-kind {
