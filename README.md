@@ -1,10 +1,10 @@
 # Macaroni
 
-A desktop inbox for [HackerOne](https://hackerone.com/) bug bounty programs.
+A read-only desktop inbox for [HackerOne](https://hackerone.com/) bug bounty programs.
 
 Browse reports across your organisations and programs, filter by state, and read full report details — comments, activity, severity, asset, weakness — without leaving the app.
 
-Macaroni, rhymes with HackerOne.
+Macaroni rhymes with HackerOne.
 
 ## Requirements
 

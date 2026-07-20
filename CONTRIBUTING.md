@@ -23,12 +23,12 @@ The app calls the [HackerOne v1 API](https://api.hackerone.com/customer-resource
 
 All API access is wrapped behind the `HackerOneApi` trait in `src-tauri/src/hackerone.rs`. The frontend never talks to HackerOne directly — only through Tauri commands in `src-tauri/src/commands.rs`, surfaced to the UI via `src/api/client.ts`.
 
+The app is **read-only** against HackerOne: every trait method funnels through the single `get_json` helper, which only issues HTTP `GET` requests. Nothing is created, edited, or deleted on HackerOne. If you add a write (`POST`/`PUT`/`PATCH`/`DELETE`), you're breaking that invariant — update this note and the README accordingly.
+
 When the official docs are ambiguous or contradicted by 4xx responses, cross-reference working third-party clients:
 
 - [nu11pointer/hackerone-cli](https://github.com/nu11pointer/hackerone-cli) — Go CLI; good for exact endpoint paths and request bodies.
 - [github/hackerone-client](https://github.com/github/hackerone-client) — Ruby wrapper; solid on reports, comments, state changes, and assignees (doesn't cover inboxes).
-
-Permissions gotcha: some POSTs (e.g. assigning a report to an inbox) require *full* permissions on the related resources for the token's group, even when the docs imply Read-only access is sufficient.
 
 ### Querying the API directly during development
 
