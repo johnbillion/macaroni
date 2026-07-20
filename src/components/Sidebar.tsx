@@ -43,9 +43,9 @@ export function Sidebar() {
 				</div>
 			</form>
 
-			<AssetSection key={orgId ?? "none"} state={assets} />
+			<AssetSection key={`asset-${orgId ?? "none"}`} state={assets} />
 
-			<AssigneeSection key={handle ?? "none"} options={assigneeOptions} />
+			<AssigneeSection key={`assignee-${handle ?? "none"}`} options={assigneeOptions} />
 
 			<div class="side-section">
 				<div class="side-h">

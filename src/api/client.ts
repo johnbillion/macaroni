@@ -32,17 +32,29 @@ export const api = {
 	listAssets: (orgId: string) => call<Asset[]>("list_assets", { orgId }),
 	listProgramMembers: (programId: string) =>
 		call<TeamMember[]>("list_program_members", { programId }),
-	listReports: (query: {
+	// Query the local SQLite mirror. Returns every matching report (no pagination).
+	queryReports: (query: {
 		program_handle: string;
 		states: string[];
 		severities: string[];
-		asset_ids: string[];
+		asset_identifiers: string[];
 		assignees: string[];
 		keyword?: string;
-		page_cursor?: string;
-		since_created_at?: string;
-	}) => call<{ items: ReportSummary[]; next_cursor: string | null }>("list_reports", { query }),
+	}) => call<ReportSummary[]>("query_reports", { query }),
+	syncStatus: () =>
+		call<{
+			program_handle: string | null;
+			backfill_summaries_complete: boolean;
+			backfill_detail_complete: boolean;
+			total_reports: number;
+			detail_fetched: number;
+			running: boolean;
+		}>("sync_status"),
+	startReportSync: (programHandle: string) => call<void>("start_report_sync", { programHandle }),
 	getReport: (reportId: string) => call<ReportDetail>("get_report", { reportId }),
+	// The locally-cached full detail for a report, if the sync has fetched it. Null if not.
+	getCachedReport: (reportId: string) =>
+		call<ReportDetail | null>("get_cached_report", { reportId }),
 	saveAttachment: (url: string, suggestedFilename: string) =>
 		call<boolean>("save_attachment", { url, suggestedFilename }),
 	saveTextFile: (contents: string, suggestedFilename: string) =>

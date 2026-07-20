@@ -120,14 +120,27 @@ export async function loadTeamMembers(
 }
 
 export async function loadReportDetail(dispatch: Dispatch, reportId: string) {
-	// Seed the pane from the list summary so it populates immediately, then fetch the full
-	// report in the background and overwrite the seed via DETAIL_SUCCEEDED when it arrives.
+	// Seed the pane from the list summary so it populates immediately. Then show the locally
+	// cached full detail (activities/attachments) if the sync has already fetched it — that's
+	// the DB-first path, instant and offline-capable. Finally fetch a fresh copy from the API
+	// (which also writes through to the DB) and overwrite with it.
 	dispatch({ type: "DETAIL_SEEDED", reportId });
+	let hadCached = false;
+	try {
+		const cached = await api.getCachedReport(reportId);
+		if (cached) {
+			hadCached = true;
+			dispatch({ type: "DETAIL_SUCCEEDED", reportId, detail: cached });
+		}
+	} catch {
+		// Non-fatal — fall through to the network fetch.
+	}
 	try {
 		const detail = await api.getReport(reportId);
 		dispatch({ type: "DETAIL_SUCCEEDED", reportId, detail });
 	} catch (e) {
-		dispatch({ type: "DETAIL_FAILED", reportId, error: asError(e) });
+		// Keep the cached detail on screen if we have it; only surface the error otherwise.
+		if (!hadCached) dispatch({ type: "DETAIL_FAILED", reportId, error: asError(e) });
 	}
 }
 
@@ -164,7 +177,9 @@ export type ReportsQuery = {
 	programHandle: string;
 	states: string[];
 	severities: string[];
-	assetIds: string[];
+	// Asset *identifiers* (e.g. "bbPress Core"), translated from the sidebar's asset-id selection —
+	// see buildReportsQuery for why we match on identifier rather than id.
+	assetIdentifiers: string[];
 	assignees: string[];
 	keyword: string;
 };
@@ -184,15 +199,14 @@ let pendingDebounceTimer: number | null = null;
 // HMR replay). Cleared on failure so a retry of the same query still goes out.
 let lastIssuedQueryKey: string | null = null;
 
-function reportsQueryKey(query: ReportsQuery, pageCursor: string | undefined): string {
+function reportsQueryKey(query: ReportsQuery): string {
 	return JSON.stringify({
 		h: query.programHandle,
 		s: [...query.states].sort(),
 		v: [...query.severities].sort(),
-		a: [...query.assetIds].sort(),
+		a: [...query.assetIdentifiers].sort(),
 		n: [...query.assignees].sort(),
 		k: query.keyword,
-		c: pageCursor ?? null,
 	});
 }
 
@@ -216,149 +230,98 @@ export function cancelPendingReportsLoad() {
 	}
 }
 
-// Resolves to the next page cursor on success (undefined when there are no further pages), or
-// undefined when the request was a no-op short-circuit, was superseded, or failed. Callers that
-// paginate (loadAllReports) follow this return value rather than reading it back out of state.
+// Run the current filter set against the local SQLite mirror and install the result. `replace`
+// distinguishes a user-initiated query (filter change / manual refresh / first load: scrolls to
+// top, may re-pick selection) from a background re-query driven by the sync engine (leaves scroll
+// and selection alone). Local queries are instant, so a background refresh skips the loading flash
+// and the same-query short-circuit — it must re-run because the underlying data changed.
 export async function loadReports(
 	dispatch: Dispatch,
 	query: ReportsQuery,
-	pageCursor?: string,
+	replace = true,
 	force = false,
-): Promise<string | undefined> {
-	const key = reportsQueryKey(query, pageCursor);
-	if (!force && key === lastIssuedQueryKey) return undefined;
-	lastIssuedQueryKey = key;
+): Promise<void> {
+	const key = reportsQueryKey(query);
+	if (replace && !force && key === lastIssuedQueryKey) return;
+	if (replace) lastIssuedQueryKey = key;
 	const myId = ++reportsRequestId;
-	const append = pageCursor !== undefined;
-	dispatch({ type: "REPORTS_REQUESTED", append });
+	if (replace) dispatch({ type: "REPORTS_REQUESTED" });
 	try {
-		const { items, next_cursor } = await api.listReports({
+		const items = await api.queryReports({
 			program_handle: query.programHandle,
 			states: query.states,
 			severities: query.severities,
-			asset_ids: query.assetIds,
+			asset_identifiers: query.assetIdentifiers,
 			assignees: query.assignees,
 			keyword: query.keyword || undefined,
-			page_cursor: pageCursor,
 		});
-		if (myId !== reportsRequestId) return undefined;
-		const ids = items.map((i) => i.id);
-		hydrateTriageValidity(dispatch, ids);
-		dispatch({
-			type: "REPORTS_SUCCEEDED",
-			items,
-			nextCursor: next_cursor ?? undefined,
-			append,
-		});
-		return next_cursor ?? undefined;
+		if (myId !== reportsRequestId) return;
+		hydrateTriageValidity(
+			dispatch,
+			items.map((i) => i.id),
+		);
+		dispatch({ type: "REPORTS_SUCCEEDED", items, replace });
 	} catch (e) {
-		if (lastIssuedQueryKey === key) lastIssuedQueryKey = null;
-		if (myId !== reportsRequestId) return undefined;
-		dispatch({ type: "REPORTS_FAILED", error: asError(e), append });
-		return undefined;
+		if (replace && lastIssuedQueryKey === key) lastIssuedQueryKey = null;
+		if (myId !== reportsRequestId) return;
+		dispatch({ type: "REPORTS_FAILED", error: asError(e) });
 	}
 }
 
-// Poll for reports created after `sinceCreatedAt` (the created_at of the newest report already
-// on screen) and prepend any new ones. Best-effort like refreshReportDetail: it never flips the
-// list into a loading state and swallows errors so a transient blip leaves the inbox untouched.
-// `replaceCount` is forwarded so the reducer can drop the result if a filter change replaced the
-// list while this was in flight. A single page (50) of new reports is plenty for a 30s cadence;
-// if more than that ever arrive between polls the older ones surface on the next manual reload.
-//
-// `sinceCreatedAt` is null when the current view is empty (a filter that matches nothing yet) —
-// there's no high-water mark to poll from, so we fetch the first page outright. The reducer's
-// dedupe means this harmlessly re-confirms an empty result until the first matching report lands.
-//
-// `boundaryId` is the id of the report whose created_at we polled from. HackerOne's
-// created_at__gt is inclusive of the exact boundary timestamp (it stores sub-ms precision but
-// returns ms-truncated created_at), so that report comes back in every response. We drop it by
-// id — never by timestamp, which would also discard a genuinely-new report sharing the boundary's
-// millisecond. The reducer's dedupe-by-id is the final backstop.
-export async function pollNewReports(
-	dispatch: Dispatch,
-	query: ReportsQuery,
-	sinceCreatedAt: string | null,
-	boundaryId: string | null,
-	replaceCount: number,
-) {
+// Re-run the active query in the background (no loading flash, no scroll/selection reset). Called
+// when the sync engine reports the local DB changed.
+export async function refreshReports(dispatch: Dispatch, state: AppState) {
+	const query = buildReportsQuery(state);
+	if (!query) return;
+	await loadReports(dispatch, query, false);
+}
+
+// Start (or resume) the background sync that mirrors the program into SQLite. Idempotent on the
+// Rust side. Best-effort — the app still works off whatever is already in the DB if this fails.
+export async function startReportSync(programHandle: string) {
 	try {
-		const { items: fetched } = await api.listReports({
-			program_handle: query.programHandle,
-			states: query.states,
-			severities: query.severities,
-			asset_ids: query.assetIds,
-			assignees: query.assignees,
-			keyword: query.keyword || undefined,
-			since_created_at: sinceCreatedAt ?? undefined,
-		});
-		const items = boundaryId ? fetched.filter((i) => i.id !== boundaryId) : fetched;
-		if (items.length === 0) return;
-		const ids = items.map((i) => i.id);
-		hydrateTriageValidity(dispatch, ids);
-		dispatch({ type: "REPORTS_POLLED", items, replaceCount });
+		await api.startReportSync(programHandle);
 	} catch {
-		// Best-effort — the next poll will retry.
+		// Best-effort — a failed kick-off just means no fresh data this session.
 	}
 }
 
 // Build the query from the current filter state, applying the "fully-checked group == no
-// filter" optimization in the same way as the App-level fetch effect.
+// filter" optimization. Unlike the old API path, the "unrated" severity sentinel is kept — the
+// local DB can filter for a null severity_rating.
 export function buildReportsQuery(state: AppState): ReportsQuery | null {
 	const handle = state.filters.programHandle;
 	if (!handle) return null;
 
 	const orgId = state.filters.orgId;
 	const currentAssets = orgId ? state.assetsByOrg[orgId] : undefined;
-	const eligibleAssetIds =
-		currentAssets?.status === "ready"
-			? currentAssets.data.filter((a) => a.in_scope).map((a) => a.id)
-			: undefined;
+	const assetsList = currentAssets?.status === "ready" ? currentAssets.data : [];
+	const eligibleAssetIds = assetsList.filter((a) => a.in_scope).map((a) => a.id);
 
 	const states = state.filters.states.length === ALL_STATE_KEYS.length ? [] : state.filters.states;
 	const severities =
-		state.filters.severities.length === ALL_SEVERITY_KEYS.length
-			? []
-			: state.filters.severities.filter((s) => s !== "unrated");
-	const assetIds =
-		eligibleAssetIds && state.filters.assets.length === eligibleAssetIds.length
+		state.filters.severities.length === ALL_SEVERITY_KEYS.length ? [] : state.filters.severities;
+
+	// Asset selection is by id in the sidebar; "all eligible selected" means no filter.
+	const selectedAssetIds =
+		eligibleAssetIds.length > 0 && state.filters.assets.length === eligibleAssetIds.length
 			? []
 			: state.filters.assets;
+	// Reports store the asset *identifier* (the report's structured_scope id doesn't match the
+	// assets-endpoint id the sidebar selects by), so translate ids → identifiers for the query.
+	const idToIdentifier = new Map(assetsList.map((a) => [a.id, a.identifier]));
+	const assetIdentifiers = selectedAssetIds
+		.map((id) => idToIdentifier.get(id))
+		.filter((v): v is string => v != null);
 
 	return {
 		programHandle: handle,
 		states,
 		severities,
-		assetIds,
+		assetIdentifiers,
 		assignees: state.filters.assignees,
 		keyword: state.filters.search.trim(),
 	};
-}
-
-export async function loadMoreReports(dispatch: Dispatch, state: AppState) {
-	if (state.reports.status !== "ready") return;
-	const cursor = state.reports.data.nextCursor;
-	if (!cursor) return;
-	const query = buildReportsQuery(state);
-	if (!query) return;
-	await loadReports(dispatch, query, cursor);
-}
-
-// Recursively page through every remaining result, exactly as if the user clicked "Load more"
-// until it disappeared. We follow the cursor returned by each loadReports call rather than the
-// store, so a stale `state` snapshot is fine — the query never changes mid-run. Any page failing
-// (or being superseded by a filter change) yields no cursor, which stops the loop; the error is
-// surfaced the same way a single failed "Load more" would be.
-export async function loadAllReports(dispatch: Dispatch, state: AppState) {
-	if (state.reports.status !== "ready") return;
-	const query = buildReportsQuery(state);
-	if (!query) return;
-	let cursor = state.reports.data.nextCursor;
-	while (cursor) {
-		const next = await loadReports(dispatch, query, cursor);
-		if (!next || next === cursor) break;
-		cursor = next;
-	}
 }
 
 export async function loadTriage(dispatch: Dispatch, reportId: string) {

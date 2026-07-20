@@ -6,6 +6,10 @@ Browse reports across your organisations and programs, filter by state, and read
 
 Macaroni rhymes with HackerOne.
 
+## How it works
+
+Macaroni mirrors your program's reports into a local SQLite database and works primarily from that mirror, so filtering and searching are instant rather than waiting on the (slow) HackerOne API. On launch it shows the latest open reports right away, then in the background it backfills every report — open and closed — page by page, and fetches each report's full detail. A progress indicator in the top bar shows what the sync is doing. Each time you open the app it also catches up on anything that changed since the last sync. All searches and filters run against the local database; the app remains **read-only** against HackerOne (it only ever issues `GET` requests).
+
 ## Requirements
 
 - macOS

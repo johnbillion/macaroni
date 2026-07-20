@@ -1,12 +1,13 @@
 use crate::credentials::{CredentialStore, Credentials};
 use crate::error::{AppError, AppResult};
 use crate::hackerone::{
-    Asset, HackerOneApi, Organization, Program, ReportDetail, ReportPage, ReportQuery, TeamMember,
+    Asset, HackerOneApi, Organization, Program, ReportDetail, ReportSummary, TeamMember,
 };
-use crate::local_db::{ReportStore, TriageRecord};
+use crate::local_db::{LocalQuery, ReportStore, TriageRecord};
 use crate::settings::{Settings, SettingsStore};
 use std::collections::HashMap;
 use std::process::Stdio;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -19,6 +20,8 @@ pub struct AppContext {
     // PIDs of in-flight `claude` triage subprocesses, keyed by report id, so the
     // `stop_triage` command can signal the right child.
     pub triages: Arc<Mutex<HashMap<String, u32>>>,
+    // Guards the background report sync so overlapping `start_report_sync` calls no-op.
+    pub sync_running: Arc<AtomicBool>,
 }
 
 // RAII guard that ensures a report's PID is removed from the running-triages map on every
@@ -100,17 +103,80 @@ pub async fn list_program_members(
     ctx.api.list_program_members(&program_id).await
 }
 
+// Query the local SQLite mirror. This is the app's primary report source — the frontend never
+// lists reports from the HackerOne API directly anymore; the background sync (see `sync.rs`)
+// keeps the mirror current. Returns every matching report (no pagination).
 #[tauri::command]
-pub async fn list_reports(ctx: State<'_, AppContext>, query: ReportQuery) -> AppResult<ReportPage> {
-    let page = ctx.api.list_reports(query).await?;
-    let ids: Vec<&str> = page.items.iter().map(|r| r.id.as_str()).collect();
-    ctx.reports.upsert(&ids)?;
-    Ok(page)
+pub async fn query_reports(
+    ctx: State<'_, AppContext>,
+    query: LocalQuery,
+) -> AppResult<Vec<ReportSummary>> {
+    ctx.reports.query(&query)
+}
+
+// The sync engine's persisted progress plus live counts, for the Topbar indicator.
+#[derive(serde::Serialize)]
+pub struct SyncStatusResponse {
+    pub program_handle: Option<String>,
+    pub backfill_summaries_complete: bool,
+    pub backfill_detail_complete: bool,
+    pub total_reports: i64,
+    pub detail_fetched: i64,
+    pub running: bool,
 }
 
 #[tauri::command]
+pub async fn sync_status(ctx: State<'_, AppContext>) -> AppResult<SyncStatusResponse> {
+    let state = ctx.reports.get_sync_state()?;
+    let handle = state.program_handle.clone().unwrap_or_default();
+    let total_reports = ctx.reports.count_reports(&handle)?;
+    let detail_fetched = ctx.reports.count_detail(&handle)?;
+    Ok(SyncStatusResponse {
+        program_handle: state.program_handle,
+        backfill_summaries_complete: state.backfill_summaries_complete,
+        backfill_detail_complete: state.backfill_detail_complete,
+        total_reports,
+        detail_fetched,
+        running: ctx.sync_running.load(std::sync::atomic::Ordering::SeqCst),
+    })
+}
+
+// Kick off (or resume) the background sync for a program. Idempotent — a no-op if a sync is
+// already in flight. Progress is reported via the `sync:status` and `sync:changed` events.
+#[tauri::command]
+pub async fn start_report_sync(
+    app: tauri::AppHandle,
+    ctx: State<'_, AppContext>,
+    program_handle: String,
+) -> AppResult<()> {
+    let api = ctx.api.clone();
+    let store = ctx.reports.clone();
+    let running = ctx.sync_running.clone();
+    tokio::spawn(async move {
+        crate::sync::run_sync(app, api, store, running, program_handle).await;
+    });
+    Ok(())
+}
+
+// Fetch a report's full detail from the HackerOne API and write it through to the local DB so
+// the mirror stays current. Used for the initial detail load and the background poll of the
+// selected report.
+#[tauri::command]
 pub async fn get_report(ctx: State<'_, AppContext>, report_id: String) -> AppResult<ReportDetail> {
-    ctx.api.get_report(&report_id).await
+    let detail = ctx.api.get_report(&report_id).await?;
+    // Best-effort persistence — a DB hiccup shouldn't block showing the freshly fetched report.
+    let _ = ctx.reports.upsert_detail(&detail);
+    Ok(detail)
+}
+
+// The locally-cached full detail for a report, if the sync has fetched it. Lets the detail pane
+// render activities/attachments instantly from the DB before (or without) a network round-trip.
+#[tauri::command]
+pub async fn get_cached_report(
+    ctx: State<'_, AppContext>,
+    report_id: String,
+) -> AppResult<Option<ReportDetail>> {
+    ctx.reports.get_detail(&report_id)
 }
 
 #[tauri::command]

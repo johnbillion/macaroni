@@ -4,8 +4,10 @@ mod error;
 mod hackerone;
 mod local_db;
 mod settings;
+mod sync;
 
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use commands::AppContext;
@@ -101,6 +103,7 @@ pub fn run() {
             let settings = Arc::new(FileSettingsStore::new(data_dir.join("settings.json")));
 
             let triages = Arc::new(Mutex::new(HashMap::new()));
+            let sync_running = Arc::new(AtomicBool::new(false));
 
             app.manage(AppContext {
                 creds,
@@ -108,6 +111,7 @@ pub fn run() {
                 reports,
                 settings,
                 triages,
+                sync_running,
             });
             Ok(())
         })
@@ -119,8 +123,11 @@ pub fn run() {
             commands::list_programs,
             commands::list_assets,
             commands::list_program_members,
-            commands::list_reports,
+            commands::query_reports,
+            commands::sync_status,
+            commands::start_report_sync,
             commands::get_report,
+            commands::get_cached_report,
             commands::save_attachment,
             commands::save_text_file,
             commands::save_zip_file,

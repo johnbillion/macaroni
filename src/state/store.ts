@@ -236,6 +236,17 @@ export type TriageState =
 	| { status: "ready"; result: TriageRecord; events: TriageEvent[] }
 	| { status: "error"; error: AppError; events: TriageEvent[]; saved: TriageRecord | null };
 
+// Progress of the background sync that mirrors HackerOne into the local SQLite DB (see sync.rs).
+// Driven by the `sync:status` Tauri event. `phase` is "initial" for the first open-reports page,
+// "summaries" while backfilling the report list, "detail" while backfilling per-report detail,
+// and "idle" when nothing is running.
+export type SyncStatus = {
+	phase: "idle" | "initial" | "summaries" | "detail";
+	done: number;
+	total: number;
+	running: boolean;
+};
+
 // One report's text sent to Claude for duplicate comparison. Built from the loaded report
 // summaries, so no extra fetch is needed.
 export type DuplicateInput = { id: string; title: string; body: string };
@@ -274,14 +285,15 @@ export type AppState = {
 		assignees: string[];
 		search: string;
 	};
-	reports: AsyncState<{ items: ReportSummary[]; nextCursor?: string }>;
+	// The report list, queried from the local SQLite mirror. Every query returns all matches —
+	// there is no pagination.
+	reports: AsyncState<{ items: ReportSummary[] }>;
 	reportsRefreshing: boolean;
-	// Set when a load-more (append) request fails. The existing list is preserved so the user
-	// can see what was already loaded; the footer surfaces this error with a retry affordance.
-	reportsLoadMoreError: AppError | null;
-	// Bumped each time the report list is replaced (filter change), not on append (load-more).
-	// Consumers watch this to react to "fresh list" events — e.g. scrolling back to the top.
+	// Bumped each time the report list is replaced by a fresh query (filter change / manual
+	// refresh). Consumers watch this to react to "fresh list" events — e.g. scrolling to top.
 	reportsReplaceCount: number;
+	// Latest background-sync progress, for the Topbar indicator.
+	sync: SyncStatus;
 	selectedReportId: string | null;
 	// Multi-selection of reports (via the inbox checkboxes). Two or more selected enables the
 	// duplicate check; the same set also drives the bulk report download.
@@ -334,13 +346,13 @@ export type Action =
 	| { type: "ASSETS_SET"; assets: string[] }
 	| { type: "ASSIGNEES_SET"; assignees: string[] }
 	| { type: "SEARCH_SET"; search: string }
-	| { type: "REPORTS_REQUESTED"; append: boolean }
-	| { type: "REPORTS_SUCCEEDED"; items: ReportSummary[]; nextCursor?: string; append: boolean }
-	| { type: "REPORTS_FAILED"; error: AppError; append: boolean }
-	// Background poll turned up reports newer than the top of the current list. `replaceCount`
-	// is the reportsReplaceCount captured when the poll fired; the reducer drops the result if
-	// the list has since been replaced by a filter change (the stale items wouldn't match).
-	| { type: "REPORTS_POLLED"; items: ReportSummary[]; replaceCount: number }
+	| { type: "REPORTS_REQUESTED" }
+	// `replace` is true for a user-initiated query (filter change / manual refresh / first load)
+	// — it scrolls to top and may re-pick the selection. It's false for a background re-query
+	// driven by the sync engine, which leaves scroll position and selection untouched.
+	| { type: "REPORTS_SUCCEEDED"; items: ReportSummary[]; replace: boolean }
+	| { type: "REPORTS_FAILED"; error: AppError }
+	| { type: "SYNC_STATUS"; status: SyncStatus }
 	| { type: "REPORT_SELECTED"; reportId: string | null }
 	| { type: "SELECTION_TOGGLED"; reportId: string }
 	| { type: "SELECTION_SET"; reportIds: string[]; checked: boolean }
@@ -426,8 +438,8 @@ export const initialState: AppState = {
 	},
 	reports: { status: "idle" },
 	reportsRefreshing: false,
-	reportsLoadMoreError: null,
 	reportsReplaceCount: 0,
+	sync: { phase: "idle", done: 0, total: 0, running: false },
 	selectedReportId: null,
 	selectedReportIds: new Set(),
 	duplicateCheck: { status: "idle" },
@@ -611,83 +623,43 @@ export function reducer(state: AppState, action: Action): AppState {
 			return {
 				...state,
 				reportsRefreshing: true,
-				reportsLoadMoreError: null,
 				reports: state.reports.status === "ready" ? state.reports : { status: "loading" },
 			};
 		case "REPORTS_SUCCEEDED": {
-			const existing =
-				action.append && state.reports.status === "ready" ? state.reports.data.items : [];
-			const items = [...existing, ...action.items];
+			const items = action.items;
 			const stillPresent =
 				state.selectedReportId !== null && items.some((r) => r.id === state.selectedReportId);
-			// On a fresh list (replace, not append) with no preserved selection, auto-select the
-			// first row so the detail pane populates without requiring a manual click.
+			// Auto-select the first row when nothing valid is selected so the detail pane populates
+			// without a manual click. On a background refresh we only do this if there's genuinely
+			// no selection yet — we never yank the user off a report they're reading.
 			const nextSelected = stillPresent
 				? state.selectedReportId
-				: action.append
-					? null
-					: (items[0]?.id ?? null);
+				: action.replace || state.selectedReportId === null
+					? (items[0]?.id ?? null)
+					: state.selectedReportId;
 			return {
 				...state,
 				reportsRefreshing: false,
-				reportsLoadMoreError: null,
-				reportsReplaceCount: action.append
-					? state.reportsReplaceCount
-					: state.reportsReplaceCount + 1,
+				reportsReplaceCount: action.replace
+					? state.reportsReplaceCount + 1
+					: state.reportsReplaceCount,
 				selectedReportId: nextSelected,
-				reports: {
-					status: "ready",
-					data: { items, nextCursor: action.nextCursor },
-				},
+				reports: { status: "ready", data: { items } },
 				assigneeOptionsByProgram: accumulateAssigneeOptions(
 					state.assigneeOptionsByProgram,
 					state.filters.programHandle,
-					action.items,
+					items,
 				),
 			};
 		}
 		case "REPORTS_FAILED":
-			// On load-more (append) failure, keep the existing list intact and surface the
-			// error transiently in the footer so the user can retry without losing context.
-			if (action.append && state.reports.status === "ready") {
-				return {
-					...state,
-					reportsRefreshing: false,
-					reportsLoadMoreError: action.error,
-				};
-			}
 			return {
 				...state,
 				reportsRefreshing: false,
-				reportsLoadMoreError: null,
 				reports: { status: "error", error: action.error },
 			};
-		case "REPORTS_POLLED": {
-			// Ignore a poll that resolved after the list was replaced by a filter change — its
-			// items belong to the previous query, and the high-water mark it polled from is gone.
-			if (state.reports.status !== "ready") return state;
-			if (action.replaceCount !== state.reportsReplaceCount) return state;
-			const known = new Set(state.reports.data.items.map((r) => r.id));
-			const fresh = action.items.filter((r) => !known.has(r.id));
-			if (fresh.length === 0) return state;
-			// Newer reports arrive at the top, like a new email landing in the inbox. The API
-			// returns them newest-first; the list is ordered the same way, so prepend as-is.
-			return {
-				...state,
-				reports: {
-					status: "ready",
-					data: {
-						items: [...fresh, ...state.reports.data.items],
-						nextCursor: state.reports.data.nextCursor,
-					},
-				},
-				assigneeOptionsByProgram: accumulateAssigneeOptions(
-					state.assigneeOptionsByProgram,
-					state.filters.programHandle,
-					fresh,
-				),
-			};
-		}
+		case "SYNC_STATUS":
+			return { ...state, sync: action.status };
 		case "REPORT_SELECTED":
 			return {
 				...state,

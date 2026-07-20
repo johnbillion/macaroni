@@ -29,7 +29,7 @@ pub struct Program {
     pub handle: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReportSummary {
     pub id: String,
     pub title: String,
@@ -54,7 +54,7 @@ pub struct ReportSummary {
 // Total awarded bounty for a report, summed across all bounty awards (a report can
 // have several when an award is split between collaborators). The list endpoint only
 // carries actually-awarded amounts; HackerOne's API has no "suggested bounty" field here.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BountyTotal {
     pub amount: f64,
     pub currency: Option<String>,
@@ -66,7 +66,7 @@ pub struct ReportPage {
     pub next_cursor: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserRef {
     pub id: String,
     pub username: String,
@@ -74,7 +74,7 @@ pub struct UserRef {
     pub profile_picture_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssigneeRef {
     #[serde(rename = "type")]
     pub kind: String,
@@ -84,21 +84,21 @@ pub struct AssigneeRef {
     pub profile_picture_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WeaknessRef {
     pub id: String,
     pub name: String,
     pub external_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssetRef {
     pub id: String,
     pub asset_identifier: String,
     pub asset_type: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InboxRef {
     pub id: String,
     pub name: String,
@@ -120,7 +120,7 @@ pub struct TeamMember {
     pub username: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Attachment {
     pub id: String,
     pub file_name: String,
@@ -133,7 +133,7 @@ pub struct Attachment {
 // short-lived API DTOs held in small per-report `Vec`s, so the disparity isn't worth boxing fields
 // (which would only uglify the polymorphic match in `parse_activity` and the frontend serde shape).
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Activity {
     Comment {
@@ -186,7 +186,7 @@ pub enum Activity {
     },
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReportDetail {
     pub id: String,
     pub title: String,
@@ -224,10 +224,14 @@ pub struct ReportQuery {
     #[serde(default)]
     pub page_cursor: Option<String>,
     /// ISO8601 timestamp. When set (and no `page_cursor`), restricts the result to reports
-    /// created strictly after this instant via `filter[created_at__gt]` — used by the inbox's
-    /// background poll to fetch only reports newer than the latest one already on screen.
+    /// created strictly after this instant via `filter[created_at__gt]`.
     #[serde(default)]
     pub since_created_at: Option<String>,
+    /// HackerOne sort expression, e.g. `-reports.created_at` (default) or
+    /// `-reports.last_activity_at`. Only applied on a first-page (no-cursor) request; a cursor
+    /// URL already carries the sort it was built with.
+    #[serde(default)]
+    pub sort: Option<String>,
 }
 
 #[async_trait]
@@ -437,8 +441,15 @@ impl HackerOneApi for ReqwestClient {
                         "filter[program][]".to_string(),
                         query.program_handle.clone(),
                     ),
-                    ("sort".to_string(), "-reports.created_at".to_string()),
-                    ("page[size]".to_string(), "50".to_string()),
+                    (
+                        "sort".to_string(),
+                        query
+                            .sort
+                            .clone()
+                            .unwrap_or_else(|| "-reports.created_at".to_string()),
+                    ),
+                    // 100 is HackerOne's hard maximum for page[size] (anything higher 400s).
+                    ("page[size]".to_string(), "100".to_string()),
                 ];
                 for state in &query.states {
                     params.push(("filter[state][]".to_string(), state.clone()));
@@ -553,7 +564,7 @@ impl HackerOneApi for ReqwestClient {
         #[cfg(debug_assertions)]
         println!("[report] GET {url}");
 
-        let body = self.get_json(&format!("{url}")).await?;
+        let body = self.get_json(&url).await?;
         parse_report_detail(&body).ok_or_else(|| AppError::Other {
             message: format!("Could not parse report {report_id}"),
         })

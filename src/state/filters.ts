@@ -26,15 +26,6 @@ export const ALL_STATE_KEYS: string[] = [
 	...CLOSED_STATES.map((s) => s.key),
 ];
 
-const OPEN_STATE_KEYS = new Set(OPEN_STATES.map((s) => s.key));
-
-// True when at least one state is selected and every selected state is in the "open" group.
-// Recursively loading every page is only safe for this bounded set — including any closed state
-// (or selecting nothing, which the API treats as "all states") can mean thousands of reports.
-export function isOpenOnlyStateFilter(states: string[]): boolean {
-	return states.length > 0 && states.every((key) => OPEN_STATE_KEYS.has(key));
-}
-
 export const DEFAULT_STATE_KEYS: string[] = OPEN_STATES.map((s) => s.key);
 
 // Subset of states valid as targets for POST /v1/reports/{id}/state_changes.

@@ -90,8 +90,7 @@ export function DetailPanel() {
 	const dispatch = useDispatch();
 	// The duplicate check only makes sense for two or more reports, so its tab appears only then.
 	const canCheckDuplicates = state.selectedReportIds.size > 1;
-	const setActiveTab = (tab: "report" | "duplicates") =>
-		dispatch({ type: "DETAIL_TAB_SET", tab });
+	const setActiveTab = (tab: "report" | "duplicates") => dispatch({ type: "DETAIL_TAB_SET", tab });
 	const activeTab = canCheckDuplicates ? state.detailActiveTab : "report";
 	const prevCanCheckDuplicates = useRef(false);
 	useEffect(() => {

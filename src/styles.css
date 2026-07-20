@@ -196,6 +196,16 @@ body::before {
 		color: var(--low);
 	}
 }
+.sync-indicator {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-left: 16px;
+	font-size: var(--fs-sm);
+	color: var(--text-2);
+	letter-spacing: 0.04em;
+	white-space: nowrap;
+}
 .status-cluster {
 	margin-left: auto;
 	display: flex;

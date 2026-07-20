@@ -1,3 +1,4 @@
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useRef } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
 import {
@@ -11,10 +12,11 @@ import {
 	loadSettings,
 	loadTeamMembers,
 	loadTriage,
-	pollNewReports,
-	type ReportsQuery,
 	refreshReportDetail,
+	refreshReports,
+	startReportSync,
 } from "../state/effects";
+import type { SyncStatus } from "../state/store";
 import { CredentialsGate } from "./CredentialsGate";
 import { DetailPanel } from "./DetailPanel";
 import { InboxTable } from "./InboxTable";
@@ -23,7 +25,6 @@ import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
 const DETAIL_REFRESH_INTERVAL_MS = 20_000;
-const NEW_REPORTS_POLL_INTERVAL_MS = 30_000;
 
 export function App() {
 	const state = useAppState();
@@ -92,28 +93,28 @@ export function App() {
 	const assigneesKey = state.filters.assignees.join(",");
 	const searchKey = state.filters.search.trim();
 
-	const firstReportsLoadRef = useRef(true);
+	// Program selection and the sidebar facet filters (state, severity, asset, assignee) query the
+	// local DB immediately — local queries are instant, so there's nothing to debounce. This also
+	// runs the initial load once a program is selected. We key on the joined strings so reference
+	// identity churn doesn't refetch on every render.
 	useEffect(() => {
 		const query = buildReportsQuery(state);
 		if (!query) return;
-		if (firstReportsLoadRef.current) {
-			firstReportsLoadRef.current = false;
-			loadReports(dispatch, query);
+		loadReports(dispatch, query);
+	}, [handle, statesKey, severitiesKey, assetsKey, assigneesKey, eligibleAssetKey, dispatch]);
+
+	// The free-text search box is the one filter still debounced, so a burst of keystrokes fires a
+	// single query. Skip the initial run — the effect above already issues the first load.
+	const firstSearchRef = useRef(true);
+	useEffect(() => {
+		if (firstSearchRef.current) {
+			firstSearchRef.current = false;
 			return;
 		}
-		// Debounce rapid filter toggles so a burst of checkbox clicks only fires one request.
+		const query = buildReportsQuery(state);
+		if (!query) return;
 		return debounceLoadReports(dispatch, query);
-		// We key on the joined strings so reference identity churn doesn't refetch on every render.
-	}, [
-		handle,
-		statesKey,
-		severitiesKey,
-		assetsKey,
-		assigneesKey,
-		searchKey,
-		eligibleAssetKey,
-		dispatch,
-	]);
+	}, [searchKey, dispatch]);
 
 	// Selecting a report (whether by click or by the reducer's auto-select on a fresh load)
 	// should populate the detail pane. We only react to the selection itself changing —
@@ -174,77 +175,34 @@ export function App() {
 		};
 	}, [selectedReportId, dispatch]);
 
-	// Poll for newly-filed reports matching the current filters and slot them into the top of
-	// the inbox, the way a new email lands at the top of your mailbox. We always poll from the
-	// created_at of the newest report on screen so a potentially heavy query only returns the
-	// delta. Paused while the window is unfocused, and runs an immediate catch-up on focus so
-	// returning to the app surfaces anything filed while away. The inputs (filters + high-water
-	// mark) live in a ref so a burst of filter toggles doesn't tear down and rebuild the timer —
-	// the interval reads the latest.
-	const pollInputsRef = useRef<{
-		ready: boolean;
-		query: ReportsQuery | null;
-		since: string | null;
-		boundaryId: string | null;
-		replaceCount: number;
-		warmupStart: number | null;
-	}>({
-		ready: false,
-		query: null,
-		since: null,
-		boundaryId: null,
-		replaceCount: 0,
-		warmupStart: null,
-	});
-	// Anchor the warmup the moment the main reports query first fires (status leaves "idle",
-	// which happens just after the credentials helper unlocks and bootstrap selects a program).
-	// Until a full interval has elapsed from that point, polls no-op — so a focus event during
-	// the app's first seconds doesn't race the initial load with a redundant delta request.
-	if (pollInputsRef.current.warmupStart === null && state.reports.status !== "idle") {
-		pollInputsRef.current.warmupStart = Date.now();
-	}
-	const newest = state.reports.status === "ready" ? state.reports.data.items[0] : undefined;
-	pollInputsRef.current = {
-		...pollInputsRef.current,
-		ready: state.reports.status === "ready",
-		query: buildReportsQuery(state),
-		since: newest?.created_at ?? null,
-		boundaryId: newest?.id ?? null,
-		replaceCount: state.reportsReplaceCount,
-	};
+	// The report list is now driven by the local SQLite mirror. Kick off the background sync
+	// whenever the selected program changes — on the Rust side it fetches the initial open-reports
+	// page, then runs an incremental update catch-up (reports touched since we last synced) and,
+	// on a fresh DB, a full open+closed backfill. It's idempotent, so re-firing is harmless.
 	useEffect(() => {
-		let intervalId: number | null = null;
-		const poll = () => {
-			const { ready, query, since, boundaryId, replaceCount, warmupStart } = pollInputsRef.current;
-			// Skip until a query exists (program selected) and the list is settled — never fire
-			// while the initial load is in flight or errored. `since` may still be null here for
-			// an empty view, which pollNewReports handles by fetching the first page.
-			if (!ready || !query) return;
-			// Chill during the startup warmup so the main query has time to settle first.
-			if (warmupStart !== null && Date.now() - warmupStart < NEW_REPORTS_POLL_INTERVAL_MS) return;
-			pollNewReports(dispatch, query, since, boundaryId, replaceCount);
-		};
-		const start = () => {
-			if (intervalId !== null) return;
-			intervalId = window.setInterval(poll, NEW_REPORTS_POLL_INTERVAL_MS);
-		};
-		const stop = () => {
-			if (intervalId !== null) {
-				window.clearInterval(intervalId);
-				intervalId = null;
-			}
-		};
-		const onFocus = () => {
-			poll();
-			start();
-		};
-		if (document.hasFocus()) start();
-		window.addEventListener("focus", onFocus);
-		window.addEventListener("blur", stop);
+		if (!handle) return;
+		startReportSync(handle);
+	}, [handle]);
+
+	// React to sync progress: `sync:changed` means the local DB moved, so re-run the active query
+	// in the background (no scroll/selection reset); `sync:status` feeds the Topbar indicator. A
+	// ref holds the latest state so the changed-listener rebuilds the query from current filters.
+	const stateRef = useRef(state);
+	stateRef.current = state;
+	useEffect(() => {
+		let unlistenChanged: UnlistenFn | null = null;
+		let unlistenStatus: UnlistenFn | null = null;
+		(async () => {
+			unlistenChanged = await listen("sync:changed", () => {
+				refreshReports(dispatch, stateRef.current);
+			});
+			unlistenStatus = await listen<SyncStatus>("sync:status", (e) => {
+				dispatch({ type: "SYNC_STATUS", status: e.payload });
+			});
+		})();
 		return () => {
-			stop();
-			window.removeEventListener("focus", onFocus);
-			window.removeEventListener("blur", stop);
+			unlistenChanged?.();
+			unlistenStatus?.();
 		};
 	}, [dispatch]);
 

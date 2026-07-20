@@ -4,8 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api } from "../api/client";
 import { useAppState, useDispatch } from "../state/context";
-import { buildReportsQuery, loadAllReports, loadMoreReports, loadReports } from "../state/effects";
-import { isOpenOnlyStateFilter } from "../state/filters";
+import { buildReportsQuery, loadReports, startReportSync } from "../state/effects";
 import type { AppError, AssigneeRef, UserRef } from "../state/store";
 import { formatBounty } from "../utils/money";
 import { pillFor } from "../utils/pill";
@@ -177,9 +176,13 @@ export function InboxTable() {
 		if (query) loadReports(dispatch, query);
 	};
 
+	// Manual refresh: re-query the local DB (bypassing the same-query short-circuit) and kick the
+	// background sync so a fresh pull from HackerOne lands too.
 	const onRefreshReports = () => {
 		const query = buildReportsQuery(state);
-		if (query) loadReports(dispatch, query, undefined, true);
+		if (!query) return;
+		loadReports(dispatch, query, true, true);
+		startReportSync(query.programHandle);
 	};
 
 	const [downloading, setDownloading] = useState(false);
@@ -220,8 +223,6 @@ export function InboxTable() {
 		if (state.reports.data.items.length === 0) {
 			return <div class="placeholder">No reports.</div>;
 		}
-
-		const hasMore = !!state.reports.data.nextCursor;
 
 		return (
 			<table class="inbox-table">
@@ -389,41 +390,6 @@ export function InboxTable() {
 								<span class="footer-total">
 									{items.length} {items.length === 1 ? "report" : "reports"}
 								</span>
-								{hasMore ? (
-									<>
-										{state.reportsLoadMoreError && !state.reportsRefreshing ? (
-											<span class="footer-error">
-												{formatReportError(state.reportsLoadMoreError)}
-											</span>
-										) : null}
-										<div class="load-more-actions">
-											<button
-												type="button"
-												class="load-more-btn"
-												onClick={() => loadMoreReports(dispatch, state)}
-												disabled={state.reportsRefreshing}
-											>
-												{state.reportsRefreshing
-													? "Loading…"
-													: state.reportsLoadMoreError
-														? "Try again"
-														: "Load more"}
-											</button>
-											{isOpenOnlyStateFilter(state.filters.states) ? (
-												<button
-													type="button"
-													class="load-more-btn"
-													onClick={() => loadAllReports(dispatch, state)}
-													disabled={state.reportsRefreshing}
-												>
-													Load all
-												</button>
-											) : null}
-										</div>
-									</>
-								) : (
-									<span class="footer-end">- END -</span>
-								)}
 							</div>
 						</td>
 					</tr>

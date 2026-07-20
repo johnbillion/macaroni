@@ -1,5 +1,6 @@
 use crate::error::{AppError, AppResult};
-use rusqlite::{Connection, params, params_from_iter};
+use crate::hackerone::{ReportDetail, ReportSummary};
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use serde::Serialize;
 use std::path::Path;
 use std::sync::Mutex;
@@ -12,8 +13,62 @@ pub struct TriageRecord {
     pub new_files: Vec<String>,
 }
 
+// Persisted progress of the background sync engine (see sync.rs). A single row keyed to the
+// program handle currently mirrored into the DB. `update_watermark` is the newest
+// `last_activity_at` seen across all synced reports — the incremental poll fetches everything
+// updated after it.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SyncState {
+    pub program_handle: Option<String>,
+    pub backfill_summaries_complete: bool,
+    pub backfill_detail_complete: bool,
+    pub update_watermark: Option<String>,
+    pub last_sync_at: Option<String>,
+}
+
+// Filter for a local report query. Empty vecs mean "no constraint on this field". `severities`
+// may contain the UI-only "unrated" sentinel, which matches reports with a null severity_rating.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct LocalQuery {
+    pub program_handle: String,
+    #[serde(default)]
+    pub states: Vec<String>,
+    #[serde(default)]
+    pub severities: Vec<String>,
+    // Asset *identifiers* (e.g. "bbPress Core"), not the sidebar's numeric asset ids — see the
+    // asset_identifier generated column for why.
+    #[serde(default)]
+    pub asset_identifiers: Vec<String>,
+    #[serde(default)]
+    pub assignees: Vec<String>,
+    #[serde(default)]
+    pub keyword: Option<String>,
+}
+
 pub trait ReportStore: Send + Sync {
-    fn upsert(&self, ids: &[&str]) -> AppResult<()>;
+    // Insert or update the list-level data for a batch of reports (the summary shape from the
+    // /reports endpoint). Only the blob is written; the queryable columns derive from it.
+    fn upsert_summaries(&self, program_handle: &str, items: &[ReportSummary]) -> AppResult<()>;
+    // Store a report's full detail (activities, attachments) and patch the overlapping fields
+    // into the summary blob so the inbox row reflects the freshest data. The program handle is
+    // taken from the existing row (the report has always been seen at list level first).
+    fn upsert_detail(&self, detail: &ReportDetail) -> AppResult<()>;
+    // Run a filtered query against the local DB, newest-created first. Returns every match.
+    fn query(&self, q: &LocalQuery) -> AppResult<Vec<ReportSummary>>;
+    // The cached full detail for a report, if we've fetched it before.
+    fn get_detail(&self, id: &str) -> AppResult<Option<ReportDetail>>;
+    // Ids of reports for this program that have no cached detail yet (drives detail backfill).
+    fn ids_missing_detail(&self, program_handle: &str) -> AppResult<Vec<String>>;
+    // Clear the cached-detail marker for a set of reports so the detail backfill re-fetches them
+    // (used when the incremental poll sees a report's activity advance).
+    fn mark_detail_stale(&self, ids: &[&str]) -> AppResult<()>;
+    // Total reports stored for a program, and how many of those have cached detail.
+    fn count_reports(&self, program_handle: &str) -> AppResult<i64>;
+    fn count_detail(&self, program_handle: &str) -> AppResult<i64>;
+
+    fn get_sync_state(&self) -> AppResult<SyncState>;
+    fn put_sync_state(&self, state: &SyncState) -> AppResult<()>;
+
     fn get_triage(&self, id: &str) -> AppResult<Option<TriageRecord>>;
     fn set_triage(
         &self,
@@ -25,7 +80,6 @@ pub trait ReportStore: Send + Sync {
     // Overwrite just the stored new-files list for a report (used after a file is deleted).
     fn set_triage_new_files(&self, id: &str, new_files: &[String]) -> AppResult<()>;
     // For the subset of `ids` that have a triage saved, return (id, validity).
-    // Validity may be null in the DB (e.g. legacy rows from before we asked claude for JSON).
     fn list_triage_validity(&self, ids: &[&str]) -> AppResult<Vec<(String, Option<String>)>>;
 }
 
@@ -33,30 +87,270 @@ pub struct SqliteStore {
     conn: Mutex<Connection>,
 }
 
+// The report's data lives in exactly one place per record: the `summary_json` blob (list-level
+// fields) and the `detail_json` blob (activities/attachments). Everything the app filters or
+// sorts on is a VIRTUAL generated column derived from `summary_json` via json_extract — computed
+// on read, never stored, so no field value is duplicated. Only the indexes over those generated
+// columns hold copies, which is what an index is. The non-blob real columns are the primary key,
+// the program handle (context attached at sync time — not part of the report JSON), local sync
+// bookkeeping, and triage data (ours, not HackerOne's).
+const SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS reports (
+    id                TEXT PRIMARY KEY,
+    program_handle    TEXT NOT NULL,
+    summary_json      TEXT NOT NULL,
+    detail_json       TEXT,
+    detail_fetched_at TEXT,
+    triage            TEXT,
+    triage_validity   TEXT,
+    triage_new_files  TEXT,
+
+    state            TEXT GENERATED ALWAYS AS (json_extract(summary_json, '$.state')) VIRTUAL,
+    severity_rating  TEXT GENERATED ALWAYS AS (json_extract(summary_json, '$.severity_rating')) VIRTUAL,
+    created_at       TEXT GENERATED ALWAYS AS (json_extract(summary_json, '$.created_at')) VIRTUAL,
+    last_activity_at TEXT GENERATED ALWAYS AS (json_extract(summary_json, '$.last_activity_at')) VIRTUAL,
+    -- The report's structured_scope carries the asset *identifier* (e.g. \"bbPress Core\"), which
+    -- is what the assets endpoint keys on too — the numeric structured_scope id does NOT match the
+    -- asset id the sidebar filters by, so we match on the identifier.
+    asset_identifier TEXT GENERATED ALWAYS AS (json_extract(summary_json, '$.asset.asset_identifier')) VIRTUAL,
+    assignee_token   TEXT GENERATED ALWAYS AS (
+        CASE WHEN json_extract(summary_json, '$.assignee.type') = 'group'
+             THEN json_extract(summary_json, '$.assignee.name')
+             ELSE json_extract(summary_json, '$.assignee.username') END) VIRTUAL
+);
+CREATE INDEX IF NOT EXISTS reports_program ON reports(program_handle);
+CREATE INDEX IF NOT EXISTS reports_state ON reports(state);
+CREATE INDEX IF NOT EXISTS reports_created ON reports(created_at);
+CREATE INDEX IF NOT EXISTS reports_last_activity ON reports(last_activity_at);
+CREATE INDEX IF NOT EXISTS reports_assignee ON reports(assignee_token);
+
+CREATE TABLE IF NOT EXISTS sync_state (
+    id                          INTEGER PRIMARY KEY CHECK (id = 1),
+    program_handle              TEXT,
+    backfill_summaries_complete INTEGER NOT NULL DEFAULT 0,
+    backfill_detail_complete    INTEGER NOT NULL DEFAULT 0,
+    update_watermark            TEXT,
+    last_sync_at                TEXT
+);
+";
+
 impl SqliteStore {
     pub fn open(path: &Path) -> AppResult<Self> {
         let conn = Connection::open(path).map_err(AppError::other)?;
+        // WAL keeps background sync writes from blocking foreground queries; busy_timeout gives
+        // any contended lock a moment to clear rather than erroring out immediately.
+        conn.pragma_update(None, "journal_mode", "WAL")
+            .map_err(AppError::other)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(AppError::other)?;
+        conn.execute_batch(SCHEMA).map_err(AppError::other)?;
+        // Idempotent migration: databases created before `asset_identifier` existed get the
+        // VIRTUAL generated column added in place (no row rewrite). Errors when it already
+        // exists, which we ignore. Its index is created afterwards, once the column is present.
+        let _ = conn.execute(
+            "ALTER TABLE reports ADD COLUMN asset_identifier TEXT
+             GENERATED ALWAYS AS (json_extract(summary_json, '$.asset.asset_identifier')) VIRTUAL",
+            [],
+        );
         conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS reports (
-                id              TEXT PRIMARY KEY,
-                triage          TEXT,
-                triage_validity TEXT,
-                triage_new_files TEXT
-            );",
+            "CREATE INDEX IF NOT EXISTS reports_asset ON reports(asset_identifier);",
         )
         .map_err(AppError::other)?;
-        // Idempotent adds for databases created before these columns existed.
-        let _ = conn.execute("ALTER TABLE reports ADD COLUMN triage TEXT", []);
-        let _ = conn.execute("ALTER TABLE reports ADD COLUMN triage_validity TEXT", []);
-        let _ = conn.execute("ALTER TABLE reports ADD COLUMN triage_new_files TEXT", []);
         Ok(Self {
             conn: Mutex::new(conn),
         })
     }
 }
 
+fn summary_from_row(json: &str) -> Option<ReportSummary> {
+    serde_json::from_str(json).ok()
+}
+
+// Escape LIKE wildcards so a user's keyword is matched literally, and wrap it as a substring
+// pattern. Paired with `ESCAPE '\\'` in the SQL.
+fn like_pattern(term: &str) -> String {
+    let escaped = term
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("%{escaped}%")
+}
+
+impl SqliteStore {
+    // Writing a report is just storing the blob (plus the program handle it belongs to). Every
+    // queryable column derives from `summary_json`, so there's nothing else to write.
+    fn upsert_one_summary(
+        conn: &Connection,
+        program_handle: &str,
+        s: &ReportSummary,
+    ) -> AppResult<()> {
+        let summary_json = serde_json::to_string(s).map_err(AppError::other)?;
+        conn.execute(
+            "INSERT INTO reports (id, program_handle, summary_json) VALUES (?1, ?2, ?3)
+             ON CONFLICT(id) DO UPDATE SET
+                program_handle = excluded.program_handle,
+                summary_json = excluded.summary_json",
+            params![s.id, program_handle, summary_json],
+        )
+        .map_err(AppError::other)?;
+        Ok(())
+    }
+}
+
 impl ReportStore for SqliteStore {
-    fn upsert(&self, ids: &[&str]) -> AppResult<()> {
+    fn upsert_summaries(&self, program_handle: &str, items: &[ReportSummary]) -> AppResult<()> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        let mut c = self.conn.lock().unwrap();
+        let tx = c.transaction().map_err(AppError::other)?;
+        for s in items {
+            Self::upsert_one_summary(&tx, program_handle, s)?;
+        }
+        tx.commit().map_err(AppError::other)?;
+        Ok(())
+    }
+
+    fn upsert_detail(&self, detail: &ReportDetail) -> AppResult<()> {
+        let detail_json = serde_json::to_string(detail).map_err(AppError::other)?;
+        let c = self.conn.lock().unwrap();
+
+        // Patch the stored summary so the inbox row reflects the freshest overlapping fields.
+        // Build one from the detail if we've somehow never seen this report at list level.
+        let existing: Option<(String, String)> = c
+            .query_row(
+                "SELECT program_handle, summary_json FROM reports WHERE id = ?1",
+                params![detail.id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()
+            .map_err(AppError::other)?;
+
+        let program_handle = existing
+            .as_ref()
+            .map(|(h, _)| h.clone())
+            .unwrap_or_default();
+        let mut summary = existing
+            .as_ref()
+            .and_then(|(_, j)| summary_from_row(j))
+            .unwrap_or_else(|| summary_from_detail(detail));
+        summary.title = detail.title.clone();
+        summary.state = detail.state.clone();
+        summary.severity_rating = detail.severity_rating.clone();
+        summary.vulnerability_information = detail.vulnerability_information.clone();
+        summary.issue_tracker_reference_id = detail.issue_tracker_reference_id.clone();
+        summary.issue_tracker_reference_url = detail.issue_tracker_reference_url.clone();
+        summary.reporter = detail.reporter.clone();
+        summary.weakness = detail.weakness.clone();
+        summary.asset = detail.asset.clone();
+        summary.inboxes = detail.inboxes.clone();
+
+        Self::upsert_one_summary(&c, &program_handle, &summary)?;
+        c.execute(
+            "UPDATE reports SET detail_json = ?2, detail_fetched_at = ?3 WHERE id = ?1",
+            params![detail.id, detail_json, now_iso()],
+        )
+        .map_err(AppError::other)?;
+        Ok(())
+    }
+
+    fn query(&self, q: &LocalQuery) -> AppResult<Vec<ReportSummary>> {
+        let c = self.conn.lock().unwrap();
+        let mut sql = String::from("SELECT summary_json FROM reports WHERE program_handle = ?1");
+        let mut binds: Vec<String> = vec![q.program_handle.clone()];
+
+        if !q.states.is_empty() {
+            let ph = placeholders(binds.len(), q.states.len());
+            sql.push_str(&format!(" AND state IN ({ph})"));
+            binds.extend(q.states.iter().cloned());
+        }
+        if !q.severities.is_empty() {
+            let rated: Vec<&String> = q.severities.iter().filter(|s| *s != "unrated").collect();
+            let include_unrated = q.severities.iter().any(|s| s == "unrated");
+            let mut clauses: Vec<String> = Vec::new();
+            if !rated.is_empty() {
+                let ph = placeholders(binds.len(), rated.len());
+                clauses.push(format!("severity_rating IN ({ph})"));
+                binds.extend(rated.into_iter().cloned());
+            }
+            if include_unrated {
+                clauses.push("severity_rating IS NULL".to_string());
+            }
+            if !clauses.is_empty() {
+                sql.push_str(&format!(" AND ({})", clauses.join(" OR ")));
+            }
+        }
+        if !q.asset_identifiers.is_empty() {
+            let ph = placeholders(binds.len(), q.asset_identifiers.len());
+            sql.push_str(&format!(" AND asset_identifier IN ({ph})"));
+            binds.extend(q.asset_identifiers.iter().cloned());
+        }
+        if !q.assignees.is_empty() {
+            let ph = placeholders(binds.len(), q.assignees.len());
+            sql.push_str(&format!(" AND assignee_token IN ({ph})"));
+            binds.extend(q.assignees.iter().cloned());
+        }
+        // Keyword search: every whitespace-separated term must appear (case-insensitive
+        // substring) in the title or the description. At a few tens of thousands of rows a scan
+        // with LIKE is effectively instant, so there's no full-text index to maintain.
+        if let Some(kw) = q.keyword.as_deref() {
+            for term in kw.split_whitespace() {
+                let n = binds.len() + 1;
+                sql.push_str(&format!(
+                    " AND (json_extract(summary_json, '$.title') LIKE ?{n} ESCAPE '\\'
+                           OR json_extract(summary_json, '$.vulnerability_information') LIKE ?{n} ESCAPE '\\')"
+                ));
+                binds.push(like_pattern(term));
+            }
+        }
+        sql.push_str(" ORDER BY created_at DESC");
+
+        let mut stmt = c.prepare(&sql).map_err(AppError::other)?;
+        let rows = stmt
+            .query_map(params_from_iter(binds.iter()), |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(AppError::other)?;
+        let mut out = Vec::new();
+        for r in rows {
+            let json = r.map_err(AppError::other)?;
+            if let Some(s) = summary_from_row(&json) {
+                out.push(s);
+            }
+        }
+        Ok(out)
+    }
+
+    fn get_detail(&self, id: &str) -> AppResult<Option<ReportDetail>> {
+        let c = self.conn.lock().unwrap();
+        let json: Option<String> = c
+            .query_row(
+                "SELECT detail_json FROM reports WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .map_err(AppError::other)?
+            .flatten();
+        Ok(json.and_then(|j| serde_json::from_str(&j).ok()))
+    }
+
+    fn ids_missing_detail(&self, program_handle: &str) -> AppResult<Vec<String>> {
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c
+            .prepare(
+                "SELECT id FROM reports
+                 WHERE program_handle = ?1 AND detail_fetched_at IS NULL
+                 ORDER BY created_at DESC",
+            )
+            .map_err(AppError::other)?;
+        let rows = stmt
+            .query_map(params![program_handle], |row| row.get::<_, String>(0))
+            .map_err(AppError::other)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(AppError::other)
+    }
+
+    fn mark_detail_stale(&self, ids: &[&str]) -> AppResult<()> {
         if ids.is_empty() {
             return Ok(());
         }
@@ -64,12 +358,79 @@ impl ReportStore for SqliteStore {
         let tx = c.transaction().map_err(AppError::other)?;
         for id in ids {
             tx.execute(
-                "INSERT OR IGNORE INTO reports (id) VALUES (?1)",
+                "UPDATE reports SET detail_fetched_at = NULL WHERE id = ?1",
                 params![id],
             )
             .map_err(AppError::other)?;
         }
         tx.commit().map_err(AppError::other)?;
+        Ok(())
+    }
+
+    fn count_reports(&self, program_handle: &str) -> AppResult<i64> {
+        let c = self.conn.lock().unwrap();
+        c.query_row(
+            "SELECT COUNT(*) FROM reports WHERE program_handle = ?1",
+            params![program_handle],
+            |row| row.get(0),
+        )
+        .map_err(AppError::other)
+    }
+
+    fn count_detail(&self, program_handle: &str) -> AppResult<i64> {
+        let c = self.conn.lock().unwrap();
+        c.query_row(
+            "SELECT COUNT(*) FROM reports WHERE program_handle = ?1 AND detail_fetched_at IS NOT NULL",
+            params![program_handle],
+            |row| row.get(0),
+        )
+        .map_err(AppError::other)
+    }
+
+    fn get_sync_state(&self) -> AppResult<SyncState> {
+        let c = self.conn.lock().unwrap();
+        let state = c
+            .query_row(
+                "SELECT program_handle, backfill_summaries_complete, backfill_detail_complete,
+                        update_watermark, last_sync_at
+                 FROM sync_state WHERE id = 1",
+                [],
+                |row| {
+                    Ok(SyncState {
+                        program_handle: row.get(0)?,
+                        backfill_summaries_complete: row.get::<_, i64>(1)? != 0,
+                        backfill_detail_complete: row.get::<_, i64>(2)? != 0,
+                        update_watermark: row.get(3)?,
+                        last_sync_at: row.get(4)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(AppError::other)?;
+        Ok(state.unwrap_or_default())
+    }
+
+    fn put_sync_state(&self, state: &SyncState) -> AppResult<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "INSERT INTO sync_state (id, program_handle, backfill_summaries_complete,
+                                     backfill_detail_complete, update_watermark, last_sync_at)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET
+                program_handle = excluded.program_handle,
+                backfill_summaries_complete = excluded.backfill_summaries_complete,
+                backfill_detail_complete = excluded.backfill_detail_complete,
+                update_watermark = excluded.update_watermark,
+                last_sync_at = excluded.last_sync_at",
+            params![
+                state.program_handle,
+                state.backfill_summaries_complete as i64,
+                state.backfill_detail_complete as i64,
+                state.update_watermark,
+                state.last_sync_at,
+            ],
+        )
+        .map_err(AppError::other)?;
         Ok(())
     }
 
@@ -91,7 +452,6 @@ impl ReportStore for SqliteStore {
             Ok((Some(summary), validity, new_files)) => Ok(Some(TriageRecord {
                 summary,
                 validity,
-                // Stored as a JSON array; tolerate null/garbage by falling back to empty.
                 new_files: new_files
                     .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
                     .unwrap_or_default(),
@@ -111,9 +471,12 @@ impl ReportStore for SqliteStore {
     ) -> AppResult<()> {
         let files_json = serde_json::to_string(new_files).map_err(AppError::other)?;
         let c = self.conn.lock().unwrap();
+        // A triage can be saved for a report before it's been synced into the DB (unlikely, but
+        // the triage panel keys off the selected report). Keep the row valid by supplying the
+        // NOT NULL columns; a later summary upsert fills in the real data.
         c.execute(
-            "INSERT INTO reports (id, triage, triage_validity, triage_new_files)
-             VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO reports (id, program_handle, summary_json, triage, triage_validity, triage_new_files)
+             VALUES (?1, '', '{}', ?2, ?3, ?4)
              ON CONFLICT(id) DO UPDATE SET triage = excluded.triage,
                                            triage_validity = excluded.triage_validity,
                                            triage_new_files = excluded.triage_new_files",
@@ -156,50 +519,275 @@ impl ReportStore for SqliteStore {
     }
 }
 
+// Build a list-level summary from a full detail, for the rare case we cache detail for a report
+// we've never seen at list level. The detail endpoint carries no assignee/bounty/last_activity,
+// so those are left empty until a summary upsert supplies them.
+fn summary_from_detail(d: &ReportDetail) -> ReportSummary {
+    ReportSummary {
+        id: d.id.clone(),
+        title: d.title.clone(),
+        vulnerability_information: d.vulnerability_information.clone(),
+        state: d.state.clone(),
+        severity_rating: d.severity_rating.clone(),
+        created_at: d.created_at.clone(),
+        last_activity_at: None,
+        issue_tracker_reference_id: d.issue_tracker_reference_id.clone(),
+        issue_tracker_reference_url: d.issue_tracker_reference_url.clone(),
+        asset: d.asset.clone(),
+        weakness: d.weakness.clone(),
+        reporter: d.reporter.clone(),
+        assignee: None,
+        inboxes: d.inboxes.clone(),
+        bounty: None,
+    }
+}
+
+fn placeholders(offset: usize, count: usize) -> String {
+    (0..count)
+        .map(|i| format!("?{}", offset + 1 + i))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+// Current time as an ISO8601 UTC string, used only for `detail_fetched_at` bookkeeping.
+fn now_iso() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // Good enough as an opaque, monotonic-ish marker; we never parse it back.
+    format!("@{secs}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hackerone::{AssetRef, AssigneeRef, ReportSummary, UserRef};
 
-    fn in_memory() -> SqliteStore {
+    fn store() -> SqliteStore {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS reports (
-                id              TEXT PRIMARY KEY,
-                triage          TEXT,
-                triage_validity TEXT,
-                triage_new_files TEXT
-            );",
-        )
-        .unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
         SqliteStore {
             conn: Mutex::new(conn),
         }
     }
 
+    fn summary(id: &str, title: &str, state: &str, severity: Option<&str>) -> ReportSummary {
+        ReportSummary {
+            id: id.to_string(),
+            title: title.to_string(),
+            vulnerability_information: format!("body for {title}"),
+            state: state.to_string(),
+            severity_rating: severity.map(String::from),
+            created_at: format!("2024-01-{id:0>2}T00:00:00.000Z"),
+            last_activity_at: Some("2024-02-01T00:00:00.000Z".to_string()),
+            issue_tracker_reference_id: None,
+            issue_tracker_reference_url: None,
+            asset: None,
+            weakness: None,
+            reporter: UserRef {
+                id: "u1".into(),
+                username: "alice".into(),
+                name: None,
+                profile_picture_url: None,
+            },
+            assignee: None,
+            inboxes: vec![],
+            bounty: None,
+        }
+    }
+
+    #[test]
+    fn upsert_and_query_by_state_and_severity() {
+        let s = store();
+        s.upsert_summaries(
+            "wp",
+            &[
+                summary("1", "SQL injection", "new", Some("high")),
+                summary("2", "XSS bug", "resolved", Some("low")),
+                summary("3", "Unrated thing", "new", None),
+            ],
+        )
+        .unwrap();
+
+        let all = s
+            .query(&LocalQuery {
+                program_handle: "wp".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(all.len(), 3);
+        // newest created_at first
+        assert_eq!(all[0].id, "3");
+
+        let new_only = s
+            .query(&LocalQuery {
+                program_handle: "wp".into(),
+                states: vec!["new".into()],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(new_only.len(), 2);
+
+        let unrated = s
+            .query(&LocalQuery {
+                program_handle: "wp".into(),
+                severities: vec!["unrated".into()],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(unrated.len(), 1);
+        assert_eq!(unrated[0].id, "3");
+    }
+
+    #[test]
+    fn keyword_search_uses_like() {
+        let s = store();
+        s.upsert_summaries(
+            "wp",
+            &[
+                summary("1", "SQL injection in login", "new", Some("high")),
+                summary("2", "Reflected XSS", "new", Some("low")),
+            ],
+        )
+        .unwrap();
+
+        let query_kw = |kw: &str| {
+            s.query(&LocalQuery {
+                program_handle: "wp".into(),
+                keyword: Some(kw.into()),
+                ..Default::default()
+            })
+            .unwrap()
+        };
+
+        // Substring match against the title.
+        let hits = query_kw("inject");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "1");
+
+        // Multiple terms are AND-ed; both must appear (here, in the title).
+        assert_eq!(query_kw("sql login").len(), 1);
+        assert_eq!(query_kw("sql nope").len(), 0);
+
+        // Matches the description too (the summary() helper sets body = "body for <title>").
+        assert_eq!(query_kw("body for reflected").len(), 1);
+
+        // LIKE wildcards in the keyword are escaped, so they match literally rather than
+        // acting as wildcards — a bare "%" matches nothing here.
+        assert_eq!(query_kw("%").len(), 0);
+    }
+
+    #[test]
+    fn assignee_token_generated_from_blob() {
+        let s = store();
+        let mut user_report = summary("1", "assigned to user", "new", Some("high"));
+        user_report.assignee = Some(AssigneeRef {
+            kind: "user".into(),
+            id: "u9".into(),
+            username: Some("bob".into()),
+            name: Some("Bob".into()),
+            profile_picture_url: None,
+        });
+        let mut group_report = summary("2", "assigned to group", "new", Some("high"));
+        group_report.assignee = Some(AssigneeRef {
+            kind: "group".into(),
+            id: "g1".into(),
+            username: None,
+            name: Some("Triage Team".into()),
+            profile_picture_url: None,
+        });
+        s.upsert_summaries("wp", &[user_report, group_report])
+            .unwrap();
+
+        // User assignee filters by username; group assignee filters by group name.
+        let by_user = s
+            .query(&LocalQuery {
+                program_handle: "wp".into(),
+                assignees: vec!["bob".into()],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(by_user.len(), 1);
+        assert_eq!(by_user[0].id, "1");
+
+        let by_group = s
+            .query(&LocalQuery {
+                program_handle: "wp".into(),
+                assignees: vec!["Triage Team".into()],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(by_group.len(), 1);
+        assert_eq!(by_group[0].id, "2");
+    }
+
+    #[test]
+    fn asset_filter_matches_on_identifier() {
+        let s = store();
+        let asset = |id: &str, ident: &str| {
+            Some(AssetRef {
+                id: id.to_string(),
+                asset_identifier: ident.to_string(),
+                asset_type: Some("SOURCE_CODE".into()),
+            })
+        };
+        let mut r1 = summary("1", "core bug", "new", Some("high"));
+        r1.asset = asset("2752", "bbPress Core");
+        let mut r2 = summary("2", "other bug", "new", Some("high"));
+        r2.asset = asset("2751", "BuddyPress Core");
+        s.upsert_summaries("wp", &[r1, r2]).unwrap();
+
+        // Filter by the asset *identifier* (the sidebar's numeric id 2100930 wouldn't match the
+        // report's structured_scope id 2752 — that mismatch was the bug).
+        let hits = s
+            .query(&LocalQuery {
+                program_handle: "wp".into(),
+                asset_identifiers: vec!["bbPress Core".into()],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "1");
+    }
+
+    #[test]
+    fn sync_state_round_trip() {
+        let s = store();
+        assert!(s.get_sync_state().unwrap().program_handle.is_none());
+        s.put_sync_state(&SyncState {
+            program_handle: Some("wp".into()),
+            backfill_summaries_complete: true,
+            backfill_detail_complete: false,
+            update_watermark: Some("2024-05-01T00:00:00.000Z".into()),
+            last_sync_at: Some("@123".into()),
+        })
+        .unwrap();
+        let got = s.get_sync_state().unwrap();
+        assert_eq!(got.program_handle.as_deref(), Some("wp"));
+        assert!(got.backfill_summaries_complete);
+        assert!(!got.backfill_detail_complete);
+        assert_eq!(
+            got.update_watermark.as_deref(),
+            Some("2024-05-01T00:00:00.000Z")
+        );
+    }
+
     #[test]
     fn triage_new_files_round_trip() {
-        let s = in_memory();
+        let s = store();
         let files = vec!["/tmp/a.php".to_string(), "/tmp/b.txt".to_string()];
         s.set_triage("r1", "summary", Some("valid"), &files)
             .unwrap();
         let rec = s.get_triage("r1").unwrap().unwrap();
         assert_eq!(rec.new_files, files);
 
-        // Deleting one rewrites just the list, leaving the summary/validity intact.
         s.set_triage_new_files("r1", &["/tmp/b.txt".to_string()])
             .unwrap();
         let rec = s.get_triage("r1").unwrap().unwrap();
         assert_eq!(rec.summary, "summary");
         assert_eq!(rec.validity.as_deref(), Some("valid"));
         assert_eq!(rec.new_files, vec!["/tmp/b.txt".to_string()]);
-    }
-
-    #[test]
-    fn triage_new_files_defaults_empty_when_null() {
-        let s = in_memory();
-        s.upsert(&["r1"]).unwrap();
-        s.set_triage("r1", "summary", None, &[]).unwrap();
-        let rec = s.get_triage("r1").unwrap().unwrap();
-        assert!(rec.new_files.is_empty());
     }
 }
