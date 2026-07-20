@@ -1,7 +1,7 @@
 use crate::error::{AppError, AppResult};
-use crate::hackerone::{ReportDetail, ReportSummary};
+use crate::hackerone::{Activity, Attachment, ReportDetail, ReportSummary};
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -160,6 +160,16 @@ impl SqliteStore {
             conn: Mutex::new(conn),
         })
     }
+
+    // Test-only in-memory store for unit tests in this crate (schema only, no WAL).
+    #[cfg(test)]
+    pub(crate) fn in_memory() -> Self {
+        let conn = Connection::open_in_memory().expect("open in-memory sqlite");
+        conn.execute_batch(SCHEMA).expect("init schema");
+        Self {
+            conn: Mutex::new(conn),
+        }
+    }
 }
 
 fn summary_from_row(json: &str) -> Option<ReportSummary> {
@@ -212,11 +222,19 @@ impl ReportStore for SqliteStore {
     }
 
     fn upsert_detail(&self, detail: &ReportDetail) -> AppResult<()> {
-        let detail_json = serde_json::to_string(detail).map_err(AppError::other)?;
+        // `detail_json` stores ONLY the fields the summary blob doesn't already have — activities,
+        // attachments, and main_state. Everything else is refreshed into `summary_json` (the single
+        // source of truth for those fields) so there's no value stored in two places.
+        let extra = ReportDetailExtra {
+            main_state: detail.main_state.clone(),
+            activities: detail.activities.clone(),
+            attachments: detail.attachments.clone(),
+        };
+        let extra_json = serde_json::to_string(&extra).map_err(AppError::other)?;
         let c = self.conn.lock().unwrap();
 
-        // Patch the stored summary so the inbox row reflects the freshest overlapping fields.
-        // Build one from the detail if we've somehow never seen this report at list level.
+        // Refresh the summary blob's shared fields from this fresher detail. Build one from the
+        // detail if we've somehow never seen this report at list level.
         let existing: Option<(String, String)> = c
             .query_row(
                 "SELECT program_handle, summary_json FROM reports WHERE id = ?1",
@@ -248,7 +266,7 @@ impl ReportStore for SqliteStore {
         Self::upsert_one_summary(&c, &program_handle, &summary)?;
         c.execute(
             "UPDATE reports SET detail_json = ?2, detail_fetched_at = ?3 WHERE id = ?1",
-            params![detail.id, detail_json, now_iso()],
+            params![detail.id, extra_json, now_iso()],
         )
         .map_err(AppError::other)?;
         Ok(())
@@ -323,16 +341,26 @@ impl ReportStore for SqliteStore {
 
     fn get_detail(&self, id: &str) -> AppResult<Option<ReportDetail>> {
         let c = self.conn.lock().unwrap();
-        let json: Option<String> = c
+        // Reconstruct the full detail by merging the summary blob (shared fields) with the
+        // detail-only extra blob. Returns None until the detail has actually been fetched.
+        let row: Option<(String, Option<String>)> = c
             .query_row(
-                "SELECT detail_json FROM reports WHERE id = ?1",
+                "SELECT summary_json, detail_json FROM reports WHERE id = ?1",
                 params![id],
-                |row| row.get::<_, Option<String>>(0),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
             )
             .optional()
-            .map_err(AppError::other)?
-            .flatten();
-        Ok(json.and_then(|j| serde_json::from_str(&j).ok()))
+            .map_err(AppError::other)?;
+        let Some((summary_json, Some(extra_json))) = row else {
+            return Ok(None);
+        };
+        let (Some(summary), Ok(extra)) = (
+            summary_from_row(&summary_json),
+            serde_json::from_str::<ReportDetailExtra>(&extra_json),
+        ) else {
+            return Ok(None);
+        };
+        Ok(Some(report_detail_from(&summary, &extra)))
     }
 
     fn ids_missing_detail(&self, program_handle: &str) -> AppResult<Vec<String>> {
@@ -519,6 +547,37 @@ impl ReportStore for SqliteStore {
     }
 }
 
+// The detail-only slice of a report: everything a `ReportDetail` carries that a `ReportSummary`
+// does not. This is what `detail_json` stores, so no field is duplicated across the two blobs.
+#[derive(Serialize, Deserialize)]
+struct ReportDetailExtra {
+    main_state: String,
+    activities: Vec<Activity>,
+    attachments: Vec<Attachment>,
+}
+
+// Reconstruct a full `ReportDetail` from the summary blob (shared fields) plus the detail-only
+// extra blob. The inverse of the split done in `upsert_detail`.
+fn report_detail_from(s: &ReportSummary, extra: &ReportDetailExtra) -> ReportDetail {
+    ReportDetail {
+        id: s.id.clone(),
+        title: s.title.clone(),
+        state: s.state.clone(),
+        main_state: extra.main_state.clone(),
+        severity_rating: s.severity_rating.clone(),
+        created_at: s.created_at.clone(),
+        vulnerability_information: s.vulnerability_information.clone(),
+        issue_tracker_reference_id: s.issue_tracker_reference_id.clone(),
+        issue_tracker_reference_url: s.issue_tracker_reference_url.clone(),
+        reporter: s.reporter.clone(),
+        weakness: s.weakness.clone(),
+        asset: s.asset.clone(),
+        inboxes: s.inboxes.clone(),
+        activities: extra.activities.clone(),
+        attachments: extra.attachments.clone(),
+    }
+}
+
 // Build a list-level summary from a full detail, for the rare case we cache detail for a report
 // we've never seen at list level. The detail endpoint carries no assignee/bounty/last_activity,
 // so those are left empty until a summary upsert supplies them.
@@ -563,14 +622,10 @@ fn now_iso() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hackerone::{AssetRef, AssigneeRef, ReportSummary, UserRef};
+    use crate::hackerone::{Activity, AssetRef, AssigneeRef, ReportDetail, ReportSummary, UserRef};
 
     fn store() -> SqliteStore {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(SCHEMA).unwrap();
-        SqliteStore {
-            conn: Mutex::new(conn),
-        }
+        SqliteStore::in_memory()
     }
 
     fn summary(id: &str, title: &str, state: &str, severity: Option<&str>) -> ReportSummary {
@@ -789,5 +844,73 @@ mod tests {
         assert_eq!(rec.summary, "summary");
         assert_eq!(rec.validity.as_deref(), Some("valid"));
         assert_eq!(rec.new_files, vec!["/tmp/b.txt".to_string()]);
+    }
+
+    #[test]
+    fn detail_round_trips_without_duplicating_shared_fields() {
+        let s = store();
+        s.upsert_summaries("wp", &[summary("1", "SQL injection", "new", Some("high"))])
+            .unwrap();
+
+        let detail = ReportDetail {
+            id: "1".into(),
+            title: "SQL injection".into(),
+            state: "triaged".into(),
+            main_state: "open".into(),
+            severity_rating: Some("high".into()),
+            created_at: "2024-01-01T00:00:00.000Z".into(),
+            vulnerability_information: "body for SQL injection".into(),
+            issue_tracker_reference_id: None,
+            issue_tracker_reference_url: None,
+            reporter: UserRef {
+                id: "u1".into(),
+                username: "alice".into(),
+                name: None,
+                profile_picture_url: None,
+            },
+            weakness: None,
+            asset: None,
+            inboxes: vec![],
+            activities: vec![Activity::Comment {
+                id: "a1".into(),
+                created_at: "2024-01-02T00:00:00.000Z".into(),
+                message: "looking into it".into(),
+                internal: false,
+                actor: None,
+                attachments: vec![],
+            }],
+            attachments: vec![],
+        };
+        s.upsert_detail(&detail).unwrap();
+
+        // Reconstructed detail merges summary (shared fields) + extra (detail-only fields).
+        let got = s.get_detail("1").unwrap().unwrap();
+        assert_eq!(got.main_state, "open");
+        assert_eq!(got.activities.len(), 1);
+        assert_eq!(got.title, "SQL injection");
+        // upsert_detail refreshed the summary's shared state field from the fresher detail.
+        assert_eq!(got.state, "triaged");
+
+        // The detail_json blob must NOT contain the shared title/description — those live only in
+        // summary_json. It should contain the detail-only activity message.
+        let raw: String = {
+            let c = s.conn.lock().unwrap();
+            c.query_row("SELECT detail_json FROM reports WHERE id = '1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap()
+        };
+        assert!(
+            !raw.contains("SQL injection"),
+            "shared title leaked into detail_json"
+        );
+        assert!(
+            !raw.contains("body for SQL injection"),
+            "description leaked into detail_json"
+        );
+        assert!(
+            raw.contains("looking into it"),
+            "activity missing from detail_json"
+        );
     }
 }

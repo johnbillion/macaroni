@@ -31,21 +31,35 @@ pub struct SyncStatus {
     pub running: bool,
 }
 
-fn emit_status(app: &AppHandle, phase: &str, done: i64, total: i64, running: bool) {
-    let _ = app.emit(
-        "sync:status",
-        SyncStatus {
-            phase: phase.to_string(),
-            done,
-            total,
-            running,
-        },
-    );
+// The sync engine's only outward side effect, abstracted so the orchestration can be unit-tested
+// without a Tauri runtime. Production forwards to the Tauri event bus; tests use a recorder.
+pub trait SyncEvents: Send + Sync {
+    fn status(&self, status: SyncStatus);
+    fn changed(&self);
 }
 
-// Tell the frontend the local DB changed so it re-runs the active query.
-fn emit_changed(app: &AppHandle) {
-    let _ = app.emit("sync:changed", ());
+pub struct TauriSyncEvents(pub AppHandle);
+
+impl SyncEvents for TauriSyncEvents {
+    fn status(&self, status: SyncStatus) {
+        let _ = self.0.emit("sync:status", status);
+    }
+    fn changed(&self) {
+        let _ = self.0.emit("sync:changed", ());
+    }
+}
+
+fn emit_status(events: &Arc<dyn SyncEvents>, phase: &str, done: i64, total: i64, running: bool) {
+    events.status(SyncStatus {
+        phase: phase.to_string(),
+        done,
+        total,
+        running,
+    });
+}
+
+fn emit_changed(events: &Arc<dyn SyncEvents>) {
+    events.changed();
 }
 
 // Fetch one report page, retrying on rate-limit / transient network errors with a fixed backoff.
@@ -98,13 +112,14 @@ pub async fn run_sync(
     {
         return;
     }
-    let _ = run_sync_inner(&app, &api, &store, &program_handle).await;
+    let events: Arc<dyn SyncEvents> = Arc::new(TauriSyncEvents(app));
+    let _ = run_sync_inner(&events, &api, &store, &program_handle).await;
     running.store(false, Ordering::SeqCst);
-    emit_status(&app, "idle", 0, 0, false);
+    emit_status(&events, "idle", 0, 0, false);
 }
 
 async fn run_sync_inner(
-    app: &AppHandle,
+    events: &Arc<dyn SyncEvents>,
     api: &Arc<dyn HackerOneApi>,
     store: &Arc<dyn ReportStore>,
     program_handle: &str,
@@ -121,7 +136,7 @@ async fn run_sync_inner(
     }
 
     // --- Initial page: latest open reports, mirrors the pre-DB launch view. ---
-    emit_status(app, "initial", 0, 0, true);
+    emit_status(events, "initial", 0, 0, true);
     let initial = fetch_page(
         api,
         ReportQuery {
@@ -134,22 +149,30 @@ async fn run_sync_inner(
     .await;
     if let Some(page) = initial {
         store.upsert_summaries(program_handle, &page.items)?;
-        emit_changed(app);
+        emit_changed(events);
     }
 
     // --- Incremental update sync: reports touched since the last watermark. ---
     if let Some(watermark) = sync_state.update_watermark.clone() {
-        incremental_sync(app, api, store, program_handle, &watermark, &mut sync_state).await?;
+        incremental_sync(
+            events,
+            api,
+            store,
+            program_handle,
+            &watermark,
+            &mut sync_state,
+        )
+        .await?;
     }
 
     // --- Phase A: full summary backfill, oldest-first for pagination stability. ---
     if !sync_state.backfill_summaries_complete {
-        backfill_summaries(app, api, store, program_handle, &mut sync_state).await?;
+        backfill_summaries(events, api, store, program_handle, &mut sync_state).await?;
     }
 
     // --- Phase B: full detail backfill for any report lacking cached detail. ---
     if !sync_state.backfill_detail_complete {
-        backfill_detail(app, api, store, program_handle, &mut sync_state).await?;
+        backfill_detail(events, api, store, program_handle, &mut sync_state).await?;
     }
 
     sync_state.last_sync_at = Some(now_marker());
@@ -158,14 +181,14 @@ async fn run_sync_inner(
 }
 
 async fn incremental_sync(
-    app: &AppHandle,
+    events: &Arc<dyn SyncEvents>,
     api: &Arc<dyn HackerOneApi>,
     store: &Arc<dyn ReportStore>,
     program_handle: &str,
     watermark: &str,
     sync_state: &mut SyncState,
 ) -> Result<(), AppError> {
-    emit_status(app, "summaries", 0, 0, true);
+    emit_status(events, "summaries", 0, 0, true);
     let mut cursor: Option<String> = None;
     let mut newest = sync_state.update_watermark.clone();
     let mut touched = 0i64;
@@ -211,7 +234,7 @@ async fn incremental_sync(
         tokio::time::sleep(std::time::Duration::from_millis(PAGE_DELAY_MS)).await;
     }
     if touched > 0 {
-        emit_changed(app);
+        emit_changed(events);
     }
     sync_state.update_watermark = newest;
     store.put_sync_state(sync_state)?;
@@ -219,7 +242,7 @@ async fn incremental_sync(
 }
 
 async fn backfill_summaries(
-    app: &AppHandle,
+    events: &Arc<dyn SyncEvents>,
     api: &Arc<dyn HackerOneApi>,
     store: &Arc<dyn ReportStore>,
     program_handle: &str,
@@ -243,8 +266,8 @@ async fn backfill_summaries(
             store.upsert_summaries(program_handle, &page.items)?;
             newest = max_activity(&page.items, newest);
             let total = store.count_reports(program_handle)?;
-            emit_status(app, "summaries", total, total, true);
-            emit_changed(app);
+            emit_status(events, "summaries", total, total, true);
+            emit_changed(events);
         }
         match page.next_cursor {
             Some(next) => cursor = Some(next),
@@ -256,12 +279,12 @@ async fn backfill_summaries(
     // The watermark is only meaningful once we've seen every report at least once.
     sync_state.update_watermark = newest;
     store.put_sync_state(sync_state)?;
-    emit_changed(app);
+    emit_changed(events);
     Ok(())
 }
 
 async fn backfill_detail(
-    app: &AppHandle,
+    events: &Arc<dyn SyncEvents>,
     api: &Arc<dyn HackerOneApi>,
     store: &Arc<dyn ReportStore>,
     program_handle: &str,
@@ -287,7 +310,7 @@ async fn backfill_detail(
         let api = api.clone();
         let store = store.clone();
         let done = done.clone();
-        let app = app.clone();
+        let events = events.clone();
         let base = already;
         set.spawn(async move {
             let _permit = permit;
@@ -311,10 +334,10 @@ async fn backfill_detail(
                 }
             }
             let n = done.fetch_add(1, Ordering::SeqCst) + 1;
-            emit_status(&app, "detail", base + n as i64, total, true);
+            emit_status(&events, "detail", base + n as i64, total, true);
             // Refresh the inbox periodically as detail lands (it reconciles summary columns).
             if n.is_multiple_of(25) {
-                emit_changed(&app);
+                emit_changed(&events);
             }
         });
     }
@@ -326,7 +349,7 @@ async fn backfill_detail(
         sync_state.backfill_detail_complete = true;
     }
     store.put_sync_state(sync_state)?;
-    emit_changed(app);
+    emit_changed(events);
     Ok(())
 }
 
@@ -338,4 +361,204 @@ fn now_marker() -> String {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     format!("@{secs}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::AppResult;
+    use crate::hackerone::{
+        Activity, Asset, Organization, Program, ReportDetail, TeamMember, UserRef,
+    };
+    use crate::local_db::SqliteStore;
+
+    // A HackerOne API stand-in backed by a fixed set of summaries. list_reports serves them
+    // according to the requested sort (open-only for the initial page; all reports otherwise),
+    // and get_report synthesises a detail from the matching summary.
+    struct MockApi {
+        reports: Vec<ReportSummary>,
+    }
+
+    #[async_trait::async_trait]
+    impl HackerOneApi for MockApi {
+        async fn validate(&self) -> AppResult<()> {
+            Ok(())
+        }
+        async fn list_organizations(&self) -> AppResult<Vec<Organization>> {
+            Ok(vec![])
+        }
+        async fn list_programs(&self, _org_id: &str) -> AppResult<Vec<Program>> {
+            Ok(vec![])
+        }
+        async fn list_assets(&self, _org_id: &str) -> AppResult<Vec<Asset>> {
+            Ok(vec![])
+        }
+        async fn list_program_members(&self, _program_id: &str) -> AppResult<Vec<TeamMember>> {
+            Ok(vec![])
+        }
+        async fn list_reports(&self, query: ReportQuery) -> AppResult<ReportPage> {
+            let sort = query.sort.as_deref().unwrap_or("");
+            let mut items: Vec<ReportSummary> = if !query.states.is_empty() {
+                // Initial page: filter to the requested (open) states.
+                self.reports
+                    .iter()
+                    .filter(|r| query.states.contains(&r.state))
+                    .cloned()
+                    .collect()
+            } else {
+                self.reports.clone()
+            };
+            match sort {
+                "reports.created_at" => items.sort_by(|a, b| a.created_at.cmp(&b.created_at)),
+                "-reports.created_at" => items.sort_by(|a, b| b.created_at.cmp(&a.created_at)),
+                "-reports.last_activity_at" => {
+                    items.sort_by(|a, b| b.last_activity_at.cmp(&a.last_activity_at))
+                }
+                _ => {}
+            }
+            // Single page, no cursor — enough to exercise the orchestration.
+            Ok(ReportPage {
+                items,
+                next_cursor: None,
+            })
+        }
+        async fn get_report(&self, report_id: &str) -> AppResult<ReportDetail> {
+            let s = self
+                .reports
+                .iter()
+                .find(|r| r.id == report_id)
+                .ok_or_else(|| AppError::NotFound {
+                    message: report_id.into(),
+                })?;
+            Ok(ReportDetail {
+                id: s.id.clone(),
+                title: s.title.clone(),
+                state: s.state.clone(),
+                main_state: "open".into(),
+                severity_rating: s.severity_rating.clone(),
+                created_at: s.created_at.clone(),
+                vulnerability_information: s.vulnerability_information.clone(),
+                issue_tracker_reference_id: None,
+                issue_tracker_reference_url: None,
+                reporter: s.reporter.clone(),
+                weakness: None,
+                asset: None,
+                inboxes: vec![],
+                activities: vec![Activity::Comment {
+                    id: format!("{}-c1", s.id),
+                    created_at: s.created_at.clone(),
+                    message: "hello".into(),
+                    internal: false,
+                    actor: None,
+                    attachments: vec![],
+                }],
+                attachments: vec![],
+            })
+        }
+    }
+
+    struct NoopEvents;
+    impl SyncEvents for NoopEvents {
+        fn status(&self, _status: SyncStatus) {}
+        fn changed(&self) {}
+    }
+
+    fn summary(id: &str, state: &str, last_activity: &str) -> ReportSummary {
+        ReportSummary {
+            id: id.to_string(),
+            title: format!("report {id}"),
+            vulnerability_information: format!("body {id}"),
+            state: state.to_string(),
+            severity_rating: Some("high".into()),
+            created_at: format!("2024-01-{id:0>2}T00:00:00.000Z"),
+            last_activity_at: Some(last_activity.to_string()),
+            issue_tracker_reference_id: None,
+            issue_tracker_reference_url: None,
+            asset: None,
+            weakness: None,
+            reporter: UserRef {
+                id: "u1".into(),
+                username: "alice".into(),
+                name: None,
+                profile_picture_url: None,
+            },
+            assignee: None,
+            inboxes: vec![],
+            bounty: None,
+        }
+    }
+
+    fn events() -> Arc<dyn SyncEvents> {
+        Arc::new(NoopEvents)
+    }
+
+    #[tokio::test]
+    async fn full_sync_mirrors_all_reports_and_detail() {
+        let api: Arc<dyn HackerOneApi> = Arc::new(MockApi {
+            reports: vec![
+                summary("1", "new", "2024-02-01T00:00:00.000Z"),
+                summary("2", "resolved", "2024-02-02T00:00:00.000Z"),
+                summary("3", "triaged", "2024-02-03T00:00:00.000Z"),
+            ],
+        });
+        let store: Arc<dyn ReportStore> = Arc::new(SqliteStore::in_memory());
+
+        run_sync_inner(&events(), &api, &store, "wp").await.unwrap();
+
+        // All reports mirrored (open + closed), all detail hydrated.
+        assert_eq!(store.count_reports("wp").unwrap(), 3);
+        assert_eq!(store.count_detail("wp").unwrap(), 3);
+        assert!(store.ids_missing_detail("wp").unwrap().is_empty());
+
+        let state = store.get_sync_state().unwrap();
+        assert!(state.backfill_summaries_complete);
+        assert!(state.backfill_detail_complete);
+        // Watermark advanced to the newest last_activity_at seen.
+        assert_eq!(
+            state.update_watermark.as_deref(),
+            Some("2024-02-03T00:00:00.000Z")
+        );
+
+        // Cached detail reconstructs correctly.
+        let detail = store.get_detail("3").unwrap().unwrap();
+        assert_eq!(detail.main_state, "open");
+        assert_eq!(detail.activities.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn incremental_sync_only_takes_reports_newer_than_watermark() {
+        // Two reports active after the watermark, one before → only the two are taken.
+        let api: Arc<dyn HackerOneApi> = Arc::new(MockApi {
+            reports: vec![
+                summary("1", "new", "2024-05-10T00:00:00.000Z"),
+                summary("2", "new", "2024-05-09T00:00:00.000Z"),
+                summary("3", "new", "2024-04-01T00:00:00.000Z"),
+            ],
+        });
+        let store: Arc<dyn ReportStore> = Arc::new(SqliteStore::in_memory());
+        let mut sync_state = SyncState {
+            program_handle: Some("wp".into()),
+            update_watermark: Some("2024-05-01T00:00:00.000Z".into()),
+            ..Default::default()
+        };
+
+        incremental_sync(
+            &events(),
+            &api,
+            &store,
+            "wp",
+            "2024-05-01T00:00:00.000Z",
+            &mut sync_state,
+        )
+        .await
+        .unwrap();
+
+        // Reports 1 and 2 (after the watermark) were mirrored; report 3 (before) was not.
+        assert_eq!(store.count_reports("wp").unwrap(), 2);
+        assert!(store.get_detail("3").unwrap().is_none());
+        assert_eq!(
+            sync_state.update_watermark.as_deref(),
+            Some("2024-05-10T00:00:00.000Z")
+        );
+    }
 }
