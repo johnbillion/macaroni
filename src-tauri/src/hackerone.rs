@@ -239,7 +239,6 @@ pub trait HackerOneApi: Send + Sync {
     async fn list_program_members(&self, program_id: &str) -> AppResult<Vec<TeamMember>>;
     async fn list_reports(&self, query: ReportQuery) -> AppResult<ReportPage>;
     async fn get_report(&self, report_id: &str) -> AppResult<ReportDetail>;
-    async fn update_report_asset(&self, report_id: &str, asset_id: &str) -> AppResult<()>;
 }
 
 pub struct ReqwestClient {
@@ -559,51 +558,6 @@ impl HackerOneApi for ReqwestClient {
             message: format!("Could not parse report {report_id}"),
         })
     }
-
-    // TEMPORARY DUMMY — does not hit the HackerOne API.
-    // Simulates ~150-500ms latency and a 30% failure rate, picking from the
-    // non-cascading error kinds (network/rate_limited/not_found/other) so the
-    // full bulk-edit UI flow (progress, partial failure, retry-failed) can be
-    // exercised without unauthorized/forbidden which would abort the batch.
-    // Replace with a real PUT /reports/{id}/structured_scope when the UI is solid.
-    // asset_id is only referenced by the debug-only println below, so it reads
-    // as unused in release builds.
-    #[cfg_attr(not(debug_assertions), allow(unused_variables))]
-    async fn update_report_asset(&self, report_id: &str, asset_id: &str) -> AppResult<()> {
-        let r = pseudo_rand_u64();
-        let delay_ms = 150 + ((r >> 8) % 350);
-        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-
-        #[cfg(debug_assertions)]
-        println!("[dummy] update_report_asset report={report_id} asset={asset_id}");
-
-        let roll = r & 0xff;
-        if roll % 100 < 30 {
-            return Err(match roll % 4 {
-                0 => AppError::RateLimited {
-                    message: "Simulated rate limit (dummy)".into(),
-                },
-                1 => AppError::Network {
-                    message: "Simulated network failure (dummy)".into(),
-                },
-                2 => AppError::NotFound {
-                    message: format!("Simulated missing report {report_id} (dummy)"),
-                },
-                _ => AppError::Other {
-                    message: "Simulated server error (dummy)".into(),
-                },
-            });
-        }
-        Ok(())
-    }
-}
-
-fn pseudo_rand_u64() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.subsec_nanos() as u64)
-        .unwrap_or(0)
 }
 
 fn parse_user_ref(rel: &serde_json::Value) -> Option<UserRef> {

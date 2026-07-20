@@ -9,7 +9,6 @@ import { formatClock } from "../utils/time";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { Avatar } from "./Avatar";
 import { describeEvent, renderActivity } from "./activity/renderActivity";
-import { BulkEditPanel } from "./BulkEditPanel";
 import { DuplicatesPanel } from "./DuplicatesPanel";
 import { Markdown } from "./Markdown";
 import { RelativeTime } from "./RelativeTime";
@@ -89,26 +88,24 @@ function SaveFileButton({
 export function DetailPanel() {
 	const state = useAppState();
 	const dispatch = useDispatch();
-	const bulkActive = state.selectedReportIds.size > 0;
 	// The duplicate check only makes sense for two or more reports, so its tab appears only then.
 	const canCheckDuplicates = state.selectedReportIds.size > 1;
-	const setActiveTab = (tab: "report" | "bulk" | "duplicates") =>
+	const setActiveTab = (tab: "report" | "duplicates") =>
 		dispatch({ type: "DETAIL_TAB_SET", tab });
-	// Fall back off the duplicates tab if the selection has dropped below two — its tab is gone.
-	const activeTab =
-		state.detailActiveTab === "duplicates" && !canCheckDuplicates ? "bulk" : state.detailActiveTab;
-	const prevBulkActive = useRef(false);
+	const activeTab = canCheckDuplicates ? state.detailActiveTab : "report";
+	const prevCanCheckDuplicates = useRef(false);
 	useEffect(() => {
-		if (bulkActive && !prevBulkActive.current) setActiveTab("bulk");
-		if (!bulkActive && prevBulkActive.current) setActiveTab("report");
-		prevBulkActive.current = bulkActive;
+		// Selecting a second report makes duplicate-checking possible — surface it by default.
+		if (canCheckDuplicates && !prevCanCheckDuplicates.current) setActiveTab("duplicates");
+		if (!canCheckDuplicates && prevCanCheckDuplicates.current) setActiveTab("report");
+		prevCanCheckDuplicates.current = canCheckDuplicates;
 		// setActiveTab dispatches via context and never changes identity
-	}, [bulkActive]);
+	}, [canCheckDuplicates]);
 
 	return (
 		<aside class="detail">
 			<div class="detail-scroll">
-				{bulkActive ? (
+				{canCheckDuplicates ? (
 					<div class="detail-tabs" role="tablist">
 						<button
 							type="button"
@@ -122,34 +119,17 @@ export function DetailPanel() {
 						<button
 							type="button"
 							role="tab"
-							aria-selected={activeTab === "bulk"}
-							class={`detail-tab${activeTab === "bulk" ? " active" : ""}`}
-							onClick={() => setActiveTab("bulk")}
+							aria-selected={activeTab === "duplicates"}
+							class={`detail-tab${activeTab === "duplicates" ? " active" : ""}`}
+							onClick={() => setActiveTab("duplicates")}
 						>
-							Bulk edit ({state.selectedReportIds.size})
+							Duplicates ({state.selectedReportIds.size})
 						</button>
-						{canCheckDuplicates ? (
-							<button
-								type="button"
-								role="tab"
-								aria-selected={activeTab === "duplicates"}
-								class={`detail-tab${activeTab === "duplicates" ? " active" : ""}`}
-								onClick={() => setActiveTab("duplicates")}
-							>
-								Duplicates
-							</button>
-						) : null}
 					</div>
 				) : null}
-				{bulkActive && activeTab === "bulk" ? (
-					<BulkEditPanel />
-				) : bulkActive && activeTab === "duplicates" ? (
-					<DuplicatesPanel />
-				) : (
-					<ReportTab />
-				)}
+				{canCheckDuplicates && activeTab === "duplicates" ? <DuplicatesPanel /> : <ReportTab />}
 			</div>
-			{!bulkActive || activeTab === "report" ? <ToastStack toasts={state.detailToasts} /> : null}
+			{activeTab === "report" ? <ToastStack toasts={state.detailToasts} /> : null}
 		</aside>
 	);
 }

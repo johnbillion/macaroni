@@ -145,9 +145,7 @@ export function InboxTable() {
 	const selected = state.selectedReportIds;
 	const allSelected = items.length > 0 && items.every((r) => selected.has(r.id));
 	const someSelected = items.some((r) => selected.has(r.id));
-	const bulkRunning = state.bulkOperation.status === "running";
-	const selectionTabActive =
-		state.detailActiveTab === "bulk" || state.detailActiveTab === "duplicates";
+	const selectionTabActive = state.detailActiveTab === "duplicates";
 	const headerCheckRef = useRef<HTMLInputElement>(null);
 	useEffect(() => {
 		if (headerCheckRef.current) {
@@ -237,7 +235,6 @@ export function InboxTable() {
 									class="cb"
 									aria-label="Select all"
 									checked={allSelected}
-									disabled={bulkRunning}
 									onChange={onToggleAll}
 								/>
 							</label>
@@ -261,11 +258,11 @@ export function InboxTable() {
 					{items.map((r) => {
 						const pill = pillFor(r.state);
 						const showSelected = state.selectedReportId === r.id && !selectionTabActive;
-						const isBulkSelected = selected.has(r.id);
-						const showBulkSelected = isBulkSelected && selectionTabActive;
+						const isMultiSelected = selected.has(r.id);
+						const showMultiSelected = isMultiSelected && selectionTabActive;
 						const classes = ["row"];
 						if (showSelected) classes.push("selected");
-						if (showBulkSelected) classes.push("bulk-selected");
+						if (showMultiSelected) classes.push("multi-selected");
 						return (
 							<tr
 								key={r.id}
@@ -282,8 +279,7 @@ export function InboxTable() {
 											type="checkbox"
 											class="cb"
 											aria-label="Select report"
-											checked={isBulkSelected}
-											disabled={bulkRunning}
+											checked={isMultiSelected}
 											onChange={() => onToggleRow(r.id)}
 										/>
 									</label>

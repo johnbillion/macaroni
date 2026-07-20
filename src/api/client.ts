@@ -43,8 +43,6 @@ export const api = {
 		since_created_at?: string;
 	}) => call<{ items: ReportSummary[]; next_cursor: string | null }>("list_reports", { query }),
 	getReport: (reportId: string) => call<ReportDetail>("get_report", { reportId }),
-	updateReportAsset: (reportId: string, assetId: string) =>
-		call<void>("update_report_asset", { reportId, assetId }),
 	saveAttachment: (url: string, suggestedFilename: string) =>
 		call<boolean>("save_attachment", { url, suggestedFilename }),
 	saveTextFile: (contents: string, suggestedFilename: string) =>

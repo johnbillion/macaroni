@@ -251,26 +251,6 @@ export type DuplicateCheckState =
 	| { status: "ready"; result: DuplicateResult; events: TriageEvent[] }
 	| { status: "error"; error: AppError; events: TriageEvent[] };
 
-export type BulkFailure = { reportId: string; error: AppError };
-
-export type BulkOperationState =
-	| { status: "idle" }
-	| {
-			status: "running";
-			total: number;
-			completed: number;
-			currentReportId: string | null;
-			failed: BulkFailure[];
-			cancelRequested: boolean;
-	  }
-	| {
-			status: "done";
-			total: number;
-			succeeded: number;
-			failed: BulkFailure[];
-			cancelled: boolean;
-	  };
-
 export type AppState = {
 	credentials: "unknown" | "missing" | "present";
 	username: string | null;
@@ -303,13 +283,13 @@ export type AppState = {
 	// Consumers watch this to react to "fresh list" events — e.g. scrolling back to the top.
 	reportsReplaceCount: number;
 	selectedReportId: string | null;
-	// Multi-selection for bulk-edit mode. Non-empty Set => app is in bulk-edit mode.
+	// Multi-selection of reports (via the inbox checkboxes). Two or more selected enables the
+	// duplicate check; the same set also drives the bulk report download.
 	selectedReportIds: Set<string>;
-	bulkOperation: BulkOperationState;
 	// Result of the "are these reports duplicates" check over the current selection. Reset to
 	// idle whenever the selection changes, since a verdict only applies to the set it ran on.
 	duplicateCheck: DuplicateCheckState;
-	detailActiveTab: "report" | "bulk" | "duplicates";
+	detailActiveTab: "report" | "duplicates";
 	detail: Record<string, AsyncState<ReportDetail>>;
 	// Reports whose detail pane is currently showing summary-derived placeholder data while the
 	// full get_report fetch is in flight. Used to render "loading" affordances for the fields the
@@ -365,15 +345,7 @@ export type Action =
 	| { type: "SELECTION_TOGGLED"; reportId: string }
 	| { type: "SELECTION_SET"; reportIds: string[]; checked: boolean }
 	| { type: "SELECTION_CLEARED" }
-	| { type: "BULK_STARTED"; total: number }
-	| { type: "BULK_ITEM_BEGAN"; reportId: string }
-	| { type: "BULK_ITEM_SUCCEEDED"; reportId: string; asset: AssetRef }
-	| { type: "BULK_ITEM_FAILED"; reportId: string; error: AppError }
-	| { type: "BULK_CANCEL_REQUESTED" }
-	| { type: "BULK_FINISHED"; cancelled: boolean }
-	| { type: "BULK_RESULT_DISMISSED" }
-	| { type: "BULK_RETRY_FAILED" }
-	| { type: "DETAIL_TAB_SET"; tab: "report" | "bulk" | "duplicates" }
+	| { type: "DETAIL_TAB_SET"; tab: "report" | "duplicates" }
 	| { type: "DUP_CHECK_STARTED" }
 	| { type: "DUP_CHECK_EVENT"; event: TriageEvent }
 	| { type: "DUP_CHECK_SUCCEEDED"; result: DuplicateResult }
@@ -458,7 +430,6 @@ export const initialState: AppState = {
 	reportsReplaceCount: 0,
 	selectedReportId: null,
 	selectedReportIds: new Set(),
-	bulkOperation: { status: "idle" },
 	duplicateCheck: { status: "idle" },
 	detailActiveTab: "report",
 	detail: {},
@@ -600,7 +571,6 @@ export function reducer(state: AppState, action: Action): AppState {
 				reports: { status: "idle" },
 				selectedReportId: null,
 				selectedReportIds: new Set(),
-				bulkOperation: { status: "idle" },
 			};
 		case "PROGRAM_SELECTED":
 			return {
@@ -611,7 +581,6 @@ export function reducer(state: AppState, action: Action): AppState {
 				reports: { status: "idle" },
 				selectedReportId: null,
 				selectedReportIds: new Set(),
-				bulkOperation: { status: "idle" },
 			};
 		case "STATES_SET":
 			return {
@@ -743,92 +712,6 @@ export function reducer(state: AppState, action: Action): AppState {
 		}
 		case "SELECTION_CLEARED":
 			return { ...state, selectedReportIds: new Set(), duplicateCheck: { status: "idle" } };
-		case "BULK_STARTED":
-			return {
-				...state,
-				bulkOperation: {
-					status: "running",
-					total: action.total,
-					completed: 0,
-					currentReportId: null,
-					failed: [],
-					cancelRequested: false,
-				},
-			};
-		case "BULK_ITEM_BEGAN": {
-			if (state.bulkOperation.status !== "running") return state;
-			return {
-				...state,
-				bulkOperation: { ...state.bulkOperation, currentReportId: action.reportId },
-			};
-		}
-		case "BULK_ITEM_SUCCEEDED": {
-			if (state.bulkOperation.status !== "running") return state;
-			let nextReports = state.reports;
-			if (state.reports.status === "ready") {
-				const items = state.reports.data.items.map((r) =>
-					r.id === action.reportId ? { ...r, asset: action.asset } : r,
-				);
-				nextReports = { status: "ready", data: { ...state.reports.data, items } };
-			}
-			const restDetail = { ...state.detail };
-			delete restDetail[action.reportId];
-			return {
-				...state,
-				reports: nextReports,
-				detail: restDetail,
-				bulkOperation: {
-					...state.bulkOperation,
-					completed: state.bulkOperation.completed + 1,
-				},
-			};
-		}
-		case "BULK_ITEM_FAILED": {
-			if (state.bulkOperation.status !== "running") return state;
-			return {
-				...state,
-				bulkOperation: {
-					...state.bulkOperation,
-					completed: state.bulkOperation.completed + 1,
-					failed: [
-						...state.bulkOperation.failed,
-						{ reportId: action.reportId, error: action.error },
-					],
-				},
-			};
-		}
-		case "BULK_CANCEL_REQUESTED": {
-			if (state.bulkOperation.status !== "running") return state;
-			return {
-				...state,
-				bulkOperation: { ...state.bulkOperation, cancelRequested: true },
-			};
-		}
-		case "BULK_FINISHED": {
-			if (state.bulkOperation.status !== "running") return state;
-			const { total, completed, failed } = state.bulkOperation;
-			return {
-				...state,
-				bulkOperation: {
-					status: "done",
-					total,
-					succeeded: completed - failed.length,
-					failed,
-					cancelled: action.cancelled,
-				},
-			};
-		}
-		case "BULK_RESULT_DISMISSED":
-			return { ...state, bulkOperation: { status: "idle" } };
-		case "BULK_RETRY_FAILED": {
-			if (state.bulkOperation.status !== "done") return state;
-			const failedIds = state.bulkOperation.failed.map((f) => f.reportId);
-			return {
-				...state,
-				selectedReportIds: new Set(failedIds),
-				bulkOperation: { status: "idle" },
-			};
-		}
 		case "DETAIL_TAB_SET":
 			return { ...state, detailActiveTab: action.tab };
 		case "DUP_CHECK_STARTED":

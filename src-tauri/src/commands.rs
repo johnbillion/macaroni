@@ -114,15 +114,6 @@ pub async fn get_report(ctx: State<'_, AppContext>, report_id: String) -> AppRes
 }
 
 #[tauri::command]
-pub async fn update_report_asset(
-    ctx: State<'_, AppContext>,
-    report_id: String,
-    asset_id: String,
-) -> AppResult<()> {
-    ctx.api.update_report_asset(&report_id, &asset_id).await
-}
-
-#[tauri::command]
 pub async fn get_triage(
     ctx: State<'_, AppContext>,
     report_id: String,
