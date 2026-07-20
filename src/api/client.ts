@@ -41,15 +41,8 @@ export const api = {
 		assignees: string[];
 		keyword?: string;
 	}) => call<ReportSummary[]>("query_reports", { query }),
-	syncStatus: () =>
-		call<{
-			program_handle: string | null;
-			backfill_summaries_complete: boolean;
-			backfill_detail_complete: boolean;
-			total_reports: number;
-			detail_fetched: number;
-			running: boolean;
-		}>("sync_status"),
+	syncedReportCount: (programHandle: string) =>
+		call<number>("synced_report_count", { programHandle }),
 	startReportSync: (programHandle: string) => call<void>("start_report_sync", { programHandle }),
 	getReport: (reportId: string) => call<ReportDetail>("get_report", { reportId }),
 	// The locally-cached full detail for a report, if the sync has fetched it. Null if not.

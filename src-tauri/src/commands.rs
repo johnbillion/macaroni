@@ -114,31 +114,13 @@ pub async fn query_reports(
     ctx.reports.query(&query)
 }
 
-// The sync engine's persisted progress plus live counts, for the Topbar indicator.
-#[derive(serde::Serialize)]
-pub struct SyncStatusResponse {
-    pub program_handle: Option<String>,
-    pub backfill_summaries_complete: bool,
-    pub backfill_detail_complete: bool,
-    pub total_reports: i64,
-    pub detail_fetched: i64,
-    pub running: bool,
-}
-
+// Total reports mirrored locally for a program, for the Topbar's idle "N synced" indicator.
 #[tauri::command]
-pub async fn sync_status(ctx: State<'_, AppContext>) -> AppResult<SyncStatusResponse> {
-    let state = ctx.reports.get_sync_state()?;
-    let handle = state.program_handle.clone().unwrap_or_default();
-    let total_reports = ctx.reports.count_reports(&handle)?;
-    let detail_fetched = ctx.reports.count_detail(&handle)?;
-    Ok(SyncStatusResponse {
-        program_handle: state.program_handle,
-        backfill_summaries_complete: state.backfill_summaries_complete,
-        backfill_detail_complete: state.backfill_detail_complete,
-        total_reports,
-        detail_fetched,
-        running: ctx.sync_running.load(std::sync::atomic::Ordering::SeqCst),
-    })
+pub async fn synced_report_count(
+    ctx: State<'_, AppContext>,
+    program_handle: String,
+) -> AppResult<i64> {
+    ctx.reports.count_reports(&program_handle)
 }
 
 // Kick off (or resume) the background sync for a program. Idempotent — a no-op if a sync is

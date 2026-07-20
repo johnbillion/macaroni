@@ -124,7 +124,7 @@ pub fn run() {
             commands::list_assets,
             commands::list_program_members,
             commands::query_reports,
-            commands::sync_status,
+            commands::synced_report_count,
             commands::start_report_sync,
             commands::get_report,
             commands::get_cached_report,

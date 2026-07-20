@@ -70,3 +70,6 @@ Never echo the raw token to the terminal or commit it. The scripts read it into 
 | **Testable** | Trait-based Rust services with mock implementations; transport-layer mocking on the frontend |
 | **Pure views** | No side effects in components; actions dispatched via context callbacks |
 | **Minimal frontend logic** | The frontend renders and captures user intent; business logic lives in Rust |
+| **Semantic** | Front end markup and styling should use modern, semantic HTML and built-in functionality where possible |
+| **Accessible** | Front end should use accessible controls, be keyboard accessible, and be WCAG AA compliant |
+| **One source of truth** | All data and all fields appear in the database exactly once, no duplication of data between fields or tables |

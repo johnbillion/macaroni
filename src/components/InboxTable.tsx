@@ -138,7 +138,6 @@ export function InboxTable() {
 	const dispatch = useDispatch();
 	const inboxRef = useRef<HTMLElement>(null);
 	const { visibility, toggle } = useColumnVisibility();
-	const visibleCount = 1 + COLUMN_DEFS.reduce((n, c) => n + (visibility[c.key] ? 1 : 0), 0);
 
 	const items = state.reports.status === "ready" ? state.reports.data.items : [];
 	const selected = state.selectedReportIds;
@@ -383,17 +382,6 @@ export function InboxTable() {
 						);
 					})}
 				</tbody>
-				<tfoot>
-					<tr class="footer-row">
-						<td colspan={visibleCount}>
-							<div class="inbox-footer">
-								<span class="footer-total">
-									{items.length} {items.length === 1 ? "report" : "reports"}
-								</span>
-							</div>
-						</td>
-					</tr>
-				</tfoot>
 			</table>
 		);
 	})();
@@ -404,23 +392,21 @@ export function InboxTable() {
 	return (
 		<div class="inbox-wrap">
 			<main class="inbox" ref={inboxRef}>
-				<div
-					class={`loading-bar${state.reportsRefreshing ? " active" : ""}`}
-					role="progressbar"
-					aria-label="Refreshing reports"
-					aria-hidden={!state.reportsRefreshing}
-				/>
 				{body}
 			</main>
 			{showColumnsMenu || canRefresh ? (
 				<div class="inbox-toolbar">
+					{showColumnsMenu ? (
+						<span class="toolbar-total">
+							{items.length} {items.length === 1 ? "report" : "reports"}
+						</span>
+					) : null}
 					{canRefresh ? (
 						<button
 							type="button"
 							class="columns-menu-btn"
 							aria-label="Refresh reports"
 							onClick={onRefreshReports}
-							disabled={state.reportsRefreshing}
 						>
 							↻
 						</button>

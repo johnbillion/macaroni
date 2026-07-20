@@ -205,32 +205,18 @@ pub struct ReportDetail {
     pub attachments: Vec<Attachment>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+// Parameters for a `/reports` list fetch. This is now an internal type used only by the sync
+// engine (the UI queries the local DB via `query_reports`), so it carries just what the sync
+// needs: the program, an optional state filter, a cursor, and a sort. All the per-facet filters
+// the old UI used are gone — filtering happens locally in SQL now.
+#[derive(Debug, Clone, Default)]
 pub struct ReportQuery {
     pub program_handle: String,
-    #[serde(default)]
     pub states: Vec<String>,
-    #[serde(default)]
-    pub severities: Vec<String>,
-    #[serde(default)]
-    pub asset_ids: Vec<String>,
-    /// Assignee filter tokens — usernames for user assignees, names for group assignees. The
-    /// HackerOne API's `filter[assignee][]` matches on those, not on assignee id. Multiple
-    /// values are OR'd together.
-    #[serde(default)]
-    pub assignees: Vec<String>,
-    #[serde(default)]
-    pub keyword: Option<String>,
-    #[serde(default)]
     pub page_cursor: Option<String>,
-    /// ISO8601 timestamp. When set (and no `page_cursor`), restricts the result to reports
-    /// created strictly after this instant via `filter[created_at__gt]`.
-    #[serde(default)]
-    pub since_created_at: Option<String>,
     /// HackerOne sort expression, e.g. `-reports.created_at` (default) or
     /// `-reports.last_activity_at`. Only applied on a first-page (no-cursor) request; a cursor
     /// URL already carries the sort it was built with.
-    #[serde(default)]
     pub sort: Option<String>,
 }
 
@@ -453,31 +439,6 @@ impl HackerOneApi for ReqwestClient {
                 ];
                 for state in &query.states {
                     params.push(("filter[state][]".to_string(), state.clone()));
-                }
-                for severity in &query.severities {
-                    params.push(("filter[severity][]".to_string(), severity.clone()));
-                }
-                for asset_id in &query.asset_ids {
-                    params.push(("filter[asset_ids][]".to_string(), asset_id.clone()));
-                }
-                for assignee in &query.assignees {
-                    params.push(("filter[assignee][]".to_string(), assignee.clone()));
-                }
-                if let Some(keyword) = query
-                    .keyword
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                {
-                    params.push(("filter[keyword]".to_string(), keyword.to_string()));
-                }
-                if let Some(since) = query
-                    .since_created_at
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                {
-                    params.push(("filter[created_at__gt]".to_string(), since.to_string()));
                 }
                 let qs = serde_urlencoded::to_string(&params).map_err(AppError::other)?;
                 format!("{BASE_URL}/reports?{qs}")

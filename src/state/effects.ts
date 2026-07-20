@@ -286,6 +286,16 @@ export async function startReportSync(programHandle: string) {
 	}
 }
 
+// Refresh the "N synced" total shown in the Topbar when no sync is actively running.
+export async function refreshSyncedCount(dispatch: Dispatch, programHandle: string) {
+	try {
+		const count = await api.syncedReportCount(programHandle);
+		dispatch({ type: "SYNCED_COUNT_SET", count });
+	} catch {
+		// Non-fatal — the indicator just keeps its previous value.
+	}
+}
+
 // Build the query from the current filter state, applying the "fully-checked group == no
 // filter" optimization. Unlike the old API path, the "unrated" severity sentinel is kept — the
 // local DB can filter for a null severity_rating.

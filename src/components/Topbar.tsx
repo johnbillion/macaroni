@@ -57,9 +57,13 @@ export function Topbar() {
 		<div class="topbar" data-tauri-drag-region>
 			<div class="brand">Macaroni / {programHandle}</div>
 			{syncLabel ? (
-				<div class="sync-indicator" title="Syncing reports from HackerOne">
+				<div class="sync-indicator">
 					<Spinner />
 					<span>{syncLabel}</span>
+				</div>
+			) : state.syncedReportCount !== null ? (
+				<div class="sync-indicator sync-idle">
+					<span>{state.syncedReportCount.toLocaleString()} synced</span>
 				</div>
 			) : null}
 			<div class="status-cluster">

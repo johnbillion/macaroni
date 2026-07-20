@@ -14,6 +14,7 @@ import {
 	loadTriage,
 	refreshReportDetail,
 	refreshReports,
+	refreshSyncedCount,
 	startReportSync,
 } from "../state/effects";
 import type { SyncStatus } from "../state/store";
@@ -182,7 +183,8 @@ export function App() {
 	useEffect(() => {
 		if (!handle) return;
 		startReportSync(handle);
-	}, [handle]);
+		refreshSyncedCount(dispatch, handle);
+	}, [handle, dispatch]);
 
 	// React to sync progress: `sync:changed` means the local DB moved, so re-run the active query
 	// in the background (no scroll/selection reset); `sync:status` feeds the Topbar indicator. A
@@ -195,6 +197,8 @@ export function App() {
 		(async () => {
 			unlistenChanged = await listen("sync:changed", () => {
 				refreshReports(dispatch, stateRef.current);
+				const h = stateRef.current.filters.programHandle;
+				if (h) refreshSyncedCount(dispatch, h);
 			});
 			unlistenStatus = await listen<SyncStatus>("sync:status", (e) => {
 				dispatch({ type: "SYNC_STATUS", status: e.payload });

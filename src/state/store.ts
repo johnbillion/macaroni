@@ -63,10 +63,10 @@ export type AssigneeRef = {
 	profile_picture_url: string | null;
 };
 
-// A selectable assignee in the sidebar filter. `value` is the exact token the /reports
-// `filter[assignee][]` parameter expects — the username for a user, the name for a group
-// (the API has no id-based assignee filter). Options are derived from the assignees seen on
-// loaded reports and accumulated across sessions, since groups can't be enumerated via the API.
+// A selectable assignee in the sidebar filter. `value` is the token the local query matches
+// against (the `assignee_token` generated column): the username for a user, the name for a group.
+// Options are derived from the assignees seen on loaded reports and accumulated across sessions,
+// since groups can't be enumerated via the API.
 export type AssigneeOption = {
 	type: "user" | "group";
 	value: string;
@@ -288,12 +288,14 @@ export type AppState = {
 	// The report list, queried from the local SQLite mirror. Every query returns all matches —
 	// there is no pagination.
 	reports: AsyncState<{ items: ReportSummary[] }>;
-	reportsRefreshing: boolean;
 	// Bumped each time the report list is replaced by a fresh query (filter change / manual
 	// refresh). Consumers watch this to react to "fresh list" events — e.g. scrolling to top.
 	reportsReplaceCount: number;
 	// Latest background-sync progress, for the Topbar indicator.
 	sync: SyncStatus;
+	// Total reports mirrored locally for the current program (null until first counted). Shown in
+	// the Topbar when no sync is actively running.
+	syncedReportCount: number | null;
 	selectedReportId: string | null;
 	// Multi-selection of reports (via the inbox checkboxes). Two or more selected enables the
 	// duplicate check; the same set also drives the bulk report download.
@@ -353,6 +355,7 @@ export type Action =
 	| { type: "REPORTS_SUCCEEDED"; items: ReportSummary[]; replace: boolean }
 	| { type: "REPORTS_FAILED"; error: AppError }
 	| { type: "SYNC_STATUS"; status: SyncStatus }
+	| { type: "SYNCED_COUNT_SET"; count: number }
 	| { type: "REPORT_SELECTED"; reportId: string | null }
 	| { type: "SELECTION_TOGGLED"; reportId: string }
 	| { type: "SELECTION_SET"; reportIds: string[]; checked: boolean }
@@ -437,9 +440,9 @@ export const initialState: AppState = {
 		search: "",
 	},
 	reports: { status: "idle" },
-	reportsRefreshing: false,
 	reportsReplaceCount: 0,
 	sync: { phase: "idle", done: 0, total: 0, running: false },
+	syncedReportCount: null,
 	selectedReportId: null,
 	selectedReportIds: new Set(),
 	duplicateCheck: { status: "idle" },
@@ -622,7 +625,6 @@ export function reducer(state: AppState, action: Action): AppState {
 		case "REPORTS_REQUESTED":
 			return {
 				...state,
-				reportsRefreshing: true,
 				reports: state.reports.status === "ready" ? state.reports : { status: "loading" },
 			};
 		case "REPORTS_SUCCEEDED": {
@@ -639,7 +641,6 @@ export function reducer(state: AppState, action: Action): AppState {
 					: state.selectedReportId;
 			return {
 				...state,
-				reportsRefreshing: false,
 				reportsReplaceCount: action.replace
 					? state.reportsReplaceCount + 1
 					: state.reportsReplaceCount,
@@ -655,11 +656,12 @@ export function reducer(state: AppState, action: Action): AppState {
 		case "REPORTS_FAILED":
 			return {
 				...state,
-				reportsRefreshing: false,
 				reports: { status: "error", error: action.error },
 			};
 		case "SYNC_STATUS":
 			return { ...state, sync: action.status };
+		case "SYNCED_COUNT_SET":
+			return { ...state, syncedReportCount: action.count };
 		case "REPORT_SELECTED":
 			return {
 				...state,
