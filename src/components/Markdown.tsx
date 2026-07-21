@@ -1,4 +1,6 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
+import type { Root } from "mdast";
+import { findAndReplace } from "mdast-util-find-and-replace";
 import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import ReactMarkdown from "react-markdown";
@@ -158,6 +160,33 @@ function substituteAttachmentTokens(source: string, attachments: Attachment[]): 
 // relative paths) is stripped and rendered as inline code rather than a clickable link.
 const HACKERONE_BASE = "https://hackerone.com";
 
+// HackerOne report references written inline in comments (`#123456`) are turned into links
+// to the report on hackerone.com. Only "naked" references are matched: a `#` not preceded by
+// a word character, followed by 6–7 digits not followed by a further digit — so `#`s embedded
+// in larger tokens and 8+ digit numbers are left alone. `findAndReplace` only rewrites text
+// nodes, and we ignore link parents, so references inside code, inline code, and existing
+// links are untouched.
+const REPORT_REF_RE = /(?<![\w#])#(\d{6,7})(?!\d)/g;
+
+function remarkReportRefs() {
+	return (tree: Root) => {
+		findAndReplace(
+			tree,
+			[
+				[
+					REPORT_REF_RE,
+					(_match: string, id: string) => ({
+						type: "link" as const,
+						url: `${HACKERONE_BASE}/reports/${id}`,
+						children: [{ type: "text" as const, value: `#${id}` }],
+					}),
+				],
+			],
+			{ ignore: ["link", "linkReference"] },
+		);
+	};
+}
+
 // Returns the absolute http(s) URL to link to, or null if the href should be stripped.
 function resolveHref(href: string): string | null {
 	let resolved = href;
@@ -213,7 +242,10 @@ export function Markdown({
 	);
 	return (
 		<div class={`markdown${className ? ` ${className}` : ""}`}>
-			<ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={components}>
+			<ReactMarkdown
+				remarkPlugins={[remarkGfm, remarkBreaks, remarkReportRefs]}
+				components={components}
+			>
 				{rendered}
 			</ReactMarkdown>
 		</div>

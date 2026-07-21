@@ -39,3 +39,11 @@ libc = "0.2"
 zeroize = { version = "1.8", features = ["derive"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Read NSColor.controlAccentColor to surface the system accent colour to the UI. Versions
+# match what Tauri/wry already pull in, so this adds no new compiled crates.
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSNotification", "NSString", "NSOperation"] }
+objc2-app-kit = { version = "0.3", features = ["NSColor", "NSColorSpace"] }
+block2 = "0.6"
+

@@ -54,6 +54,8 @@ export const api = {
 		call<boolean>("save_text_file", { contents, suggestedFilename }),
 	saveZipFile: (entries: { filename: string; contents: string }[], suggestedFilename: string) =>
 		call<boolean>("save_zip_file", { entries, suggestedFilename }),
+	// The macOS system accent colour, for driving the theme's --accent / --on-accent vars.
+	getAccentColor: () => call<{ accent: string; on_accent: string }>("get_accent_color"),
 	getSettings: () => call<Settings>("get_settings"),
 	setTriageWorkingDir: (dir: string | null) => call<Settings>("set_triage_working_dir", { dir }),
 	pickDirectory: () => call<string | null>("pick_directory"),

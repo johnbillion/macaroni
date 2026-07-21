@@ -1,5 +1,6 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useRef } from "preact/hooks";
+import { api } from "../api/client";
 import { useAppState, useDispatch } from "../state/context";
 import {
 	bootstrap,
@@ -41,6 +42,29 @@ export function App() {
 	useEffect(() => {
 		loadSettings(dispatch);
 	}, [dispatch]);
+
+	// Reflect the macOS system accent colour into the theme's --accent / --on-accent CSS
+	// variables (buttons, links, selection, controls all derive from them). Applied on launch
+	// and re-applied whenever the user changes the accent in System Settings → Appearance.
+	useEffect(() => {
+		let unlisten: UnlistenFn | null = null;
+		const apply = (c: { accent: string; on_accent: string }) => {
+			const root = document.documentElement.style;
+			root.setProperty("--accent", c.accent);
+			root.setProperty("--on-accent", c.on_accent);
+		};
+		(async () => {
+			try {
+				apply(await api.getAccentColor());
+			} catch {
+				// Non-macOS or a read failure: the stylesheet's fallback accent stays in effect.
+			}
+			unlisten = await listen<{ accent: string; on_accent: string }>("theme:accent-changed", (e) =>
+				apply(e.payload),
+			);
+		})();
+		return () => unlisten?.();
+	}, []);
 
 	useEffect(() => {
 		const orgId = state.filters.orgId;
@@ -180,10 +204,20 @@ export function App() {
 	// whenever the selected program changes — on the Rust side it fetches the initial open-reports
 	// page, then runs an incremental update catch-up (reports touched since we last synced) and,
 	// on a fresh DB, a full open+closed backfill. It's idempotent, so re-firing is harmless.
+	//
+	// We also re-fire on window focus: returning to the app runs the incremental catch-up, which
+	// pulls in anything created or updated on HackerOne while we were away and slots it into the
+	// inbox (via the sync:changed → re-query path). If a sync is already running the Rust guard
+	// makes the focus call a no-op.
 	useEffect(() => {
 		if (!handle) return;
-		startReportSync(handle);
-		refreshSyncedCount(dispatch, handle);
+		const sync = () => {
+			startReportSync(handle);
+			refreshSyncedCount(dispatch, handle);
+		};
+		sync();
+		window.addEventListener("focus", sync);
+		return () => window.removeEventListener("focus", sync);
 	}, [handle, dispatch]);
 
 	// React to sync progress: `sync:changed` means the local DB moved, so re-run the active query

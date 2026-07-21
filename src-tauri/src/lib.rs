@@ -1,3 +1,4 @@
+mod appearance;
 mod commands;
 mod credentials;
 mod error;
@@ -113,6 +114,10 @@ pub fn run() {
                 triages,
                 sync_running,
             });
+
+            // Reflect the macOS system accent colour into the UI, and keep it live when the
+            // user changes it in System Settings → Appearance.
+            appearance::watch_accent_changes(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -127,6 +132,7 @@ pub fn run() {
             commands::synced_report_count,
             commands::start_report_sync,
             commands::get_report,
+            commands::get_accent_color,
             commands::get_cached_report,
             commands::save_attachment,
             commands::save_text_file,

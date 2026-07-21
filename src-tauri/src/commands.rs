@@ -151,6 +151,14 @@ pub async fn get_report(ctx: State<'_, AppContext>, report_id: String) -> AppRes
     Ok(detail)
 }
 
+// The macOS system accent colour, resolved to a hex value plus a contrasting foreground, for the
+// frontend to feed into its `--accent` / `--on-accent` CSS variables. Synchronous — it hops onto
+// the main thread internally to read `NSColor.controlAccentColor` correctly.
+#[tauri::command]
+pub fn get_accent_color(app: tauri::AppHandle) -> crate::appearance::AccentColor {
+    crate::appearance::accent_color(&app)
+}
+
 // The locally-cached full detail for a report, if the sync has fetched it. Lets the detail pane
 // render activities/attachments instantly from the DB before (or without) a network round-trip.
 #[tauri::command]
