@@ -271,6 +271,10 @@ export type AppState = {
 	programsByOrg: Record<string, AsyncState<Program[]>>;
 	assetsByOrg: Record<string, AsyncState<Asset[]>>;
 	teamMembersByProgram: Record<string, AsyncState<TeamMember[]>>;
+	// Inbox filter options per program handle, derived from the inboxes seen on synced reports
+	// (HackerOne has no endpoint to enumerate a program's inboxes). Refreshed as the sync lands
+	// more reports, so newly-seen inboxes appear in the sidebar.
+	inboxesByProgram: Record<string, AsyncState<InboxRef[]>>;
 	// Assignee filter options accumulated per program handle from the assignees seen on loaded
 	// reports. Persisted to localStorage so the list stays useful across launches — groups in
 	// particular can't be enumerated via the API, so they're only ever learned from report data.
@@ -283,6 +287,8 @@ export type AppState = {
 		assets: string[];
 		// Selected assignee filter tokens (usernames and group names) — see AssigneeOption.value.
 		assignees: string[];
+		// Selected inbox ids (see InboxRef.id).
+		inboxes: string[];
 		search: string;
 	};
 	// The report list, queried from the local SQLite mirror. Every query returns all matches —
@@ -341,12 +347,16 @@ export type Action =
 	| { type: "TEAM_MEMBERS_REQUESTED"; programHandle: string }
 	| { type: "TEAM_MEMBERS_SUCCEEDED"; programHandle: string; members: TeamMember[] }
 	| { type: "TEAM_MEMBERS_FAILED"; programHandle: string; error: AppError }
+	| { type: "INBOX_OPTIONS_REQUESTED"; programHandle: string }
+	| { type: "INBOX_OPTIONS_SUCCEEDED"; programHandle: string; inboxes: InboxRef[] }
+	| { type: "INBOX_OPTIONS_FAILED"; programHandle: string; error: AppError }
 	| { type: "ORG_SELECTED"; orgId: string }
 	| { type: "PROGRAM_SELECTED"; handle: string }
 	| { type: "STATES_SET"; states: string[] }
 	| { type: "SEVERITIES_SET"; severities: string[] }
 	| { type: "ASSETS_SET"; assets: string[] }
 	| { type: "ASSIGNEES_SET"; assignees: string[] }
+	| { type: "INBOXES_SET"; inboxes: string[] }
 	| { type: "SEARCH_SET"; search: string }
 	| { type: "REPORTS_REQUESTED" }
 	// `replace` is true for a user-initiated query (filter change / manual refresh / first load)
@@ -431,12 +441,14 @@ export const initialState: AppState = {
 	programsByOrg: {},
 	assetsByOrg: {},
 	teamMembersByProgram: {},
+	inboxesByProgram: {},
 	assigneeOptionsByProgram: loadAssigneeOptions(),
 	filters: {
 		states: [...DEFAULT_STATE_KEYS],
 		severities: [...DEFAULT_SEVERITY_KEYS],
 		assets: [],
 		assignees: [],
+		inboxes: [],
 		search: "",
 	},
 	reports: { status: "idle" },
@@ -571,6 +583,42 @@ export function reducer(state: AppState, action: Action): AppState {
 					[action.programHandle]: { status: "error", error: action.error },
 				},
 			};
+		case "INBOX_OPTIONS_REQUESTED":
+			return {
+				...state,
+				inboxesByProgram: {
+					...state.inboxesByProgram,
+					// A background refresh (sync landed more reports) shouldn't blank a list we
+					// already have — keep the ready data visible until the fresh set arrives.
+					[action.programHandle]:
+						state.inboxesByProgram[action.programHandle]?.status === "ready"
+							? state.inboxesByProgram[action.programHandle]
+							: { status: "loading" },
+				},
+			};
+		case "INBOX_OPTIONS_SUCCEEDED": {
+			// Drop any selected inbox ids that no longer exist in the freshly-loaded options so a
+			// stale selection can't keep filtering against an inbox that's gone.
+			const validIds = new Set(action.inboxes.map((i) => i.id));
+			const prunedInboxes = state.filters.inboxes.filter((id) => validIds.has(id));
+			const inboxesChanged = prunedInboxes.length !== state.filters.inboxes.length;
+			return {
+				...state,
+				inboxesByProgram: {
+					...state.inboxesByProgram,
+					[action.programHandle]: { status: "ready", data: action.inboxes },
+				},
+				filters: inboxesChanged ? { ...state.filters, inboxes: prunedInboxes } : state.filters,
+			};
+		}
+		case "INBOX_OPTIONS_FAILED":
+			return {
+				...state,
+				inboxesByProgram: {
+					...state.inboxesByProgram,
+					[action.programHandle]: { status: "error", error: action.error },
+				},
+			};
 		case "ORG_SELECTED":
 			return {
 				...state,
@@ -581,6 +629,7 @@ export function reducer(state: AppState, action: Action): AppState {
 					severities: state.filters.severities,
 					assets: [],
 					assignees: [],
+					inboxes: [],
 					search: state.filters.search,
 				},
 				reports: { status: "idle" },
@@ -590,9 +639,9 @@ export function reducer(state: AppState, action: Action): AppState {
 		case "PROGRAM_SELECTED":
 			return {
 				...state,
-				// Assignee tokens (usernames / group names) are program-scoped, so drop the
-				// selection when switching programs. The accumulated options stay (keyed by handle).
-				filters: { ...state.filters, programHandle: action.handle, assignees: [] },
+				// Assignee tokens and inbox ids are program-scoped, so drop those selections when
+				// switching programs. The accumulated options stay (keyed by handle).
+				filters: { ...state.filters, programHandle: action.handle, assignees: [], inboxes: [] },
 				reports: { status: "idle" },
 				selectedReportId: null,
 				selectedReportIds: new Set(),
@@ -616,6 +665,11 @@ export function reducer(state: AppState, action: Action): AppState {
 			return {
 				...state,
 				filters: { ...state.filters, assignees: action.assignees },
+			};
+		case "INBOXES_SET":
+			return {
+				...state,
+				filters: { ...state.filters, inboxes: action.inboxes },
 			};
 		case "SEARCH_SET":
 			return {
@@ -652,9 +706,7 @@ export function reducer(state: AppState, action: Action): AppState {
 				selectedReportId: nextSelected,
 				selectedReportIds: prunedSelection,
 				duplicateCheck:
-					prunedSelection === state.selectedReportIds
-						? state.duplicateCheck
-						: { status: "idle" },
+					prunedSelection === state.selectedReportIds ? state.duplicateCheck : { status: "idle" },
 				reports: { status: "ready", data: { items } },
 				assigneeOptionsByProgram: accumulateAssigneeOptions(
 					state.assigneeOptionsByProgram,

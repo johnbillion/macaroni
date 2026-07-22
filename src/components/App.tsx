@@ -7,6 +7,7 @@ import {
 	buildReportsQuery,
 	debounceLoadReports,
 	loadAssets,
+	loadInboxes,
 	loadPrograms,
 	loadReportDetail,
 	loadReports,
@@ -80,6 +81,15 @@ export function App() {
 		loadAssets(dispatch, orgId);
 	}, [state.filters.orgId, state.assetsByOrg, dispatch]);
 
+	// Inbox filter options are derived from the program's synced reports, so load them once a
+	// program is selected. The sync:changed listener below re-loads them as more reports land.
+	useEffect(() => {
+		const handle = state.filters.programHandle;
+		if (!handle) return;
+		if (state.inboxesByProgram[handle]) return;
+		loadInboxes(dispatch, handle);
+	}, [state.filters.programHandle, state.inboxesByProgram, dispatch]);
+
 	// Team members are per program and only change when the program changes. We need both the
 	// selected handle and the loaded programs list to resolve handle → program id (the API
 	// call is keyed on id, but the rest of the app addresses programs by handle).
@@ -112,10 +122,15 @@ export function App() {
 					.join(",")
 			: "";
 
+	const currentInboxes = handle ? state.inboxesByProgram[handle] : undefined;
+	const availableInboxKey =
+		currentInboxes?.status === "ready" ? currentInboxes.data.map((i) => i.id).join(",") : "";
+
 	const statesKey = state.filters.states.join(",");
 	const severitiesKey = state.filters.severities.join(",");
 	const assetsKey = state.filters.assets.join(",");
 	const assigneesKey = state.filters.assignees.join(",");
+	const inboxesKey = state.filters.inboxes.join(",");
 	const searchKey = state.filters.search.trim();
 
 	// Program selection and the sidebar facet filters (state, severity, asset, assignee) query the
@@ -126,7 +141,17 @@ export function App() {
 		const query = buildReportsQuery(state);
 		if (!query) return;
 		loadReports(dispatch, query);
-	}, [handle, statesKey, severitiesKey, assetsKey, assigneesKey, eligibleAssetKey, dispatch]);
+	}, [
+		handle,
+		statesKey,
+		severitiesKey,
+		assetsKey,
+		assigneesKey,
+		inboxesKey,
+		eligibleAssetKey,
+		availableInboxKey,
+		dispatch,
+	]);
 
 	// The free-text search box is the one filter still debounced, so a burst of keystrokes fires a
 	// single query. Skip the initial run — the effect above already issues the first load.
@@ -232,7 +257,11 @@ export function App() {
 			unlistenChanged = await listen("sync:changed", () => {
 				refreshReports(dispatch, stateRef.current);
 				const h = stateRef.current.filters.programHandle;
-				if (h) refreshSyncedCount(dispatch, h);
+				if (h) {
+					refreshSyncedCount(dispatch, h);
+					// New reports may carry inboxes not yet in the sidebar list — re-derive them.
+					loadInboxes(dispatch, h);
+				}
 			});
 			unlistenStatus = await listen<SyncStatus>("sync:status", (e) => {
 				dispatch({ type: "SYNC_STATUS", status: e.payload });

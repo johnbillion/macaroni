@@ -2,7 +2,7 @@ import { useEffect, useRef } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
 import { buildReportsQuery, cancelPendingReportsLoad, loadReports } from "../state/effects";
 import { CLOSED_STATES, OPEN_STATES, SEVERITY_FACETS, type StateFacet } from "../state/filters";
-import type { Asset, AssigneeOption, AsyncState, TeamMember } from "../state/store";
+import type { Asset, AssigneeOption, AsyncState, InboxRef, TeamMember } from "../state/store";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { SeverityMeter } from "./SeverityMeter";
 
@@ -16,6 +16,9 @@ export function Sidebar() {
 	const members = handle ? state.teamMembersByProgram[handle] : undefined;
 	const memberList = members?.status === "ready" ? members.data : [];
 	const assigneeOptions = buildAssigneeOptions(seenAssignees, memberList);
+	const inboxes: AsyncState<InboxRef[]> | undefined = handle
+		? state.inboxesByProgram[handle]
+		: undefined;
 	const locked = state.selectedReportIds.size > 0;
 	return (
 		<aside class={`side${locked ? " side-locked" : ""}`} aria-disabled={locked}>
@@ -55,6 +58,9 @@ export function Sidebar() {
 			</div>
 
 			<AssigneeSection key={`assignee-${handle ?? "none"}`} options={assigneeOptions} />
+
+			<InboxSection key={`inbox-${handle ?? "none"}`} state={inboxes} />
+
 			<SeveritySection />
 		</aside>
 	);
@@ -273,6 +279,79 @@ function AssigneeSection({ options }: { options: AssigneeOption[] }) {
 					</optgroup>
 				) : null}
 			</select>
+		</div>
+	);
+}
+
+function InboxSection({ state }: { state: AsyncState<InboxRef[]> | undefined }) {
+	if (!state || state.status !== "ready") {
+		return (
+			<div class="side-section">
+				<div class="side-h">
+					<label class="check-h">
+						<input type="checkbox" class="cb" disabled />
+						Inbox
+					</label>
+				</div>
+				{!state || state.status === "idle" || state.status === "loading" ? (
+					<div class="facet facet-muted">Loading…</div>
+				) : (
+					<div class="facet facet-muted">Couldn't load inboxes</div>
+				)}
+			</div>
+		);
+	}
+	return <InboxSectionReady inboxes={state.data} />;
+}
+
+function InboxSectionReady({ inboxes }: { inboxes: InboxRef[] }) {
+	const state = useAppState();
+	const dispatch = useDispatch();
+	const selected = state.filters.inboxes;
+	const allIds = inboxes.map((i) => i.id);
+	const checked = new Set<string>(selected);
+	const allChecked = allIds.length > 0 && allIds.every((k) => checked.has(k));
+	const someChecked = allIds.some((k) => checked.has(k));
+	const parentRef = useIndeterminate(allChecked, someChecked);
+
+	const toggleAll = () => {
+		dispatch({ type: "INBOXES_SET", inboxes: someChecked ? [] : allIds });
+	};
+	const toggleOne = (id: string) => {
+		const next = checked.has(id) ? selected.filter((k) => k !== id) : [...selected, id];
+		dispatch({ type: "INBOXES_SET", inboxes: next });
+	};
+
+	return (
+		<div class="side-section">
+			<div class="side-h">
+				<label class="check-h">
+					<input
+						ref={parentRef}
+						type="checkbox"
+						class="cb"
+						checked={allChecked}
+						onChange={toggleAll}
+						disabled={inboxes.length === 0}
+					/>
+					Inbox
+				</label>
+			</div>
+			{inboxes.length === 0 ? (
+				<div class="facet facet-muted">No inboxes</div>
+			) : (
+				inboxes.map((inbox) => (
+					<label key={inbox.id} class="facet">
+						<input
+							type="checkbox"
+							class="cb"
+							checked={checked.has(inbox.id)}
+							onChange={() => toggleOne(inbox.id)}
+						/>
+						<span>{inbox.name}</span>
+					</label>
+				))
+			)}
 		</div>
 	);
 }

@@ -4,6 +4,7 @@ import type {
 	Asset,
 	DuplicateInput,
 	DuplicateResult,
+	InboxRef,
 	Organization,
 	Program,
 	ReportDetail,
@@ -39,8 +40,11 @@ export const api = {
 		severities: string[];
 		asset_identifiers: string[];
 		assignees: string[];
+		inbox_ids: string[];
 		keyword?: string;
 	}) => call<ReportSummary[]>("query_reports", { query }),
+	// Distinct inboxes across all reports synced for a program, for the sidebar inbox filter.
+	listInboxes: (programHandle: string) => call<InboxRef[]>("list_inboxes", { programHandle }),
 	syncedReportCount: (programHandle: string) =>
 		call<number>("synced_report_count", { programHandle }),
 	startReportSync: (programHandle: string) => call<void>("start_report_sync", { programHandle }),

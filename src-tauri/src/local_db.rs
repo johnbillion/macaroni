@@ -1,5 +1,5 @@
 use crate::error::{AppError, AppResult};
-use crate::hackerone::{Activity, Attachment, ReportDetail, ReportSummary};
+use crate::hackerone::{Activity, Attachment, InboxRef, ReportDetail, ReportSummary};
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -41,6 +41,11 @@ pub struct LocalQuery {
     pub asset_identifiers: Vec<String>,
     #[serde(default)]
     pub assignees: Vec<String>,
+    // Inbox *ids*. A report matches when any of its inboxes has one of these ids. There's no
+    // HackerOne API to filter reports by inbox, so this is done entirely in SQL over the
+    // `$.inboxes` array in each report's summary blob.
+    #[serde(default)]
+    pub inbox_ids: Vec<String>,
     #[serde(default)]
     pub keyword: Option<String>,
 }
@@ -55,6 +60,10 @@ pub trait ReportStore: Send + Sync {
     fn upsert_detail(&self, detail: &ReportDetail) -> AppResult<()>;
     // Run a filtered query against the local DB, newest-created first. Returns every match.
     fn query(&self, q: &LocalQuery) -> AppResult<Vec<ReportSummary>>;
+    // Distinct inboxes across every report stored for a program, sorted by name. Drives the
+    // sidebar inbox filter — HackerOne has no endpoint to enumerate a program's inboxes, so the
+    // set is derived from the inboxes seen on synced reports.
+    fn distinct_inboxes(&self, program_handle: &str) -> AppResult<Vec<InboxRef>>;
     // The cached full detail for a report, if we've fetched it before.
     fn get_detail(&self, id: &str) -> AppResult<Option<ReportDetail>>;
     // Ids of reports for this program that have no cached detail yet (drives detail backfill).
@@ -308,6 +317,16 @@ impl ReportStore for SqliteStore {
             sql.push_str(&format!(" AND assignee_token IN ({ph})"));
             binds.extend(q.assignees.iter().cloned());
         }
+        // A report matches when any of its inboxes (a JSON array in the summary blob) has one of
+        // the selected ids. json_each expands the array so a plain IN over the ids does the job.
+        if !q.inbox_ids.is_empty() {
+            let ph = placeholders(binds.len(), q.inbox_ids.len());
+            sql.push_str(&format!(
+                " AND EXISTS (SELECT 1 FROM json_each(summary_json, '$.inboxes')
+                              WHERE json_extract(value, '$.id') IN ({ph}))"
+            ));
+            binds.extend(q.inbox_ids.iter().cloned());
+        }
         // Keyword search: every whitespace-separated term must appear (case-insensitive
         // substring) in the title or the description. At a few tens of thousands of rows a scan
         // with LIKE is effectively instant, so there's no full-text index to maintain.
@@ -337,6 +356,30 @@ impl ReportStore for SqliteStore {
             }
         }
         Ok(out)
+    }
+
+    fn distinct_inboxes(&self, program_handle: &str) -> AppResult<Vec<InboxRef>> {
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c
+            .prepare(
+                "SELECT DISTINCT json_extract(value, '$.id')   AS inbox_id,
+                                 json_extract(value, '$.name') AS inbox_name,
+                                 json_extract(value, '$.kind') AS inbox_kind
+                 FROM reports, json_each(reports.summary_json, '$.inboxes')
+                 WHERE reports.program_handle = ?1 AND inbox_id IS NOT NULL
+                 ORDER BY inbox_name COLLATE NOCASE",
+            )
+            .map_err(AppError::other)?;
+        let rows = stmt
+            .query_map(params![program_handle], |row| {
+                Ok(InboxRef {
+                    id: row.get::<_, String>(0)?,
+                    name: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                    kind: row.get::<_, Option<String>>(2)?,
+                })
+            })
+            .map_err(AppError::other)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(AppError::other)
     }
 
     fn get_detail(&self, id: &str) -> AppResult<Option<ReportDetail>> {
@@ -805,6 +848,61 @@ mod tests {
             .unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, "1");
+    }
+
+    #[test]
+    fn inbox_filter_and_distinct_inboxes() {
+        let s = store();
+        let inbox = |id: &str, name: &str, kind: &str| InboxRef {
+            id: id.to_string(),
+            name: name.to_string(),
+            kind: Some(kind.to_string()),
+        };
+        let mut r1 = summary("1", "in triage inbox", "new", Some("high"));
+        r1.inboxes = vec![inbox("10", "Triage", "custom")];
+        let mut r2 = summary("2", "in two inboxes", "new", Some("high"));
+        r2.inboxes = vec![
+            inbox("20", "Default", "default"),
+            inbox("10", "Triage", "custom"),
+        ];
+        let r3 = summary("3", "no inbox", "new", Some("high"));
+        s.upsert_summaries("wp", &[r1, r2, r3]).unwrap();
+
+        // Distinct inboxes across all reports, deduped and name-sorted.
+        let inboxes = s.distinct_inboxes("wp").unwrap();
+        assert_eq!(inboxes.len(), 2);
+        assert_eq!(inboxes[0].name, "Default");
+        assert_eq!(inboxes[1].name, "Triage");
+
+        // Filtering by a single inbox id matches every report carrying it.
+        let triage = s
+            .query(&LocalQuery {
+                program_handle: "wp".into(),
+                inbox_ids: vec!["10".into()],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(triage.len(), 2);
+
+        // Multiple ids OR together (a report matches if it's in any selected inbox).
+        let either = s
+            .query(&LocalQuery {
+                program_handle: "wp".into(),
+                inbox_ids: vec!["10".into(), "20".into()],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(either.len(), 2);
+
+        let default_only = s
+            .query(&LocalQuery {
+                program_handle: "wp".into(),
+                inbox_ids: vec!["20".into()],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(default_only.len(), 1);
+        assert_eq!(default_only[0].id, "2");
     }
 
     #[test]

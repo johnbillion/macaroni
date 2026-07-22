@@ -119,6 +119,19 @@ export async function loadTeamMembers(
 	}
 }
 
+// Load the distinct inboxes seen across a program's synced reports (the sidebar inbox filter).
+// Also called as a background refresh when the sync lands more reports — the reducer keeps the
+// existing ready list visible during the reload, so there's no flicker.
+export async function loadInboxes(dispatch: Dispatch, programHandle: string) {
+	dispatch({ type: "INBOX_OPTIONS_REQUESTED", programHandle });
+	try {
+		const inboxes = await api.listInboxes(programHandle);
+		dispatch({ type: "INBOX_OPTIONS_SUCCEEDED", programHandle, inboxes });
+	} catch (e) {
+		dispatch({ type: "INBOX_OPTIONS_FAILED", programHandle, error: asError(e) });
+	}
+}
+
 export async function loadReportDetail(dispatch: Dispatch, reportId: string) {
 	// Seed the pane from the list summary so it populates immediately. Then show the locally
 	// cached full detail (activities/attachments) if the sync has already fetched it — that's
@@ -181,6 +194,9 @@ export type ReportsQuery = {
 	// see buildReportsQuery for why we match on identifier rather than id.
 	assetIdentifiers: string[];
 	assignees: string[];
+	// Selected inbox ids (see InboxRef.id). Filtered entirely in SQL — there's no HackerOne API
+	// to filter reports by inbox.
+	inboxIds: string[];
 	keyword: string;
 };
 
@@ -206,6 +222,7 @@ function reportsQueryKey(query: ReportsQuery): string {
 		v: [...query.severities].sort(),
 		a: [...query.assetIdentifiers].sort(),
 		n: [...query.assignees].sort(),
+		i: [...query.inboxIds].sort(),
 		k: query.keyword,
 	});
 }
@@ -253,6 +270,7 @@ export async function loadReports(
 			severities: query.severities,
 			asset_identifiers: query.assetIdentifiers,
 			assignees: query.assignees,
+			inbox_ids: query.inboxIds,
 			keyword: query.keyword || undefined,
 		});
 		if (myId !== reportsRequestId) return;
@@ -324,12 +342,22 @@ export function buildReportsQuery(state: AppState): ReportsQuery | null {
 		.map((id) => idToIdentifier.get(id))
 		.filter((v): v is string => v != null);
 
+	// Inbox selection is by id; "all available selected" means no filter, matching the asset facet.
+	const inboxOptions = state.inboxesByProgram[handle];
+	const availableInboxIds =
+		inboxOptions?.status === "ready" ? inboxOptions.data.map((i) => i.id) : [];
+	const inboxIds =
+		availableInboxIds.length > 0 && state.filters.inboxes.length === availableInboxIds.length
+			? []
+			: state.filters.inboxes;
+
 	return {
 		programHandle: handle,
 		states,
 		severities,
 		assetIdentifiers,
 		assignees: state.filters.assignees,
+		inboxIds,
 		keyword: state.filters.search.trim(),
 	};
 }

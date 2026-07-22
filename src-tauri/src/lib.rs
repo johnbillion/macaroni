@@ -129,6 +129,7 @@ pub fn run() {
             commands::list_assets,
             commands::list_program_members,
             commands::query_reports,
+            commands::list_inboxes,
             commands::synced_report_count,
             commands::start_report_sync,
             commands::get_report,

@@ -1,7 +1,7 @@
 use crate::credentials::{CredentialStore, Credentials};
 use crate::error::{AppError, AppResult};
 use crate::hackerone::{
-    Asset, HackerOneApi, Organization, Program, ReportDetail, ReportSummary, TeamMember,
+    Asset, HackerOneApi, InboxRef, Organization, Program, ReportDetail, ReportSummary, TeamMember,
 };
 use crate::local_db::{LocalQuery, ReportStore, TriageRecord};
 use crate::settings::{Settings, SettingsStore};
@@ -112,6 +112,16 @@ pub async fn query_reports(
     query: LocalQuery,
 ) -> AppResult<Vec<ReportSummary>> {
     ctx.reports.query(&query)
+}
+
+// Distinct inboxes seen across all reports synced for a program, for the sidebar inbox filter.
+// HackerOne has no endpoint to enumerate a program's inboxes, so the set is derived locally.
+#[tauri::command]
+pub async fn list_inboxes(
+    ctx: State<'_, AppContext>,
+    program_handle: String,
+) -> AppResult<Vec<InboxRef>> {
+    ctx.reports.distinct_inboxes(&program_handle)
 }
 
 // Total reports mirrored locally for a program, for the Topbar's idle "N synced" indicator.
