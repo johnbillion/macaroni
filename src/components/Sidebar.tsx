@@ -45,8 +45,6 @@ export function Sidebar() {
 
 			<AssetSection key={`asset-${orgId ?? "none"}`} state={assets} />
 
-			<AssigneeSection key={`assignee-${handle ?? "none"}`} options={assigneeOptions} />
-
 			<div class="side-section">
 				<div class="side-h">
 					<span>State</span>
@@ -56,6 +54,7 @@ export function Sidebar() {
 				<StateFacetGroup heading="Closed" facets={CLOSED_STATES} />
 			</div>
 
+			<AssigneeSection key={`assignee-${handle ?? "none"}`} options={assigneeOptions} />
 			<SeveritySection />
 		</aside>
 	);
