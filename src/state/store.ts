@@ -639,12 +639,22 @@ export function reducer(state: AppState, action: Action): AppState {
 				: action.replace || state.selectedReportId === null
 					? (items[0]?.id ?? null)
 					: state.selectedReportId;
+			// Drop any bulk-selected reports that are no longer in the list (e.g. a report changed
+			// on HackerOne so it no longer matches the active filters). Leaving them in would keep
+			// the sidebar locked and let "select all" toggling strand ids that aren't shown, since
+			// the toggle only ever adds/removes the currently-visible rows.
+			const prunedSelection = pruneSelection(state.selectedReportIds, items);
 			return {
 				...state,
 				reportsReplaceCount: action.replace
 					? state.reportsReplaceCount + 1
 					: state.reportsReplaceCount,
 				selectedReportId: nextSelected,
+				selectedReportIds: prunedSelection,
+				duplicateCheck:
+					prunedSelection === state.selectedReportIds
+						? state.duplicateCheck
+						: { status: "idle" },
 				reports: { status: "ready", data: { items } },
 				assigneeOptionsByProgram: accumulateAssigneeOptions(
 					state.assigneeOptionsByProgram,
@@ -1007,6 +1017,21 @@ function accumulateAssigneeOptions(
 		a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
 	);
 	return { ...existing, [handle]: merged };
+}
+
+// Intersect the bulk selection with the reports still in the list, returning the same Set
+// reference when every selected id is still present so callers can skip resetting derived
+// state (duplicate check) and avoid a needless re-render.
+function pruneSelection(selected: Set<string>, items: ReportSummary[]): Set<string> {
+	if (selected.size === 0) return selected;
+	const present = new Set(items.map((r) => r.id));
+	let dropped = false;
+	const next = new Set<string>();
+	for (const id of selected) {
+		if (present.has(id)) next.add(id);
+		else dropped = true;
+	}
+	return dropped ? next : selected;
 }
 
 function applyDetailToReports(
