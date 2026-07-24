@@ -12,7 +12,7 @@ If the environment isn't running, run `npm run env:start`.
 
 Use Playwright MCP in headless mode to access the environment at its URL, read the console, and interact with the web page. Use `browser_run_code` to speed up sequences of interactions where appropriate.
 
-To use WP-CLI you need to include the `@wp` alias in the commands:
+To use WP-CLI you _may_ need to include the `@wp` alias in the commands if the bare `wp` command does not work:
 
 `wp @wp <command>`
 
