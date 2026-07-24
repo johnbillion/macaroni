@@ -218,6 +218,10 @@ pub struct ReportQuery {
     /// `-reports.last_activity_at`. Only applied on a first-page (no-cursor) request; a cursor
     /// URL already carries the sort it was built with.
     pub sort: Option<String>,
+    /// Page size for a first-page (no-cursor) request. Defaults to 100 (HackerOne's max) for
+    /// initial-population and backfill passes; the on-focus refresh uses a smaller page to keep
+    /// each request fast. Ignored when a cursor is supplied.
+    pub page_size: Option<u32>,
 }
 
 #[async_trait]
@@ -435,7 +439,10 @@ impl HackerOneApi for ReqwestClient {
                             .unwrap_or_else(|| "-reports.created_at".to_string()),
                     ),
                     // 100 is HackerOne's hard maximum for page[size] (anything higher 400s).
-                    ("page[size]".to_string(), "100".to_string()),
+                    (
+                        "page[size]".to_string(),
+                        query.page_size.unwrap_or(100).to_string(),
+                    ),
                 ];
                 for state in &query.states {
                     params.push(("filter[state][]".to_string(), state.clone()));

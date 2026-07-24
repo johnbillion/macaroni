@@ -17,6 +17,9 @@ const OPEN_STATES: &[&str] = &[
 ];
 
 const PAGE_DELAY_MS: u64 = 150;
+// Page size for the on-focus incremental refresh. Smaller than the 100-per-page backfill so each
+// refresh request stays fast; the initial population and full backfills still use the 100 max.
+const REFRESH_PAGE_SIZE: u32 = 50;
 const DETAIL_CONCURRENCY: usize = 5;
 const RATE_LIMIT_BACKOFF_MS: u64 = 5_000;
 const MAX_RETRIES: u32 = 4;
@@ -197,6 +200,7 @@ async fn incremental_sync(
             program_handle: program_handle.to_string(),
             sort: Some("-reports.last_activity_at".to_string()),
             page_cursor: cursor.clone(),
+            page_size: Some(REFRESH_PAGE_SIZE),
             ..Default::default()
         };
         let Some(page) = fetch_page(api, query).await else {
