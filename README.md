@@ -21,7 +21,7 @@ Macaroni mirrors your program's reports into a local SQLite database and works p
 2. Enter your HackerOne API username and token. They're stored securely in your macOS keychain.
 3. Open the settings and select the triage working directory. This should point to a trunk clone of the project source code.
 
-On first startup it'll take a few minutes for Macaroni to sync all the reports. Once they're all in, it only pulls in updates since the last sync. This happens periodically as well as when the app windows gets refocused.
+On first startup it'll take a few minutes for Macaroni to sync all the reports. Once they're all in, it only pulls in updates since the last sync. This happens periodically as well as when the app window gets refocused.
 
 The report list can be manually refreshed if necessary via the reload button at the top of the inbox table.
 
@@ -62,8 +62,8 @@ Prerequisites:
 
 ### UI controls
 
-- Dark/light mode and side/bottom layout arrangement are controlled by the buttons in the top toolbar
-- Inbox table column are controled via the cog at the top right of the table
+- Dark/light mode and side/bottom layout arrangement are controlled by the buttons in the top toolbar.
+- Inbox table column visibility are controled via the cog at the top right of the table. They're not all shown by default.
 
 ## Settings
 
