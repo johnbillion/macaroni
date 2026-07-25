@@ -512,13 +512,17 @@ input[type="radio"] {
 	position: relative;
 }
 .inbox-toolbar {
-	position: absolute;
-	top: 5px;
-	right: 6px;
-	z-index: 4;
+	flex: 0 0 auto;
 	display: flex;
 	align-items: center;
+	justify-content: flex-end;
 	gap: 8px;
+	padding: 5px 8px;
+	border-bottom: 1px solid var(--border);
+	background: var(--bg);
+}
+.inbox-toolbar > .toolbar-total {
+	margin-right: auto;
 }
 .toolbar-total {
 	color: var(--text-3);

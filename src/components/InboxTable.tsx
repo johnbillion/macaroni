@@ -391,9 +391,6 @@ export function InboxTable() {
 
 	return (
 		<div class="inbox-wrap">
-			<main class="inbox" ref={inboxRef}>
-				{body}
-			</main>
 			{showColumnsMenu || canRefresh ? (
 				<div class="inbox-toolbar">
 					{showColumnsMenu ? (
@@ -425,6 +422,9 @@ export function InboxTable() {
 					{showColumnsMenu ? <ColumnsMenu visibility={visibility} onToggle={toggle} /> : null}
 				</div>
 			) : null}
+			<main class="inbox" ref={inboxRef}>
+				{body}
+			</main>
 		</div>
 	);
 }
