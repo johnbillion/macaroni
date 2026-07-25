@@ -333,11 +333,20 @@ impl ReportStore for SqliteStore {
         if let Some(kw) = q.keyword.as_deref() {
             for term in kw.split_whitespace() {
                 let n = binds.len() + 1;
-                sql.push_str(&format!(
-                    " AND (json_extract(summary_json, '$.title') LIKE ?{n} ESCAPE '\\'
-                           OR json_extract(summary_json, '$.vulnerability_information') LIKE ?{n} ESCAPE '\\')"
-                ));
+                let mut clause = format!(
+                    "json_extract(summary_json, '$.title') LIKE ?{n} ESCAPE '\\'
+                     OR json_extract(summary_json, '$.vulnerability_information') LIKE ?{n} ESCAPE '\\'"
+                );
                 binds.push(like_pattern(term));
+                // An all-digits term is very likely a report number, which is the row's primary
+                // key rather than anything inside the blob. Matched exactly — a substring match
+                // on ids would drag in every report whose number merely contains the digits.
+                if term.chars().all(|c| c.is_ascii_digit()) {
+                    let n = binds.len() + 1;
+                    clause.push_str(&format!(" OR id = ?{n}"));
+                    binds.push(term.to_string());
+                }
+                sql.push_str(&format!(" AND ({clause})"));
             }
         }
         sql.push_str(" ORDER BY created_at DESC");
@@ -775,6 +784,37 @@ mod tests {
         // LIKE wildcards in the keyword are escaped, so they match literally rather than
         // acting as wildcards — a bare "%" matches nothing here.
         assert_eq!(query_kw("%").len(), 0);
+    }
+
+    #[test]
+    fn numeric_keyword_matches_report_number() {
+        let s = store();
+        s.upsert_summaries(
+            "wp",
+            &[
+                summary("31337", "SQL injection in login", "new", Some("high")),
+                summary("313370", "Reflected XSS", "new", Some("low")),
+            ],
+        )
+        .unwrap();
+
+        let query_kw = |kw: &str| {
+            s.query(&LocalQuery {
+                program_handle: "wp".into(),
+                keyword: Some(kw.into()),
+                ..Default::default()
+            })
+            .unwrap()
+        };
+
+        // A numeric term also matches the report number, exactly — not as a substring, so the
+        // longer id isn't dragged in.
+        let hits = query_kw("31337");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, "31337");
+
+        // A number that isn't a report id (and appears in no title/body) still matches nothing.
+        assert_eq!(query_kw("999").len(), 0);
     }
 
     #[test]
