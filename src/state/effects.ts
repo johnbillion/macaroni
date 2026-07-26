@@ -75,6 +75,19 @@ export async function setTriageWorkingDir(
 	}
 }
 
+export async function setTriagePrompt(
+	dispatch: Dispatch,
+	prompt: string | null,
+): Promise<AppError | null> {
+	try {
+		const settings = await api.setTriagePrompt(prompt);
+		dispatch({ type: "TRIAGE_PROMPT_SET", prompt: settings.triage_prompt });
+		return null;
+	} catch (e) {
+		return asError(e);
+	}
+}
+
 export async function clearCredentials(dispatch: Dispatch): Promise<AppError | null> {
 	try {
 		await api.credentialsClear();

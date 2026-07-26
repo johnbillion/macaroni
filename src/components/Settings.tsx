@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
 import { clearCredentials, saveCredentials } from "../state/effects";
 import type { AppError } from "../state/store";
+import { TriagePromptField } from "./TriagePromptField";
 import { TriageWorkingDirField } from "./TriageWorkingDirField";
 
 type Props = {
@@ -103,6 +104,7 @@ export function Settings({ open, onClose }: Props) {
 				</label>
 				<hr class="settings-divider" />
 				<TriageWorkingDirField />
+				<TriagePromptField />
 				{error && <div class="error">{error.message}</div>}
 				<div class="settings-actions">
 					<button type="button" class="settings-logout" onClick={onLogOut} disabled={busy}>

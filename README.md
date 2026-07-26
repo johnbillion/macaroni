@@ -35,6 +35,8 @@ A report can be triaged by AI from the "Triage" section near the top of the deta
 
 This can take a few minutes.
 
+The prompt template that gets prepended to the report is editable in the app settings.
+
 Prerequisites:
 
 1. Claude Code installed and available on the cli as `claude`

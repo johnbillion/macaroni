@@ -18,7 +18,7 @@ export type AsyncState<T> =
 
 // Non-secret user preferences, persisted on the Rust side (see settings.rs). `triage_working_dir`
 // is null until the user picks a directory — there's no default.
-export type Settings = { triage_working_dir: string | null };
+export type Settings = { triage_working_dir: string | null; triage_prompt: string | null };
 
 export type Organization = { id: string; handle: string };
 export type Program = { id: string; handle: string };
@@ -267,6 +267,8 @@ export type AppState = {
 	username: string | null;
 	// Triage working directory the Rust side spawns `claude` in. Null until configured.
 	triageWorkingDir: string | null;
+	// Null means no override — the app's shipped template is in use.
+	triagePrompt: string | null;
 	bootstrap: AsyncState<{ orgs: Organization[] }>;
 	programsByOrg: Record<string, AsyncState<Program[]>>;
 	assetsByOrg: Record<string, AsyncState<Asset[]>>;
@@ -335,6 +337,7 @@ export type Action =
 	| { type: "CREDENTIALS_CLEARED" }
 	| { type: "SETTINGS_LOADED"; settings: Settings }
 	| { type: "TRIAGE_WORKING_DIR_SET"; dir: string | null }
+	| { type: "TRIAGE_PROMPT_SET"; prompt: string | null }
 	| { type: "BOOTSTRAP_REQUESTED" }
 	| { type: "BOOTSTRAP_SUCCEEDED"; orgs: Organization[] }
 	| { type: "BOOTSTRAP_FAILED"; error: AppError }
@@ -437,6 +440,7 @@ export const initialState: AppState = {
 	credentials: "unknown",
 	username: null,
 	triageWorkingDir: null,
+	triagePrompt: null,
 	bootstrap: { status: "idle" },
 	programsByOrg: {},
 	assetsByOrg: {},
@@ -483,17 +487,24 @@ export function reducer(state: AppState, action: Action): AppState {
 			return {
 				...initialState,
 				credentials: "missing",
-				// The working directory is a machine-local preference, not tied to the account —
-				// keep it across a logout the same way panel layout survives.
+				// The working directory and prompt are machine-local preferences, not tied to the
+				// account — keep them across a logout the same way panel layout survives.
 				triageWorkingDir: state.triageWorkingDir,
+				triagePrompt: state.triagePrompt,
 				detailPlacement: state.detailPlacement,
 				panelSizes: state.panelSizes,
 				viewport: state.viewport,
 			};
 		case "SETTINGS_LOADED":
-			return { ...state, triageWorkingDir: action.settings.triage_working_dir };
+			return {
+				...state,
+				triageWorkingDir: action.settings.triage_working_dir,
+				triagePrompt: action.settings.triage_prompt,
+			};
 		case "TRIAGE_WORKING_DIR_SET":
 			return { ...state, triageWorkingDir: action.dir };
+		case "TRIAGE_PROMPT_SET":
+			return { ...state, triagePrompt: action.prompt };
 		case "BOOTSTRAP_REQUESTED":
 			return { ...state, bootstrap: { status: "loading" } };
 		case "BOOTSTRAP_SUCCEEDED":

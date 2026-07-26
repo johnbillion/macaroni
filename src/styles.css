@@ -1534,6 +1534,8 @@ a[target="_blank"]::after {
 .settings-dialog {
 	min-width: 360px;
 	max-width: 480px;
+	max-height: 85dvh;
+	overflow: auto;
 }
 .settings-card {
 	display: grid;
@@ -1704,6 +1706,65 @@ a[target="_blank"]::after {
 	background: var(--crit) !important;
 	border-color: var(--crit) !important;
 	color: var(--on-accent) !important;
+}
+
+/* Triage prompt template editor in the Settings dialog. */
+.prompt-field {
+	display: grid;
+	gap: 0.5rem;
+}
+.prompt-field label {
+	display: grid;
+	gap: 0.25rem;
+	font-size: var(--fs-sm);
+	font-weight: 500;
+	color: var(--text-2);
+}
+.prompt-field-input {
+	font-family: var(--mono);
+	font-size: var(--fs-md);
+	font-weight: 400;
+	line-height: 1.5;
+	letter-spacing: 0;
+	text-transform: none;
+	resize: vertical;
+	max-height: 45dvh;
+	padding: 0.45rem 0.6rem;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	background: var(--bg);
+	color: var(--text);
+}
+.prompt-field-row {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+.prompt-field-status {
+	flex: 1;
+	min-width: 0;
+	font-size: var(--fs-sm);
+	color: var(--text-3);
+}
+.prompt-field-row button {
+	font: inherit;
+	font-size: var(--fs-sm);
+	padding: 0.45rem 0.7rem;
+	border: 1px solid var(--border);
+	background: transparent;
+	color: var(--text);
+	cursor: pointer;
+	border-radius: var(--radius-sm);
+	white-space: nowrap;
+}
+.prompt-field-row button:hover:not([disabled]) {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: var(--on-accent);
+}
+.prompt-field-row button[disabled] {
+	opacity: 0.5;
+	cursor: not-allowed;
 }
 
 .placeholder {

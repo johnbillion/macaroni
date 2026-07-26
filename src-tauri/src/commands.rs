@@ -4,7 +4,7 @@ use crate::hackerone::{
     Asset, HackerOneApi, InboxRef, Organization, Program, ReportDetail, ReportSummary, TeamMember,
 };
 use crate::local_db::{LocalQuery, ReportStore, TriageRecord};
-use crate::settings::{Settings, SettingsStore};
+use crate::settings::{DEFAULT_TRIAGE_PROMPT, Settings, SettingsStore};
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::atomic::AtomicBool;
@@ -363,14 +363,27 @@ mod triage_parse_tests {
         let (_, _, new_files) = parse_triage_result(raw);
         assert!(new_files.is_empty());
     }
+
+    #[test]
+    fn prompt_uses_the_supplied_template() {
+        let assembled = assemble_triage_prompt("Custom instructions", "A title", "A body");
+        assert_eq!(assembled, "Custom instructions\n\n# A title\n\nA body");
+    }
+
+    #[test]
+    fn settings_prompt_falls_back_to_default() {
+        let settings = Settings::default();
+        assert_eq!(settings.triage_prompt(), DEFAULT_TRIAGE_PROMPT);
+        let overridden = Settings {
+            triage_prompt: Some("mine".into()),
+            ..Settings::default()
+        };
+        assert_eq!(overridden.triage_prompt(), "mine");
+    }
 }
 
-// Prompt template is embedded at compile time so distribution builds don't depend on the
-// developer's source tree being present at the absolute path it was authored at.
-const TRIAGE_PROMPT_TEMPLATE: &str = include_str!("../prompts/triage.md");
-
-fn assemble_triage_prompt(report_title: &str, report_body: &str) -> String {
-    format!("{TRIAGE_PROMPT_TEMPLATE}\n\n# {report_title}\n\n{report_body}")
+fn assemble_triage_prompt(template: &str, report_title: &str, report_body: &str) -> String {
+    format!("{template}\n\n# {report_title}\n\n{report_body}")
 }
 
 #[tauri::command]
@@ -404,8 +417,34 @@ pub async fn pick_directory(app: tauri::AppHandle) -> AppResult<Option<String>> 
 }
 
 #[tauri::command]
-pub async fn get_triage_prompt(report_title: String, report_body: String) -> AppResult<String> {
-    Ok(assemble_triage_prompt(&report_title, &report_body))
+pub async fn get_triage_prompt(
+    ctx: State<'_, AppContext>,
+    report_title: String,
+    report_body: String,
+) -> AppResult<String> {
+    let settings = ctx.settings.load()?;
+    Ok(assemble_triage_prompt(
+        settings.triage_prompt(),
+        &report_title,
+        &report_body,
+    ))
+}
+
+#[tauri::command]
+pub async fn get_default_triage_prompt() -> AppResult<String> {
+    Ok(DEFAULT_TRIAGE_PROMPT.to_owned())
+}
+
+// An empty/whitespace string (or null) clears the override so the shipped default applies again.
+#[tauri::command]
+pub async fn set_triage_prompt(
+    ctx: State<'_, AppContext>,
+    prompt: Option<String>,
+) -> AppResult<Settings> {
+    let mut settings = ctx.settings.load()?;
+    settings.triage_prompt = prompt.filter(|s| !s.trim().is_empty());
+    ctx.settings.save(&settings)?;
+    Ok(settings)
 }
 
 #[tauri::command]
