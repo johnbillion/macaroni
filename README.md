@@ -12,8 +12,14 @@ Macaroni mirrors your program's reports into a local SQLite database and works p
 
 ## Requirements
 
-- macOS
+- macOS 15 or later (Apple Silicon or Intel)
 - A HackerOne API token ([create one](https://hackerone.com/users/api_tokens))
+
+## Installing
+
+Download the `.zip` from the [latest release](https://github.com/johnbillion/macaroni/releases), unzip it, and move `Macaroni.app` to your Applications folder.
+
+The app is not currently signed but will be soon. If you don't trust the binary you can build it yourself via `npm install && npm run build`.
 
 ## Usage
 
