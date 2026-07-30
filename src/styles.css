@@ -39,7 +39,9 @@
 	--bg-1: #f3f4f8;
 	--bg-2: #e8eaf1;
 	--bg-3: #dadce6;
-	--bg-code: #fafafa;
+	/* Translucent rather than opaque so a code block darkens whatever surface it sits on and
+	   inherits its hue — tinted comment bubbles keep their tint instead of showing a grey patch. */
+	--bg-code: rgb(0 0 0 / 0.03);
 	--chrome: #e7e8ef;
 	--border: #d5d7e0;
 	--border-2: #bbbecb;
@@ -75,7 +77,7 @@ html.dark {
 	--bg-1: #27272e;
 	--bg-2: #2f2f37;
 	--bg-3: #3c3c46;
-	--bg-code: #2b2b33;
+	--bg-code: rgb(255 255 255 / 0.05);
 	--chrome: #151518;
 	--border: #35353e;
 	--border-2: #4a4a55;
