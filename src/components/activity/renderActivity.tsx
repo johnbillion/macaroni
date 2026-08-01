@@ -2,6 +2,7 @@ import type { JSX } from "preact";
 import type { Activity, UserRef } from "../../state/store";
 import { formatMoney } from "../../utils/money";
 import { pillFor } from "../../utils/pill";
+import { formatTitle } from "../../utils/title";
 import { Avatar } from "../Avatar";
 import { AttachmentGallery, Markdown, referencedAttachmentIds } from "../Markdown";
 import { RelativeTime } from "../RelativeTime";
@@ -142,7 +143,7 @@ export function describeEvent(
 		case "report-title-updated":
 			return activity.new_title ? (
 				<>
-					changed the title to <b>{activity.new_title}</b>
+					changed the title to <b>{formatTitle(activity.new_title)}</b>
 				</>
 			) : (
 				<>changed the report title</>

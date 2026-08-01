@@ -2,6 +2,7 @@ import { useState } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
 import { runDuplicateCheck, stopDuplicateCheck } from "../state/effects";
 import type { AppError, DuplicateInput } from "../state/store";
+import { formatTitle } from "../utils/title";
 import { Markdown } from "./Markdown";
 import { ReportLink } from "./ReportLink";
 import { TriageEventLog } from "./TriagePanel";
@@ -41,7 +42,11 @@ export function DuplicatesPanel() {
 		.filter((r) => state.selectedReportIds.has(r.id))
 		.slice()
 		.sort((a, b) => Number(a.id) - Number(b.id))
-		.map((r) => ({ id: r.id, title: r.title, body: r.vulnerability_information }));
+		.map((r) => ({
+			id: r.id,
+			title: formatTitle(r.title),
+			body: r.vulnerability_information,
+		}));
 
 	const requestId = requestIdFor(reports);
 

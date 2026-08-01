@@ -6,6 +6,7 @@ import { useAppState, useDispatch } from "../state/context";
 import type { Activity, DetailToast } from "../state/store";
 import { pillFor } from "../utils/pill";
 import { formatClock } from "../utils/time";
+import { formatTitle } from "../utils/title";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { Avatar } from "./Avatar";
 import { describeEvent, renderActivity } from "./activity/renderActivity";
@@ -321,7 +322,7 @@ function ReportTab() {
 						Open ↗
 					</button>
 				</div>
-				<h1 class="dh-title">{r.title}</h1>
+				<h1 class="dh-title">{formatTitle(r.title)}</h1>
 				<dl class="kv">
 					<dt>Asset</dt>
 					<dd>

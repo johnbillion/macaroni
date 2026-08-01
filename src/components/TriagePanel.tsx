@@ -3,6 +3,7 @@ import { api } from "../api/client";
 import { useAppState, useDispatch } from "../state/context";
 import { deleteTriageFile, runTriage, stopTriage } from "../state/effects";
 import type { AppError, TriageEvent, TriageRecord, TriageValidity } from "../state/store";
+import { formatTitle } from "../utils/title";
 import { Markdown } from "./Markdown";
 import { Spinner } from "./Spinner";
 import { TriageWorkingDirField } from "./TriageWorkingDirField";
@@ -50,7 +51,7 @@ export function TriagePanel() {
 		return <div class="placeholder">Loading triage…</div>;
 	}
 
-	const reportTitle = detail.data.title;
+	const reportTitle = formatTitle(detail.data.title);
 	const reportBody = detail.data.vulnerability_information || "(no description)";
 
 	// Triage spawns `claude` in a configured working directory, and there's no default. Until

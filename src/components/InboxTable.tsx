@@ -9,6 +9,7 @@ import type { AppError, AssigneeRef, UserRef } from "../state/store";
 import { formatBounty } from "../utils/money";
 import { pillFor } from "../utils/pill";
 import { formatRelativeTime } from "../utils/time";
+import { formatTitle } from "../utils/title";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { Avatar } from "./Avatar";
 import { ReportLink } from "./ReportLink";
@@ -338,7 +339,7 @@ export function InboxTable() {
 										})()}
 									</td>
 								) : null}
-								{visibility.title ? <td class="title">{r.title}</td> : null}
+								{visibility.title ? <td class="title">{formatTitle(r.title)}</td> : null}
 								{visibility.triage ? (
 									<td class="triage-cell">
 										{(() => {
