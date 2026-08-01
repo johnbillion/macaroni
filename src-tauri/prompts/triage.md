@@ -41,6 +41,7 @@ Use some initiative if the exact steps to reproduce don't work, aren't clear, or
 ## Determine status
 
 * The report may be inaccurate, for example reports often claim there is an XSS vulnerability but in fact it can only be exploited by Administrator or Editor level users, who have the `unfiltered_html` capability and therefore the report is invalid.
+* The report as written may accurately report a functional bug but demonstrate no actual security vulnerability. A report is not valid if no confidentiality, integrity, or authentication boundary is crossed.
 * Decide on an overall validity verdict from exactly one of these four values:
   * `valid` — the vulnerability reproduces as described and the impact is real
   * `partially-valid` — the report identifies a real issue but the severity, exploitability, or impact is overstated or only partly reproducible
