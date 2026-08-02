@@ -1298,7 +1298,7 @@ a[target="_blank"]::after {
 }
 .msg-bubble {
 	max-width: 80%;
-	background: var(--bg-2);
+	background: var(--bg);
 	border: 1px solid var(--border);
 	border-radius: var(--radius-md);
 	padding: 10px 13px;
@@ -1308,12 +1308,6 @@ a[target="_blank"]::after {
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 }
-.msg.out .msg-bubble {
-	background: color-mix(in srgb, var(--accent) 9%, var(--bg));
-	border-color: color-mix(in srgb, var(--accent) 22%, var(--bg));
-}
-
-/* Internal comments — light red tint, padlock icon in the meta row */
 .msg.internal .msg-bubble {
 	background: color-mix(in srgb, var(--crit) 10%, var(--bg));
 	border-color: color-mix(in srgb, var(--crit) 30%, var(--bg));
