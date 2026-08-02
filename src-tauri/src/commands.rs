@@ -370,6 +370,20 @@ mod triage_parse_tests {
         assert_eq!(assembled, "Custom instructions\n\n# A title\n\nA body");
     }
 
+    // Pins the shape of the resume command: a path needing no quoting is left bare, one with a
+    // space is quoted so it survives being pasted into a shell.
+    #[test]
+    fn resume_command_quotes_only_when_needed() {
+        assert_eq!(
+            shlex::try_quote("/Users/john/sites/wp").unwrap(),
+            "/Users/john/sites/wp"
+        );
+        assert_eq!(
+            shlex::try_quote("/Users/j/my sites/wp").unwrap(),
+            "'/Users/j/my sites/wp'"
+        );
+    }
+
     #[test]
     fn settings_prompt_falls_back_to_default() {
         let settings = Settings::default();
@@ -524,6 +538,10 @@ pub async fn run_triage(
 
     let event_name = format!("triage:event:{report_id}");
     let mut final_result: Option<String> = None;
+    // Every stream-json event carries the session id (the `init` event first). Recording it lets
+    // the UI offer a `claude --resume` command — the interactive resume picker hides sessions
+    // started with `-p`, so without the id these runs are effectively unreachable.
+    let mut session_id: Option<String> = None;
 
     let mut lines = BufReader::new(stdout).lines();
     loop {
@@ -540,6 +558,11 @@ pub async fn run_triage(
                             && let Some(text) = value.get("result").and_then(|v| v.as_str())
                         {
                             final_result = Some(text.to_string());
+                        }
+                        if session_id.is_none()
+                            && let Some(sid) = value.get("session_id").and_then(|v| v.as_str())
+                        {
+                            session_id = Some(sid.to_string());
                         }
                         let _ = app.emit(&event_name, &value);
                     }
@@ -572,13 +595,37 @@ pub async fn run_triage(
     let raw = final_result
         .ok_or_else(|| AppError::other("claude finished without emitting a result event"))?;
     let (summary, validity, new_files) = parse_triage_result(&raw);
-    ctx.reports
-        .set_triage(&report_id, &summary, validity.as_deref(), &new_files)?;
+    ctx.reports.set_triage(
+        &report_id,
+        &summary,
+        validity.as_deref(),
+        &new_files,
+        session_id.as_deref(),
+    )?;
     Ok(TriageRecord {
         summary,
         validity,
         new_files,
+        session_id,
     })
+}
+
+// The shell command that reopens a triage run's claude session, ready to paste into a terminal.
+// `claude --resume` only finds sessions belonging to the current directory, so it has to cd to the
+// triage working directory first — hence the quoting, which shlex handles.
+#[tauri::command]
+pub async fn triage_resume_command(
+    ctx: State<'_, AppContext>,
+    session_id: String,
+) -> AppResult<String> {
+    let dir = ctx
+        .settings
+        .load()?
+        .triage_working_dir
+        .ok_or_else(|| AppError::other("No triage working directory is set."))?;
+    let dir = shlex::try_quote(&dir).map_err(AppError::other)?;
+    let session = shlex::try_quote(&session_id).map_err(AppError::other)?;
+    Ok(format!("cd {dir} && claude --resume {session}"))
 }
 
 #[tauri::command]

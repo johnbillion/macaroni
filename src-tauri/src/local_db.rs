@@ -11,6 +11,9 @@ pub struct TriageRecord {
     pub validity: Option<String>,
     // Absolute paths to files claude wrote during the run. May be empty.
     pub new_files: Vec<String>,
+    // The `claude` session the run happened in, so it can be resumed from the terminal. `None`
+    // for triages saved before this was recorded, or if the run emitted no session id.
+    pub session_id: Option<String>,
 }
 
 // Persisted progress of the background sync engine (see sync.rs). A single row keyed to the
@@ -96,6 +99,7 @@ pub trait ReportStore: Send + Sync {
         summary: &str,
         validity: Option<&str>,
         new_files: &[String],
+        session_id: Option<&str>,
     ) -> AppResult<()>;
     // Overwrite just the stored new-files list for a report (used after a file is deleted).
     fn set_triage_new_files(&self, id: &str, new_files: &[String]) -> AppResult<()>;
@@ -124,6 +128,7 @@ CREATE TABLE IF NOT EXISTS reports (
     triage            TEXT,
     triage_validity   TEXT,
     triage_new_files  TEXT,
+    triage_session_id TEXT,
 
     state            TEXT GENERATED ALWAYS AS (json_extract(summary_json, '$.state')) VIRTUAL,
     severity_rating  TEXT GENERATED ALWAYS AS (json_extract(summary_json, '$.severity_rating')) VIRTUAL,
@@ -175,6 +180,9 @@ impl SqliteStore {
             "CREATE INDEX IF NOT EXISTS reports_asset ON reports(asset_identifier);",
         )
         .map_err(AppError::other)?;
+        // Same idempotent-migration trick for the triage session id, added after the triage
+        // columns shipped. Existing rows keep a NULL — those runs' sessions aren't recoverable.
+        let _ = conn.execute("ALTER TABLE reports ADD COLUMN triage_session_id TEXT", []);
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -530,27 +538,35 @@ impl ReportStore for SqliteStore {
 
     fn get_triage(&self, id: &str) -> AppResult<Option<TriageRecord>> {
         let c = self.conn.lock().unwrap();
-        let result: rusqlite::Result<(Option<String>, Option<String>, Option<String>)> = c
-            .query_row(
-                "SELECT triage, triage_validity, triage_new_files FROM reports WHERE id = ?1",
-                params![id],
-                |row| {
-                    Ok((
-                        row.get::<_, Option<String>>(0)?,
-                        row.get::<_, Option<String>>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                    ))
-                },
-            );
+        type TriageRow = (
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        );
+        let result: rusqlite::Result<TriageRow> = c.query_row(
+            "SELECT triage, triage_validity, triage_new_files, triage_session_id
+             FROM reports WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        );
         match result {
-            Ok((Some(summary), validity, new_files)) => Ok(Some(TriageRecord {
+            Ok((Some(summary), validity, new_files, session_id)) => Ok(Some(TriageRecord {
                 summary,
                 validity,
                 new_files: new_files
                     .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
                     .unwrap_or_default(),
+                session_id,
             })),
-            Ok((None, _, _)) => Ok(None),
+            Ok((None, ..)) => Ok(None),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(AppError::other(e)),
         }
@@ -562,6 +578,7 @@ impl ReportStore for SqliteStore {
         summary: &str,
         validity: Option<&str>,
         new_files: &[String],
+        session_id: Option<&str>,
     ) -> AppResult<()> {
         let files_json = serde_json::to_string(new_files).map_err(AppError::other)?;
         let c = self.conn.lock().unwrap();
@@ -569,12 +586,13 @@ impl ReportStore for SqliteStore {
         // the triage panel keys off the selected report). Keep the row valid by supplying the
         // NOT NULL columns; a later summary upsert fills in the real data.
         c.execute(
-            "INSERT INTO reports (id, program_handle, summary_json, triage, triage_validity, triage_new_files)
-             VALUES (?1, '', '{}', ?2, ?3, ?4)
+            "INSERT INTO reports (id, program_handle, summary_json, triage, triage_validity, triage_new_files, triage_session_id)
+             VALUES (?1, '', '{}', ?2, ?3, ?4, ?5)
              ON CONFLICT(id) DO UPDATE SET triage = excluded.triage,
                                            triage_validity = excluded.triage_validity,
-                                           triage_new_files = excluded.triage_new_files",
-            params![id, summary, validity, files_json],
+                                           triage_new_files = excluded.triage_new_files,
+                                           triage_session_id = excluded.triage_session_id",
+            params![id, summary, validity, files_json, session_id],
         )
         .map_err(AppError::other)?;
         Ok(())
@@ -740,7 +758,7 @@ mod tests {
             .unwrap();
         assert_eq!(all.len(), 3);
         // newest created_at first
-        assert_eq!(all[0].id, "3");
+        assert_eq!(all[0].summary.id, "3");
 
         let new_only = s
             .query(&LocalQuery {
@@ -759,7 +777,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(unrated.len(), 1);
-        assert_eq!(unrated[0].id, "3");
+        assert_eq!(unrated[0].summary.id, "3");
     }
 
     #[test]
@@ -786,7 +804,7 @@ mod tests {
         // Substring match against the title.
         let hits = query_kw("inject");
         assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].id, "1");
+        assert_eq!(hits[0].summary.id, "1");
 
         // Multiple terms are AND-ed; both must appear (here, in the title).
         assert_eq!(query_kw("sql login").len(), 1);
@@ -825,7 +843,7 @@ mod tests {
         // longer id isn't dragged in.
         let hits = query_kw("31337");
         assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].id, "31337");
+        assert_eq!(hits[0].summary.id, "31337");
 
         // A number that isn't a report id (and appears in no title/body) still matches nothing.
         assert_eq!(query_kw("999").len(), 0);
@@ -862,7 +880,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(by_user.len(), 1);
-        assert_eq!(by_user[0].id, "1");
+        assert_eq!(by_user[0].summary.id, "1");
 
         let by_group = s
             .query(&LocalQuery {
@@ -872,7 +890,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(by_group.len(), 1);
-        assert_eq!(by_group[0].id, "2");
+        assert_eq!(by_group[0].summary.id, "2");
     }
 
     #[test]
@@ -901,7 +919,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].id, "1");
+        assert_eq!(hits[0].summary.id, "1");
     }
 
     #[test]
@@ -956,7 +974,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(default_only.len(), 1);
-        assert_eq!(default_only[0].id, "2");
+        assert_eq!(default_only[0].summary.id, "2");
     }
 
     #[test]
@@ -983,7 +1001,7 @@ mod tests {
     fn triage_new_files_round_trip() {
         let s = store();
         let files = vec!["/tmp/a.php".to_string(), "/tmp/b.txt".to_string()];
-        s.set_triage("r1", "summary", Some("valid"), &files)
+        s.set_triage("r1", "summary", Some("valid"), &files, Some("sess-1"))
             .unwrap();
         let rec = s.get_triage("r1").unwrap().unwrap();
         assert_eq!(rec.new_files, files);
@@ -994,6 +1012,14 @@ mod tests {
         assert_eq!(rec.summary, "summary");
         assert_eq!(rec.validity.as_deref(), Some("valid"));
         assert_eq!(rec.new_files, vec!["/tmp/b.txt".to_string()]);
+        assert_eq!(rec.session_id.as_deref(), Some("sess-1"));
+    }
+
+    #[test]
+    fn triage_session_id_is_optional() {
+        let s = store();
+        s.set_triage("r1", "summary", None, &[], None).unwrap();
+        assert!(s.get_triage("r1").unwrap().unwrap().session_id.is_none());
     }
 
     #[test]

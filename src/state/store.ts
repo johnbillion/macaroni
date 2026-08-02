@@ -226,10 +226,13 @@ export type TriageValidity = "valid" | "partially-valid" | "invalid" | "indeterm
 // `validity` is null for legacy entries written before claude was asked for JSON output,
 // or for runs where claude didn't emit a parseable verdict. `new_files` lists absolute paths
 // to files claude wrote during the run (may be empty), each individually deletable from the UI.
+// `session_id` is the `claude` session the run happened in, so it can be resumed from a terminal.
+// Null for triages saved before it was recorded.
 export type TriageRecord = {
 	summary: string;
 	validity: TriageValidity | null;
 	new_files: string[];
+	session_id: string | null;
 };
 
 export type TriageState =

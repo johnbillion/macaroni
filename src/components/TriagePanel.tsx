@@ -4,6 +4,7 @@ import { useAppState, useDispatch } from "../state/context";
 import { deleteTriageFile, runTriage, stopTriage } from "../state/effects";
 import type { AppError, TriageEvent, TriageRecord, TriageValidity } from "../state/store";
 import { formatTitle } from "../utils/title";
+import { CopyButton } from "./CopyButton";
 import { Markdown } from "./Markdown";
 import { Spinner } from "./Spinner";
 import { TriageWorkingDirField } from "./TriageWorkingDirField";
@@ -23,6 +24,52 @@ function formatError(error: AppError): string {
 		default:
 			return error.message || "Unknown error.";
 	}
+}
+
+function sessionIdFromEvents(events: TriageEvent[]): string | null {
+	for (const e of events) {
+		if (typeof e.session_id === "string" && e.session_id) return e.session_id;
+	}
+	return null;
+}
+
+// The `claude --resume` invocation for a finished triage run.
+function ResumeSession({ sessionId }: { sessionId: string }) {
+	const [command, setCommand] = useState<string | null>(null);
+
+	useEffect(() => {
+		let cancelled = false;
+		api.triageResumeCommand(sessionId).then(
+			(c) => {
+				if (!cancelled) setCommand(c);
+			},
+			// The only failure is an unset working directory, in which case there's nothing
+			// useful to show and the section stays hidden.
+			() => {},
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, [sessionId]);
+
+	if (command == null) return null;
+
+	return (
+		<div class="triage-resume">
+			<div class="triage-resume-label">
+				Resume this triage session in a terminal:
+			</div>
+			<div class="triage-resume-row">
+				<code class="triage-resume-command">{command}</code>
+				<CopyButton
+					text={command}
+					label="Copy"
+					class="triage-resume-copy"
+					title="Copy the resume command"
+				/>
+			</div>
+		</div>
+	);
 }
 
 export function TriagePanel() {
@@ -107,6 +154,8 @@ export function TriagePanel() {
 	}
 
 	if (triage.status === "error") {
+		// A failed run saves no record, so take the session id straight from the event stream.
+		const failedSession = sessionIdFromEvents(triage.events);
 		return (
 			<div class="triage">
 				<PromptEditor
@@ -118,6 +167,7 @@ export function TriagePanel() {
 					subtitleClass="triage-error"
 					buttonLabel="Retry"
 				/>
+				{failedSession ? <ResumeSession sessionId={failedSession} /> : null}
 				{triage.events.length > 0 ? <TriageEventLog events={triage.events} live={false} /> : null}
 				{triage.saved ? (
 					<AnalysisSection record={triage.saved} heading="Previous analysis" reportId={id} />
@@ -275,6 +325,7 @@ function AnalysisSection({
 			<div class="section-h">{heading}</div>
 			<Markdown source={record.summary} class="body-text" />
 			<NewFilesSection reportId={reportId} files={record.new_files} />
+			{record.session_id ? <ResumeSession sessionId={record.session_id} /> : null}
 		</>
 	);
 }

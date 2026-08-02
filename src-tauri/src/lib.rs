@@ -143,6 +143,7 @@ pub fn run() {
             commands::set_triage_prompt,
             commands::pick_directory,
             commands::get_triage,
+            commands::triage_resume_command,
             commands::get_triage_prompt,
             commands::get_default_triage_prompt,
             commands::list_triage_validity,

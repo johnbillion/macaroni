@@ -66,6 +66,8 @@ export const api = {
 	getDefaultTriagePrompt: () => call<string>("get_default_triage_prompt"),
 	pickDirectory: () => call<string | null>("pick_directory"),
 	getTriage: (reportId: string) => call<TriageRecord | null>("get_triage", { reportId }),
+	// The pasteable `cd … && claude --resume …` command for a finished triage run.
+	triageResumeCommand: (sessionId: string) => call<string>("triage_resume_command", { sessionId }),
 	getTriagePrompt: (reportTitle: string, reportBody: string) =>
 		call<string>("get_triage_prompt", { reportTitle, reportBody }),
 	runTriage: (reportId: string, prompt: string) =>

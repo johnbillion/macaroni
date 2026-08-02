@@ -10,6 +10,7 @@ import { formatTitle } from "../utils/title";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { Avatar } from "./Avatar";
 import { describeEvent, renderActivity } from "./activity/renderActivity";
+import { CopyButton } from "./CopyButton";
 import { DuplicatesPanel } from "./DuplicatesPanel";
 import { Markdown } from "./Markdown";
 import { RelativeTime } from "./RelativeTime";
@@ -22,37 +23,6 @@ function isHackbotPreSubmissionTrigger(a: Activity | undefined): boolean {
 	if (a.type !== "comment") return false;
 	if (a.actor?.username?.toLowerCase() !== "hackbot") return false;
 	return /pre-submission[- ]trigger/i.test(a.message);
-}
-
-function CopyButton({
-	text,
-	label,
-	copiedLabel = "Copied!",
-	class: className,
-}: {
-	text: string;
-	label: string;
-	copiedLabel?: string;
-	class?: string;
-}) {
-	const [copied, setCopied] = useState(false);
-	useEffect(() => {
-		if (!copied) return;
-		const id = window.setTimeout(() => setCopied(false), 1200);
-		return () => window.clearTimeout(id);
-	}, [copied]);
-	return (
-		<button
-			type="button"
-			class={className}
-			onClick={async () => {
-				await navigator.clipboard.writeText(text);
-				setCopied(true);
-			}}
-		>
-			{copied ? copiedLabel : label}
-		</button>
-	);
 }
 
 function SaveFileButton({

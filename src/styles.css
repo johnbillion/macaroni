@@ -2205,6 +2205,53 @@ a[target="_blank"]::after {
 	font-size: var(--fs-xs);
 }
 
+.triage-resume {
+	margin-top: 14px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.triage-resume-label {
+	color: var(--text-2);
+	font-size: var(--fs-xs);
+}
+.triage-resume-label code {
+	font-family: var(--mono);
+}
+.triage-resume-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	border: 1px solid var(--border);
+	background: var(--bg-1);
+	padding: 6px 8px;
+}
+.triage-resume-command {
+	flex: 1;
+	min-width: 0;
+	overflow-wrap: anywhere;
+	user-select: all;
+	font-family: var(--mono);
+	font-size: var(--fs-xs);
+	color: var(--text);
+}
+.triage-resume-copy {
+	flex: none;
+	background: var(--bg-2);
+	border: 1px solid var(--border-2);
+	color: var(--text);
+	padding: 4px 12px;
+	font-family: inherit;
+	font-size: var(--fs-xs);
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+}
+.triage-resume-copy:hover {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: var(--on-accent);
+}
+
 /* --- Global polish --- */
 ::selection {
 	background: color-mix(in srgb, var(--accent) 28%, transparent);
