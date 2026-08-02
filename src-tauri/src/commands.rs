@@ -1,9 +1,9 @@
 use crate::credentials::{CredentialStore, Credentials};
 use crate::error::{AppError, AppResult};
 use crate::hackerone::{
-    Asset, HackerOneApi, InboxRef, Organization, Program, ReportDetail, ReportSummary, TeamMember,
+    Asset, HackerOneApi, InboxRef, Organization, Program, ReportDetail, TeamMember,
 };
-use crate::local_db::{LocalQuery, ReportStore, TriageRecord};
+use crate::local_db::{LocalQuery, ReportListItem, ReportStore, TriageRecord};
 use crate::settings::{DEFAULT_TRIAGE_PROMPT, Settings, SettingsStore};
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -110,7 +110,7 @@ pub async fn list_program_members(
 pub async fn query_reports(
     ctx: State<'_, AppContext>,
     query: LocalQuery,
-) -> AppResult<Vec<ReportSummary>> {
+) -> AppResult<Vec<ReportListItem>> {
     ctx.reports.query(&query)
 }
 

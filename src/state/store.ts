@@ -47,6 +47,9 @@ export type ReportSummary = {
 	assignee: AssigneeRef | null;
 	inboxes: InboxRef[];
 	bounty: BountyTotal | null;
+	// Marked not eligible for a bounty by the program. HackerOne records this only as an activity
+	// on the report detail, so the local DB derives it per row rather than storing it.
+	bounty_ineligible: boolean;
 };
 
 export type UserRef = {

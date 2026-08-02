@@ -654,6 +654,10 @@ input[type="radio"] {
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
 	}
+	.bounty-ineligible {
+		color: var(--text-3);
+		font-size: var(--fs-sm);
+	}
 	.person {
 		font-size: var(--fs-sm);
 	}

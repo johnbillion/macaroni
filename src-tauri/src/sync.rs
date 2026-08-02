@@ -173,10 +173,11 @@ async fn run_sync_inner(
         backfill_summaries(events, api, store, program_handle, &mut sync_state).await?;
     }
 
-    // --- Phase B: full detail backfill for any report lacking cached detail. ---
-    if !sync_state.backfill_detail_complete {
-        backfill_detail(events, api, store, program_handle, &mut sync_state).await?;
-    }
+    // --- Phase B: full detail backfill for any report lacking cached detail. Runs every sync,
+    // not just until the first clean pass: the initial page and the incremental catch-up above
+    // both mirror reports whose detail we haven't fetched, and the catch-up explicitly marks
+    // touched reports' detail stale. It's a no-op once nothing is missing. ---
+    backfill_detail(events, api, store, program_handle).await?;
 
     sync_state.last_sync_at = Some(now_marker());
     store.put_sync_state(&sync_state)?;
@@ -292,14 +293,11 @@ async fn backfill_detail(
     api: &Arc<dyn HackerOneApi>,
     store: &Arc<dyn ReportStore>,
     program_handle: &str,
-    sync_state: &mut SyncState,
 ) -> Result<(), AppError> {
     let ids = store.ids_missing_detail(program_handle)?;
     let total = store.count_reports(program_handle)?;
     let already = store.count_detail(program_handle)?;
     if ids.is_empty() {
-        sync_state.backfill_detail_complete = true;
-        store.put_sync_state(sync_state)?;
         return Ok(());
     }
 
@@ -347,12 +345,6 @@ async fn backfill_detail(
     }
     while set.join_next().await.is_some() {}
 
-    // Only mark complete when nothing is still missing — a report that erred every retry stays
-    // null and keeps the flag off so the next launch tries again.
-    if store.ids_missing_detail(program_handle)?.is_empty() {
-        sync_state.backfill_detail_complete = true;
-    }
-    store.put_sync_state(sync_state)?;
     emit_changed(events);
     Ok(())
 }
@@ -516,7 +508,6 @@ mod tests {
 
         let state = store.get_sync_state().unwrap();
         assert!(state.backfill_summaries_complete);
-        assert!(state.backfill_detail_complete);
         // Watermark advanced to the newest last_activity_at seen.
         assert_eq!(
             state.update_watermark.as_deref(),
@@ -527,6 +518,27 @@ mod tests {
         let detail = store.get_detail("3").unwrap().unwrap();
         assert_eq!(detail.main_state, "open");
         assert_eq!(detail.activities.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn detail_marked_stale_is_refetched_by_a_later_sync() {
+        // A completed first sync must not stop later syncs from hydrating detail: the
+        // incremental pass marks a touched report's detail stale, and only the detail pass
+        // re-fetches it. Anything derived from the detail blob (bounty ineligibility, say)
+        // stays wrong until it does.
+        let api: Arc<dyn HackerOneApi> = Arc::new(MockApi {
+            reports: vec![summary("1", "new", "2024-02-01T00:00:00.000Z")],
+        });
+        let store: Arc<dyn ReportStore> = Arc::new(SqliteStore::in_memory());
+        run_sync_inner(&events(), &api, &store, "wp").await.unwrap();
+        assert_eq!(store.count_detail("wp").unwrap(), 1);
+
+        store.mark_detail_stale(&["1"]).unwrap();
+        assert_eq!(store.count_detail("wp").unwrap(), 0);
+
+        run_sync_inner(&events(), &api, &store, "wp").await.unwrap();
+        assert_eq!(store.count_detail("wp").unwrap(), 1);
+        assert!(store.ids_missing_detail("wp").unwrap().is_empty());
     }
 
     #[tokio::test]

@@ -377,7 +377,15 @@ export function InboxTable() {
 									</td>
 								) : null}
 								{visibility.bounty ? (
-									<td class="bounty">{r.bounty ? formatBounty(r.bounty) : ""}</td>
+									<td class="bounty">
+										{r.bounty ? (
+											formatBounty(r.bounty)
+										) : r.bounty_ineligible ? (
+											<span class="bounty-ineligible">Not eligible</span>
+										) : (
+											""
+										)}
+									</td>
 								) : null}
 							</tr>
 						);

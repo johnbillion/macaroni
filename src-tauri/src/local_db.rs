@@ -21,7 +21,6 @@ pub struct TriageRecord {
 pub struct SyncState {
     pub program_handle: Option<String>,
     pub backfill_summaries_complete: bool,
-    pub backfill_detail_complete: bool,
     pub update_watermark: Option<String>,
     pub last_sync_at: Option<String>,
 }
@@ -50,6 +49,18 @@ pub struct LocalQuery {
     pub keyword: Option<String>,
 }
 
+// A row of the inbox list: the report's summary blob plus the one list-level fact that isn't in
+// it. Whether a report has been marked not eligible for a bounty is recorded by HackerOne only as
+// an `activity-not-eligible-for-bounty` event, which the /reports list endpoint doesn't carry — so
+// it's derived on read from the detail blob's activities rather than stored anywhere. Flattened,
+// so the frontend sees one flat report object.
+#[derive(Debug, Clone, Serialize)]
+pub struct ReportListItem {
+    #[serde(flatten)]
+    pub summary: ReportSummary,
+    pub bounty_ineligible: bool,
+}
+
 pub trait ReportStore: Send + Sync {
     // Insert or update the list-level data for a batch of reports (the summary shape from the
     // /reports endpoint). Only the blob is written; the queryable columns derive from it.
@@ -59,7 +70,7 @@ pub trait ReportStore: Send + Sync {
     // taken from the existing row (the report has always been seen at list level first).
     fn upsert_detail(&self, detail: &ReportDetail) -> AppResult<()>;
     // Run a filtered query against the local DB, newest-created first. Returns every match.
-    fn query(&self, q: &LocalQuery) -> AppResult<Vec<ReportSummary>>;
+    fn query(&self, q: &LocalQuery) -> AppResult<Vec<ReportListItem>>;
     // Distinct inboxes across every report stored for a program, sorted by name. Drives the
     // sidebar inbox filter — HackerOne has no endpoint to enumerate a program's inboxes, so the
     // set is derived from the inboxes seen on synced reports.
@@ -137,7 +148,6 @@ CREATE TABLE IF NOT EXISTS sync_state (
     id                          INTEGER PRIMARY KEY CHECK (id = 1),
     program_handle              TEXT,
     backfill_summaries_complete INTEGER NOT NULL DEFAULT 0,
-    backfill_detail_complete    INTEGER NOT NULL DEFAULT 0,
     update_watermark            TEXT,
     last_sync_at                TEXT
 );
@@ -281,9 +291,14 @@ impl ReportStore for SqliteStore {
         Ok(())
     }
 
-    fn query(&self, q: &LocalQuery) -> AppResult<Vec<ReportSummary>> {
+    fn query(&self, q: &LocalQuery) -> AppResult<Vec<ReportListItem>> {
         let c = self.conn.lock().unwrap();
-        let mut sql = String::from("SELECT summary_json FROM reports WHERE program_handle = ?1");
+        let mut sql = String::from(
+            "SELECT summary_json,
+                    EXISTS (SELECT 1 FROM json_each(detail_json, '$.activities')
+                            WHERE json_extract(value, '$.kind') = 'not-eligible-for-bounty')
+             FROM reports WHERE program_handle = ?1",
+        );
         let mut binds: Vec<String> = vec![q.program_handle.clone()];
 
         if !q.states.is_empty() {
@@ -354,14 +369,17 @@ impl ReportStore for SqliteStore {
         let mut stmt = c.prepare(&sql).map_err(AppError::other)?;
         let rows = stmt
             .query_map(params_from_iter(binds.iter()), |row| {
-                row.get::<_, String>(0)
+                Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?))
             })
             .map_err(AppError::other)?;
         let mut out = Vec::new();
         for r in rows {
-            let json = r.map_err(AppError::other)?;
-            if let Some(s) = summary_from_row(&json) {
-                out.push(s);
+            let (json, bounty_ineligible) = r.map_err(AppError::other)?;
+            if let Some(summary) = summary_from_row(&json) {
+                out.push(ReportListItem {
+                    summary,
+                    bounty_ineligible,
+                });
             }
         }
         Ok(out)
@@ -471,17 +489,15 @@ impl ReportStore for SqliteStore {
         let c = self.conn.lock().unwrap();
         let state = c
             .query_row(
-                "SELECT program_handle, backfill_summaries_complete, backfill_detail_complete,
-                        update_watermark, last_sync_at
+                "SELECT program_handle, backfill_summaries_complete, update_watermark, last_sync_at
                  FROM sync_state WHERE id = 1",
                 [],
                 |row| {
                     Ok(SyncState {
                         program_handle: row.get(0)?,
                         backfill_summaries_complete: row.get::<_, i64>(1)? != 0,
-                        backfill_detail_complete: row.get::<_, i64>(2)? != 0,
-                        update_watermark: row.get(3)?,
-                        last_sync_at: row.get(4)?,
+                        update_watermark: row.get(2)?,
+                        last_sync_at: row.get(3)?,
                     })
                 },
             )
@@ -494,18 +510,16 @@ impl ReportStore for SqliteStore {
         let c = self.conn.lock().unwrap();
         c.execute(
             "INSERT INTO sync_state (id, program_handle, backfill_summaries_complete,
-                                     backfill_detail_complete, update_watermark, last_sync_at)
-             VALUES (1, ?1, ?2, ?3, ?4, ?5)
+                                     update_watermark, last_sync_at)
+             VALUES (1, ?1, ?2, ?3, ?4)
              ON CONFLICT(id) DO UPDATE SET
                 program_handle = excluded.program_handle,
                 backfill_summaries_complete = excluded.backfill_summaries_complete,
-                backfill_detail_complete = excluded.backfill_detail_complete,
                 update_watermark = excluded.update_watermark,
                 last_sync_at = excluded.last_sync_at",
             params![
                 state.program_handle,
                 state.backfill_summaries_complete as i64,
-                state.backfill_detail_complete as i64,
                 state.update_watermark,
                 state.last_sync_at,
             ],
@@ -952,7 +966,6 @@ mod tests {
         s.put_sync_state(&SyncState {
             program_handle: Some("wp".into()),
             backfill_summaries_complete: true,
-            backfill_detail_complete: false,
             update_watermark: Some("2024-05-01T00:00:00.000Z".into()),
             last_sync_at: Some("@123".into()),
         })
@@ -960,7 +973,6 @@ mod tests {
         let got = s.get_sync_state().unwrap();
         assert_eq!(got.program_handle.as_deref(), Some("wp"));
         assert!(got.backfill_summaries_complete);
-        assert!(!got.backfill_detail_complete);
         assert_eq!(
             got.update_watermark.as_deref(),
             Some("2024-05-01T00:00:00.000Z")
@@ -1050,5 +1062,80 @@ mod tests {
             raw.contains("looking into it"),
             "activity missing from detail_json"
         );
+    }
+
+    #[test]
+    fn bounty_ineligibility_is_derived_from_the_activity() {
+        let s = store();
+        s.upsert_summaries(
+            "wp",
+            &[
+                summary("1", "Ineligible", "resolved", Some("low")),
+                summary("2", "Eligible", "resolved", Some("low")),
+            ],
+        )
+        .unwrap();
+        s.upsert_detail(&detail_with_activities(
+            &summary("1", "Ineligible", "resolved", Some("low")),
+            vec![event("e1", "not-eligible-for-bounty")],
+        ))
+        .unwrap();
+        s.upsert_detail(&detail_with_activities(
+            &summary("2", "Eligible", "resolved", Some("low")),
+            vec![event("e2", "bug-resolved")],
+        ))
+        .unwrap();
+
+        let rows = s
+            .query(&LocalQuery {
+                program_handle: "wp".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let by_id = |id: &str| {
+            rows.iter()
+                .find(|r| r.summary.id == id)
+                .unwrap()
+                .bounty_ineligible
+        };
+        assert!(by_id("1"));
+        assert!(!by_id("2"));
+    }
+
+    fn event(id: &str, kind: &str) -> Activity {
+        Activity::Event {
+            id: id.to_string(),
+            created_at: "2024-01-02T00:00:00.000Z".into(),
+            kind: kind.to_string(),
+            message: None,
+            internal: false,
+            actor: None,
+            invitee: None,
+            duplicate_report_id: None,
+            original_report_id: None,
+            old_scope: None,
+            new_scope: None,
+            new_weakness: None,
+            group_name: None,
+            old_severity: None,
+            new_severity: None,
+            old_title: None,
+            new_title: None,
+            bounty_amount: None,
+            bonus_amount: None,
+            assigned_user: None,
+            reference: None,
+        }
+    }
+
+    fn detail_with_activities(s: &ReportSummary, activities: Vec<Activity>) -> ReportDetail {
+        report_detail_from(
+            s,
+            &ReportDetailExtra {
+                main_state: "closed".into(),
+                activities,
+                attachments: vec![],
+            },
+        )
     }
 }
