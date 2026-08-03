@@ -160,7 +160,10 @@ export function InboxTable() {
 		dispatch({ type: "REPORT_SELECTED", reportId: id });
 	};
 
+	const rangeAnchorRef = useRef<string | null>(null);
+
 	const onToggleAll = () => {
+		rangeAnchorRef.current = null;
 		dispatch({
 			type: "SELECTION_SET",
 			reportIds: items.map((r) => r.id),
@@ -168,7 +171,31 @@ export function InboxTable() {
 		});
 	};
 	const onToggleRow = (id: string) => {
+		rangeAnchorRef.current = id;
 		dispatch({ type: "SELECTION_TOGGLED", reportId: id });
+	};
+
+	// Shift-click extends from the last checkbox toggled to this one, applying the state the clicked
+	// checkbox is heading for across the whole range. Handled on click rather than change because
+	// only the mouse event carries the modifier key; preventing the default stops the checkbox
+	// toggling itself, so the dispatch below is the only thing that moves the selection.
+	const onRowCheckClick = (e: MouseEvent, id: string) => {
+		if (!e.shiftKey) return;
+		const anchorId = rangeAnchorRef.current;
+		if (anchorId === null || anchorId === id) return;
+		const anchor = items.findIndex((r) => r.id === anchorId);
+		const target = items.findIndex((r) => r.id === id);
+		if (anchor === -1 || target === -1) return;
+		e.preventDefault();
+		// Shift-clicking otherwise drags a text selection across the intervening rows.
+		window.getSelection()?.removeAllRanges();
+		rangeAnchorRef.current = id;
+		const [from, to] = anchor < target ? [anchor, target] : [target, anchor];
+		dispatch({
+			type: "SELECTION_SET",
+			reportIds: items.slice(from, to + 1).map((r) => r.id),
+			checked: !selected.has(id),
+		});
 	};
 
 	const onRetryReports = () => {
@@ -281,6 +308,7 @@ export function InboxTable() {
 											class="cb"
 											aria-label="Select report"
 											checked={isMultiSelected}
+											onClick={(e) => onRowCheckClick(e, r.id)}
 											onChange={() => onToggleRow(r.id)}
 										/>
 									</label>
