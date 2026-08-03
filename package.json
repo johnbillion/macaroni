@@ -14,7 +14,13 @@
     "tauri": "tauri",
     "format": "biome format --write",
     "lint": "biome lint",
-    "check": "biome check --write"
+    "check": "biome check --write",
+    "preversion": "git diff --quiet && git diff --cached --quiet || (echo 'Working tree is not clean; commit or stash first.' && exit 1)",
+    "version": "npm install && cargo update --manifest-path src-tauri/Cargo.toml --offline --workspace",
+    "bump:patch": "bump patch --commit 'Version %s.' --all package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml",
+    "bump:minor": "bump minor --commit 'Version %s.' --all package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml",
+    "bump:major": "bump major --commit 'Version %s.' --all package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml",
+    "bump": "f() { bump \"$1\" --commit 'Version %s.' --all package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml; }; f"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -28,6 +34,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
+    "@jsdevtools/version-bump-prompt": "^6.1.0",
     "@preact/preset-vite": "^2.9.3",
     "@tauri-apps/cli": "^2",
     "@types/mdast": "^4.0.4",
