@@ -425,16 +425,37 @@ export function InboxTable() {
 
 	const showColumnsMenu = state.reports.status === "ready" && state.reports.data.items.length > 0;
 	const canRefresh = !!buildReportsQuery(state);
+	const sync = state.sync;
+	// What the background sync is doing right now, or null when idle.
+	const syncLabel = ((): string | null => {
+		if (sync.phase === "initial") return "Loading reports…";
+		if (sync.phase === "summaries") return `Syncing reports… ${sync.done.toLocaleString()}`;
+		if (sync.phase === "detail") {
+			return `Syncing details… ${sync.done.toLocaleString()} / ${sync.total.toLocaleString()}`;
+		}
+		return null;
+	})();
 
 	return (
 		<div class="inbox-wrap">
-			{showColumnsMenu || canRefresh ? (
+			{showColumnsMenu || canRefresh || syncLabel ? (
 				<div class="inbox-toolbar">
-					{showColumnsMenu ? (
-						<span class="toolbar-total">
-							{items.length} {items.length === 1 ? "report" : "reports"}
-						</span>
-					) : null}
+					<div class="toolbar-left">
+						{showColumnsMenu ? (
+							<span class="toolbar-total">
+								{items.length} {items.length === 1 ? "report" : "reports"}
+								{state.syncedReportCount !== null
+									? ` · ${state.syncedReportCount.toLocaleString()} synced`
+									: null}
+							</span>
+						) : null}
+						{syncLabel ? (
+							<div class="sync-indicator" role="status">
+								<Spinner />
+								<span>{syncLabel}</span>
+							</div>
+						) : null}
+					</div>
 					{canRefresh ? (
 						<button
 							type="button"
