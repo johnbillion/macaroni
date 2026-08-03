@@ -461,6 +461,38 @@ pub async fn set_triage_prompt(
     Ok(settings)
 }
 
+fn claude_search_path() -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut dirs = vec![
+        format!("{home}/.local/bin"),
+        format!("{home}/.claude/local"),
+        "/opt/homebrew/bin".to_string(),
+        "/usr/local/bin".to_string(),
+        "/usr/bin".to_string(),
+        "/bin".to_string(),
+    ];
+    if let Ok(inherited) = std::env::var("PATH") {
+        dirs.extend(inherited.split(':').map(str::to_string));
+    }
+    dirs.join(":")
+}
+
+// Absolute path to the `claude` binary. Resolving it ourselves rather than relying on the child's
+// PATH lookup means a missing install produces an error naming where we looked, instead of a bare
+// "No such file or directory" from spawn.
+fn claude_binary() -> AppResult<std::path::PathBuf> {
+    let search_path = claude_search_path();
+    for dir in search_path.split(':').filter(|d| !d.is_empty()) {
+        let candidate = std::path::Path::new(dir).join("claude");
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    Err(AppError::other(format!(
+        "Could not find the `claude` command. Looked in: {search_path}"
+    )))
+}
+
 #[tauri::command]
 pub async fn run_triage(
     app: tauri::AppHandle,
@@ -474,18 +506,10 @@ pub async fn run_triage(
         AppError::other("No triage working directory is set. Choose one in Settings.")
     })?;
 
-    // Inherit a shell-like PATH so `claude` resolves whether installed via Homebrew or npm.
-    let path_env = std::env::var("PATH").unwrap_or_default();
-    let augmented_path = format!(
-        "{}/.claude/local:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:{}",
-        std::env::var("HOME").unwrap_or_default(),
-        path_env
-    );
-
-    let mut child = tokio::process::Command::new("claude")
+    let mut child = tokio::process::Command::new(claude_binary()?)
         .args(["-p", "--output-format", "stream-json", "--verbose"])
         .current_dir(&working_dir)
-        .env("PATH", &augmented_path)
+        .env("PATH", claude_search_path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -691,17 +715,10 @@ pub async fn run_duplicates(
 ) -> AppResult<DuplicateResult> {
     let prompt = assemble_duplicates_prompt(&reports);
 
-    let path_env = std::env::var("PATH").unwrap_or_default();
-    let augmented_path = format!(
-        "{}/.claude/local:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:{}",
-        std::env::var("HOME").unwrap_or_default(),
-        path_env
-    );
-
-    let mut child = tokio::process::Command::new("claude")
+    let mut child = tokio::process::Command::new(claude_binary()?)
         .args(["-p", "--output-format", "stream-json", "--verbose"])
         .current_dir(std::env::temp_dir())
-        .env("PATH", &augmented_path)
+        .env("PATH", claude_search_path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
