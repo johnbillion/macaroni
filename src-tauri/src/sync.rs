@@ -231,6 +231,9 @@ async fn incremental_sync(
             store.mark_detail_stale(&ids)?;
             newest = max_activity(&fresh, newest);
             touched += fresh.len() as i64;
+            // No total to report: we don't know how many reports changed until we hit one that
+            // predates the watermark.
+            emit_status(events, "summaries", touched, 0, true);
         }
         if caught_up || page.next_cursor.is_none() {
             break;

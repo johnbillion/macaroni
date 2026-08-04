@@ -429,7 +429,9 @@ export function InboxTable() {
 	// What the background sync is doing right now, or null when idle.
 	const syncLabel = ((): string | null => {
 		if (sync.phase === "initial") return "Loading reports…";
-		if (sync.phase === "summaries") return `Syncing reports… ${sync.done.toLocaleString()}`;
+		if (sync.phase === "summaries") {
+			return sync.done > 0 ? `Syncing reports… ${sync.done.toLocaleString()}` : "Syncing reports…";
+		}
 		if (sync.phase === "detail") {
 			return `Syncing details… ${sync.done.toLocaleString()} / ${sync.total.toLocaleString()}`;
 		}
