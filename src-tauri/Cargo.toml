@@ -1,6 +1,6 @@
 [package]
 name = "Macaroni"
-version = "0.1.0"
+version = "0.2.0"
 description = "HackerOne desktop client"
 authors = ["John Blackbourn"]
 edition = "2024"
