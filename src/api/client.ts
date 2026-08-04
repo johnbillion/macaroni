@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
 	AppError,
-	Asset,
 	DuplicateInput,
 	DuplicateResult,
 	InboxRef,
@@ -30,7 +29,6 @@ export const api = {
 	credentialsClear: () => call<void>("credentials_clear"),
 	listOrganizations: () => call<Organization[]>("list_organizations"),
 	listPrograms: (orgId: string) => call<Program[]>("list_programs", { orgId }),
-	listAssets: (orgId: string) => call<Asset[]>("list_assets", { orgId }),
 	listProgramMembers: (programId: string) =>
 		call<TeamMember[]>("list_program_members", { programId }),
 	// Query the local SQLite mirror. Returns every matching report (no pagination).
@@ -45,6 +43,12 @@ export const api = {
 	}) => call<ReportSummary[]>("query_reports", { query }),
 	// Distinct inboxes across all reports synced for a program, for the sidebar inbox filter.
 	listInboxes: (programHandle: string) => call<InboxRef[]>("list_inboxes", { programHandle }),
+	// Distinct asset identifiers across a program's synced reports, for the sidebar asset filter.
+	listLocalAssets: (programHandle: string) =>
+		call<string[]>("list_local_assets", { programHandle }),
+	// Handles of the programs already mirrored locally, for selecting one at launch without
+	// waiting on the HackerOne API.
+	listLocalPrograms: () => call<string[]>("list_local_programs"),
 	syncedReportCount: (programHandle: string) =>
 		call<number>("synced_report_count", { programHandle }),
 	startReportSync: (programHandle: string) => call<void>("start_report_sync", { programHandle }),

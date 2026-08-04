@@ -3,6 +3,7 @@ import { useEffect, useRef } from "preact/hooks";
 import { api } from "../api/client";
 import { useAppState, useDispatch } from "../state/context";
 import {
+	adoptLocalProgram,
 	bootstrap,
 	buildReportsQuery,
 	debounceLoadReports,
@@ -44,6 +45,13 @@ export function App() {
 		loadSettings(dispatch);
 	}, [dispatch]);
 
+	// Reports come from the local mirror, so on any launch after the first there's no reason to wait
+	// for HackerOne before showing them: pick the program from the DB and the query effect below
+	// fires immediately. Runs alongside `bootstrap`, and only ever wins the race on a warm DB.
+	useEffect(() => {
+		adoptLocalProgram(dispatch);
+	}, [dispatch]);
+
 	// Reflect the macOS system accent colour into the theme's --accent / --on-accent CSS
 	// variables (buttons, links, selection, controls all derive from them). Applied on launch
 	// and re-applied whenever the user changes the accent in System Settings → Appearance.
@@ -74,15 +82,15 @@ export function App() {
 		}
 	}, [state.filters.orgId, state.programsByOrg, dispatch]);
 
+	// Asset and inbox filter options are both derived from the program's synced reports, so load them
+	// once a program is selected. The sync:changed listener below re-loads them as more reports land.
 	useEffect(() => {
-		const orgId = state.filters.orgId;
-		if (!orgId) return;
-		if (state.assetsByOrg[orgId]) return;
-		loadAssets(dispatch, orgId);
-	}, [state.filters.orgId, state.assetsByOrg, dispatch]);
+		const handle = state.filters.programHandle;
+		if (!handle) return;
+		if (state.assetsByProgram[handle]) return;
+		loadAssets(dispatch, handle);
+	}, [state.filters.programHandle, state.assetsByProgram, dispatch]);
 
-	// Inbox filter options are derived from the program's synced reports, so load them once a
-	// program is selected. The sync:changed listener below re-loads them as more reports land.
 	useEffect(() => {
 		const handle = state.filters.programHandle;
 		if (!handle) return;
@@ -111,16 +119,9 @@ export function App() {
 		dispatch,
 	]);
 
-	const orgId = state.filters.orgId;
 	const handle = state.filters.programHandle;
-	const currentAssets = orgId ? state.assetsByOrg[orgId] : undefined;
-	const eligibleAssetKey =
-		currentAssets?.status === "ready"
-			? currentAssets.data
-					.filter((a) => a.in_scope)
-					.map((a) => a.id)
-					.join(",")
-			: "";
+	const currentAssets = handle ? state.assetsByProgram[handle] : undefined;
+	const availableAssetKey = currentAssets?.status === "ready" ? currentAssets.data.join(",") : "";
 
 	const currentInboxes = handle ? state.inboxesByProgram[handle] : undefined;
 	const availableInboxKey =
@@ -148,7 +149,7 @@ export function App() {
 		assetsKey,
 		assigneesKey,
 		inboxesKey,
-		eligibleAssetKey,
+		availableAssetKey,
 		availableInboxKey,
 		dispatch,
 	]);
@@ -259,7 +260,8 @@ export function App() {
 				const h = stateRef.current.filters.programHandle;
 				if (h) {
 					refreshSyncedCount(dispatch, h);
-					// New reports may carry inboxes not yet in the sidebar list — re-derive them.
+					// New reports may carry assets or inboxes not yet in the sidebar lists — re-derive.
+					loadAssets(dispatch, h);
 					loadInboxes(dispatch, h);
 				}
 			});

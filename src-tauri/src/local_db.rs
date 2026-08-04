@@ -78,6 +78,12 @@ pub trait ReportStore: Send + Sync {
     // sidebar inbox filter — HackerOne has no endpoint to enumerate a program's inboxes, so the
     // set is derived from the inboxes seen on synced reports.
     fn distinct_inboxes(&self, program_handle: &str) -> AppResult<Vec<InboxRef>>;
+    // Handles of every program with reports mirrored locally, sorted. Lets the frontend pick the
+    // program at launch without waiting for the HackerOne programs endpoint.
+    fn distinct_program_handles(&self) -> AppResult<Vec<String>>;
+    // Distinct asset identifiers across a program's synced reports, sorted. Drives the sidebar
+    // asset filter, which matches on the identifier anyway — see the asset_identifier column.
+    fn distinct_asset_identifiers(&self, program_handle: &str) -> AppResult<Vec<String>>;
     // The cached full detail for a report, if we've fetched it before.
     fn get_detail(&self, id: &str) -> AppResult<Option<ReportDetail>>;
     // Ids of reports for this program that have no cached detail yet (drives detail backfill).
@@ -417,6 +423,35 @@ impl ReportStore for SqliteStore {
         rows.collect::<Result<Vec<_>, _>>().map_err(AppError::other)
     }
 
+    fn distinct_program_handles(&self) -> AppResult<Vec<String>> {
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c
+            .prepare(
+                "SELECT DISTINCT program_handle FROM reports
+                 ORDER BY program_handle COLLATE NOCASE",
+            )
+            .map_err(AppError::other)?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(AppError::other)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(AppError::other)
+    }
+
+    fn distinct_asset_identifiers(&self, program_handle: &str) -> AppResult<Vec<String>> {
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c
+            .prepare(
+                "SELECT DISTINCT asset_identifier FROM reports
+                 WHERE program_handle = ?1 AND asset_identifier IS NOT NULL
+                 ORDER BY asset_identifier COLLATE NOCASE",
+            )
+            .map_err(AppError::other)?;
+        let rows = stmt
+            .query_map(params![program_handle], |row| row.get::<_, String>(0))
+            .map_err(AppError::other)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(AppError::other)
+    }
+
     fn get_detail(&self, id: &str) -> AppResult<Option<ReportDetail>> {
         let c = self.conn.lock().unwrap();
         // Reconstruct the full detail by merging the summary blob (shared fields) with the
@@ -735,6 +770,60 @@ mod tests {
             inboxes: vec![],
             bounty: None,
         }
+    }
+
+    #[test]
+    fn distinct_asset_identifiers_are_scoped_to_the_program() {
+        let s = store();
+        let asset = |id: &str, ident: &str| {
+            Some(AssetRef {
+                id: id.to_string(),
+                asset_identifier: ident.to_string(),
+                asset_type: Some("SOURCE_CODE".into()),
+            })
+        };
+        let mut r1 = summary("1", "One", "new", None);
+        r1.asset = asset("2752", "bbPress Core");
+        let mut r2 = summary("2", "Two", "new", None);
+        r2.asset = asset("2752", "bbPress Core");
+        // No asset at all — must not surface as an empty option.
+        let r3 = summary("3", "Three", "new", None);
+        let mut r4 = summary("4", "Four", "new", None);
+        r4.asset = asset("2750", "WordPress Core");
+        s.upsert_summaries("wp", &[r1, r2, r3]).unwrap();
+        s.upsert_summaries("other", &[r4]).unwrap();
+
+        assert_eq!(
+            s.distinct_asset_identifiers("wp").unwrap(),
+            vec!["bbPress Core".to_string()]
+        );
+        assert_eq!(
+            s.distinct_asset_identifiers("other").unwrap(),
+            vec!["WordPress Core".to_string()]
+        );
+    }
+
+    #[test]
+    fn distinct_program_handles_lists_each_program_once() {
+        let s = store();
+        assert!(s.distinct_program_handles().unwrap().is_empty());
+
+        s.upsert_summaries(
+            "wp",
+            &[
+                summary("1", "SQL injection", "new", Some("high")),
+                summary("2", "XSS bug", "resolved", Some("low")),
+            ],
+        )
+        .unwrap();
+        assert_eq!(s.distinct_program_handles().unwrap(), vec!["wp"]);
+
+        s.upsert_summaries("bbpress", &[summary("3", "CSRF", "new", None)])
+            .unwrap();
+        assert_eq!(
+            s.distinct_program_handles().unwrap(),
+            vec!["bbpress".to_string(), "wp".to_string()]
+        );
     }
 
     #[test]

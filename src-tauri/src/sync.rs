@@ -363,9 +363,7 @@ fn now_marker() -> String {
 mod tests {
     use super::*;
     use crate::error::AppResult;
-    use crate::hackerone::{
-        Activity, Asset, Organization, Program, ReportDetail, TeamMember, UserRef,
-    };
+    use crate::hackerone::{Activity, Organization, Program, ReportDetail, TeamMember, UserRef};
     use crate::local_db::SqliteStore;
 
     // A HackerOne API stand-in backed by a fixed set of summaries. list_reports serves them
@@ -384,9 +382,6 @@ mod tests {
             Ok(vec![])
         }
         async fn list_programs(&self, _org_id: &str) -> AppResult<Vec<Program>> {
-            Ok(vec![])
-        }
-        async fn list_assets(&self, _org_id: &str) -> AppResult<Vec<Asset>> {
             Ok(vec![])
         }
         async fn list_program_members(&self, _program_id: &str) -> AppResult<Vec<TeamMember>> {

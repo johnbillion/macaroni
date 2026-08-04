@@ -107,14 +107,6 @@ pub struct InboxRef {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct Asset {
-    pub id: String,
-    pub identifier: String,
-    pub asset_type: Option<String>,
-    pub in_scope: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct TeamMember {
     pub id: String,
     pub username: String,
@@ -229,7 +221,6 @@ pub trait HackerOneApi: Send + Sync {
     async fn validate(&self) -> AppResult<()>;
     async fn list_organizations(&self) -> AppResult<Vec<Organization>>;
     async fn list_programs(&self, org_id: &str) -> AppResult<Vec<Program>>;
-    async fn list_assets(&self, org_id: &str) -> AppResult<Vec<Asset>>;
     async fn list_program_members(&self, program_id: &str) -> AppResult<Vec<TeamMember>>;
     async fn list_reports(&self, query: ReportQuery) -> AppResult<ReportPage>;
     async fn get_report(&self, report_id: &str) -> AppResult<ReportDetail>;
@@ -345,36 +336,6 @@ impl HackerOneApi for ReqwestClient {
                 Some(Program {
                     id: item.get("id")?.as_str()?.to_string(),
                     handle: item.get("attributes")?.get("handle")?.as_str()?.to_string(),
-                })
-            })
-            .collect())
-    }
-
-    async fn list_assets(&self, org_id: &str) -> AppResult<Vec<Asset>> {
-        let url = format!("{BASE_URL}/organizations/{org_id}/assets?page%5Bsize%5D=100");
-        let body = self.get_json(&url).await?;
-        let data = body
-            .get("data")
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| AppError::Other {
-                message: "Unexpected response shape from /assets".into(),
-            })?;
-        Ok(data
-            .iter()
-            .filter_map(|item| {
-                let attrs = item.get("attributes")?;
-                Some(Asset {
-                    id: item.get("id")?.as_str()?.to_string(),
-                    identifier: attrs.get("identifier")?.as_str()?.to_string(),
-                    asset_type: attrs
-                        .get("asset_type")
-                        .and_then(|v| v.as_str())
-                        .map(String::from),
-                    in_scope: attrs
-                        .get("coverage")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s == "in_scope")
-                        .unwrap_or(false),
                 })
             })
             .collect())

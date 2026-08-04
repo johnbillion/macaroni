@@ -2,16 +2,17 @@ import { useEffect, useRef } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
 import { buildReportsQuery, cancelPendingReportsLoad, loadReports } from "../state/effects";
 import { CLOSED_STATES, OPEN_STATES, SEVERITY_FACETS, type StateFacet } from "../state/filters";
-import type { Asset, AssigneeOption, AsyncState, InboxRef, TeamMember } from "../state/store";
+import type { AssigneeOption, AsyncState, InboxRef, TeamMember } from "../state/store";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { SeverityMeter } from "./SeverityMeter";
 
 export function Sidebar() {
 	const state = useAppState();
 	const dispatch = useDispatch();
-	const orgId = state.filters.orgId;
-	const assets: AsyncState<Asset[]> | undefined = orgId ? state.assetsByOrg[orgId] : undefined;
 	const handle = state.filters.programHandle;
+	const assets: AsyncState<string[]> | undefined = handle
+		? state.assetsByProgram[handle]
+		: undefined;
 	const seenAssignees = handle ? (state.assigneeOptionsByProgram[handle] ?? []) : [];
 	const members = handle ? state.teamMembersByProgram[handle] : undefined;
 	const memberList = members?.status === "ready" ? members.data : [];
@@ -46,7 +47,7 @@ export function Sidebar() {
 				</div>
 			</form>
 
-			<AssetSection key={`asset-${orgId ?? "none"}`} state={assets} />
+			<AssetSection key={`asset-${handle ?? "none"}`} state={assets} />
 
 			<div class="side-section">
 				<div class="side-h">
@@ -171,7 +172,7 @@ function SeveritySection() {
 	);
 }
 
-function AssetSection({ state }: { state: AsyncState<Asset[]> | undefined }) {
+function AssetSection({ state }: { state: AsyncState<string[]> | undefined }) {
 	if (!state || state.status !== "ready") {
 		return (
 			<div class="side-section">
@@ -189,10 +190,7 @@ function AssetSection({ state }: { state: AsyncState<Asset[]> | undefined }) {
 			</div>
 		);
 	}
-	const visible = state.data
-		.filter((a) => a.in_scope)
-		.slice()
-		.sort((a, b) => assetSortKey(a.identifier).localeCompare(assetSortKey(b.identifier)));
+	const visible = state.data.slice().sort((a, b) => assetSortKey(a).localeCompare(assetSortKey(b)));
 	return <AssetSectionReady assets={visible} />;
 }
 
@@ -356,21 +354,24 @@ function InboxSectionReady({ inboxes }: { inboxes: InboxRef[] }) {
 	);
 }
 
-function AssetSectionReady({ assets }: { assets: Asset[] }) {
+// Assets are identified by their identifier throughout — it's what reports carry and what the
+// query filters on, so there's no id to key the checkboxes on.
+function AssetSectionReady({ assets }: { assets: string[] }) {
 	const state = useAppState();
 	const dispatch = useDispatch();
 	const selected = state.filters.assets;
-	const allIds = assets.map((a) => a.id);
 	const checked = new Set<string>(selected);
-	const allChecked = allIds.length > 0 && allIds.every((k) => checked.has(k));
-	const someChecked = allIds.some((k) => checked.has(k));
+	const allChecked = assets.length > 0 && assets.every((k) => checked.has(k));
+	const someChecked = assets.some((k) => checked.has(k));
 	const parentRef = useIndeterminate(allChecked, someChecked);
 
 	const toggleAll = () => {
-		dispatch({ type: "ASSETS_SET", assets: someChecked ? [] : allIds });
+		dispatch({ type: "ASSETS_SET", assets: someChecked ? [] : assets });
 	};
-	const toggleOne = (id: string) => {
-		const next = checked.has(id) ? selected.filter((k) => k !== id) : [...selected, id];
+	const toggleOne = (identifier: string) => {
+		const next = checked.has(identifier)
+			? selected.filter((k) => k !== identifier)
+			: [...selected, identifier];
 		dispatch({ type: "ASSETS_SET", assets: next });
 	};
 
@@ -393,15 +394,15 @@ function AssetSectionReady({ assets }: { assets: Asset[] }) {
 				<div class="facet facet-muted">No assets</div>
 			) : (
 				assets.map((asset) => (
-					<label key={asset.id} class="facet facet-asset">
+					<label key={asset} class="facet facet-asset">
 						<input
 							type="checkbox"
 							class="cb"
-							checked={checked.has(asset.id)}
-							onChange={() => toggleOne(asset.id)}
+							checked={checked.has(asset)}
+							onChange={() => toggleOne(asset)}
 						/>
 						<span>
-							<AssetIdentifier identifier={asset.identifier} />
+							<AssetIdentifier identifier={asset} />
 						</span>
 					</label>
 				))

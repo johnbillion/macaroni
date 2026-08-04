@@ -1,8 +1,6 @@
 use crate::credentials::{CredentialStore, Credentials};
 use crate::error::{AppError, AppResult};
-use crate::hackerone::{
-    Asset, HackerOneApi, InboxRef, Organization, Program, ReportDetail, TeamMember,
-};
+use crate::hackerone::{HackerOneApi, InboxRef, Organization, Program, ReportDetail, TeamMember};
 use crate::local_db::{LocalQuery, ReportListItem, ReportStore, TriageRecord};
 use crate::settings::{DEFAULT_TRIAGE_PROMPT, Settings, SettingsStore};
 use std::collections::HashMap;
@@ -91,11 +89,6 @@ pub async fn list_programs(ctx: State<'_, AppContext>, org_id: String) -> AppRes
 }
 
 #[tauri::command]
-pub async fn list_assets(ctx: State<'_, AppContext>, org_id: String) -> AppResult<Vec<Asset>> {
-    ctx.api.list_assets(&org_id).await
-}
-
-#[tauri::command]
 pub async fn list_program_members(
     ctx: State<'_, AppContext>,
     program_id: String,
@@ -122,6 +115,25 @@ pub async fn list_inboxes(
     program_handle: String,
 ) -> AppResult<Vec<InboxRef>> {
     ctx.reports.distinct_inboxes(&program_handle)
+}
+
+// Distinct asset identifiers seen across a program's synced reports, for the sidebar asset filter.
+// Derived locally rather than from the organization's assets endpoint: reports carry the asset
+// identifier, which is what the filter matches on, so the API call bought nothing but latency.
+#[tauri::command]
+pub async fn list_local_assets(
+    ctx: State<'_, AppContext>,
+    program_handle: String,
+) -> AppResult<Vec<String>> {
+    ctx.reports.distinct_asset_identifiers(&program_handle)
+}
+
+// Program handles already mirrored into the local DB. The frontend calls this at launch so it can
+// select the program and query reports off the mirror without waiting for `list_programs` (and the
+// organizations call before it) to come back from HackerOne.
+#[tauri::command]
+pub async fn list_local_programs(ctx: State<'_, AppContext>) -> AppResult<Vec<String>> {
+    ctx.reports.distinct_program_handles()
 }
 
 // Total reports mirrored locally for a program, for the Topbar's idle "N synced" indicator.

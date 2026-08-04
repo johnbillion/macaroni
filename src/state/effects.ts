@@ -108,13 +108,33 @@ export async function loadPrograms(dispatch: Dispatch, orgId: string) {
 	}
 }
 
-export async function loadAssets(dispatch: Dispatch, orgId: string) {
-	dispatch({ type: "ASSETS_REQUESTED", orgId });
+// Select the program straight from the local mirror at launch, so the inbox renders off SQLite
+// without waiting for the organizations → programs API round trip. Only when the mirror holds
+// exactly one program: with several there's no way to know which the user wants, and with none
+// there's nothing to show anyway, so both cases defer to the API's pick.
+export async function adoptLocalProgram(dispatch: Dispatch) {
 	try {
-		const assets = await api.listAssets(orgId);
-		dispatch({ type: "ASSETS_SUCCEEDED", orgId, assets });
+		const handles = await api.listLocalPrograms();
+		if (handles.length === 1) {
+			dispatch({ type: "LOCAL_PROGRAM_DETECTED", handle: handles[0] });
+		}
+	} catch {
+		// Best-effort — the API path still selects a program a moment later.
+	}
+}
+
+// Load the asset identifiers seen across a program's synced reports (the sidebar asset filter).
+// Derived from the local mirror rather than the organization's assets endpoint: the query filters
+// on the identifier, which every report carries, so the API list added a round trip and a
+// numeric-id translation without adding anything to filter by. Also called as a background refresh
+// when the sync lands more reports.
+export async function loadAssets(dispatch: Dispatch, programHandle: string) {
+	dispatch({ type: "ASSET_OPTIONS_REQUESTED", programHandle });
+	try {
+		const assets = await api.listLocalAssets(programHandle);
+		dispatch({ type: "ASSET_OPTIONS_SUCCEEDED", programHandle, assets });
 	} catch (e) {
-		dispatch({ type: "ASSETS_FAILED", orgId, error: asError(e) });
+		dispatch({ type: "ASSET_OPTIONS_FAILED", programHandle, error: asError(e) });
 	}
 }
 
@@ -203,8 +223,7 @@ export type ReportsQuery = {
 	programHandle: string;
 	states: string[];
 	severities: string[];
-	// Asset *identifiers* (e.g. "bbPress Core"), translated from the sidebar's asset-id selection —
-	// see buildReportsQuery for why we match on identifier rather than id.
+	// Asset *identifiers* (e.g. "bbPress Core") — what reports carry and the sidebar selects by.
 	assetIdentifiers: string[];
 	assignees: string[];
 	// Selected inbox ids (see InboxRef.id). Filtered entirely in SQL — there's no HackerOne API
@@ -334,26 +353,17 @@ export function buildReportsQuery(state: AppState): ReportsQuery | null {
 	const handle = state.filters.programHandle;
 	if (!handle) return null;
 
-	const orgId = state.filters.orgId;
-	const currentAssets = orgId ? state.assetsByOrg[orgId] : undefined;
-	const assetsList = currentAssets?.status === "ready" ? currentAssets.data : [];
-	const eligibleAssetIds = assetsList.filter((a) => a.in_scope).map((a) => a.id);
-
 	const states = state.filters.states.length === ALL_STATE_KEYS.length ? [] : state.filters.states;
 	const severities =
 		state.filters.severities.length === ALL_SEVERITY_KEYS.length ? [] : state.filters.severities;
 
-	// Asset selection is by id in the sidebar; "all eligible selected" means no filter.
-	const selectedAssetIds =
-		eligibleAssetIds.length > 0 && state.filters.assets.length === eligibleAssetIds.length
+	// Asset selection is by identifier; "all available selected" means no filter.
+	const assetOptions = state.assetsByProgram[handle];
+	const availableAssets = assetOptions?.status === "ready" ? assetOptions.data : [];
+	const assetIdentifiers =
+		availableAssets.length > 0 && state.filters.assets.length === availableAssets.length
 			? []
 			: state.filters.assets;
-	// Reports store the asset *identifier* (the report's structured_scope id doesn't match the
-	// assets-endpoint id the sidebar selects by), so translate ids → identifiers for the query.
-	const idToIdentifier = new Map(assetsList.map((a) => [a.id, a.identifier]));
-	const assetIdentifiers = selectedAssetIds
-		.map((id) => idToIdentifier.get(id))
-		.filter((v): v is string => v != null);
 
 	// Inbox selection is by id; "all available selected" means no filter, matching the asset facet.
 	const inboxOptions = state.inboxesByProgram[handle];

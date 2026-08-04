@@ -23,12 +23,6 @@ export type Settings = { triage_working_dir: string | null; triage_prompt: strin
 export type Organization = { id: string; handle: string };
 export type Program = { id: string; handle: string };
 export type TeamMember = { id: string; username: string };
-export type Asset = {
-	id: string;
-	identifier: string;
-	asset_type: string | null;
-	in_scope: boolean;
-};
 export type ReportSummary = {
 	id: string;
 	title: string;
@@ -277,7 +271,10 @@ export type AppState = {
 	triagePrompt: string | null;
 	bootstrap: AsyncState<{ orgs: Organization[] }>;
 	programsByOrg: Record<string, AsyncState<Program[]>>;
-	assetsByOrg: Record<string, AsyncState<Asset[]>>;
+	// Asset filter options per program handle: the identifiers seen on synced reports, which is what
+	// the query filters on. Derived locally like the inbox options, and refreshed alongside them as
+	// the sync lands reports carrying assets not seen before.
+	assetsByProgram: Record<string, AsyncState<string[]>>;
 	teamMembersByProgram: Record<string, AsyncState<TeamMember[]>>;
 	// Inbox filter options per program handle, derived from the inboxes seen on synced reports
 	// (HackerOne has no endpoint to enumerate a program's inboxes). Refreshed as the sync lands
@@ -292,6 +289,7 @@ export type AppState = {
 		programHandle?: string;
 		states: string[];
 		severities: string[];
+		// Selected asset identifiers (e.g. "bbPress Core").
 		assets: string[];
 		// Selected assignee filter tokens (usernames and group names) — see AssigneeOption.value.
 		assignees: string[];
@@ -350,9 +348,9 @@ export type Action =
 	| { type: "PROGRAMS_REQUESTED"; orgId: string }
 	| { type: "PROGRAMS_SUCCEEDED"; orgId: string; programs: Program[] }
 	| { type: "PROGRAMS_FAILED"; orgId: string; error: AppError }
-	| { type: "ASSETS_REQUESTED"; orgId: string }
-	| { type: "ASSETS_SUCCEEDED"; orgId: string; assets: Asset[] }
-	| { type: "ASSETS_FAILED"; orgId: string; error: AppError }
+	| { type: "ASSET_OPTIONS_REQUESTED"; programHandle: string }
+	| { type: "ASSET_OPTIONS_SUCCEEDED"; programHandle: string; assets: string[] }
+	| { type: "ASSET_OPTIONS_FAILED"; programHandle: string; error: AppError }
 	| { type: "TEAM_MEMBERS_REQUESTED"; programHandle: string }
 	| { type: "TEAM_MEMBERS_SUCCEEDED"; programHandle: string; members: TeamMember[] }
 	| { type: "TEAM_MEMBERS_FAILED"; programHandle: string; error: AppError }
@@ -361,6 +359,7 @@ export type Action =
 	| { type: "INBOX_OPTIONS_FAILED"; programHandle: string; error: AppError }
 	| { type: "ORG_SELECTED"; orgId: string }
 	| { type: "PROGRAM_SELECTED"; handle: string }
+	| { type: "LOCAL_PROGRAM_DETECTED"; handle: string }
 	| { type: "STATES_SET"; states: string[] }
 	| { type: "SEVERITIES_SET"; severities: string[] }
 	| { type: "ASSETS_SET"; assets: string[] }
@@ -449,7 +448,7 @@ export const initialState: AppState = {
 	triagePrompt: null,
 	bootstrap: { status: "idle" },
 	programsByOrg: {},
-	assetsByOrg: {},
+	assetsByProgram: {},
 	teamMembersByProgram: {},
 	inboxesByProgram: {},
 	assigneeOptionsByProgram: loadAssigneeOptions(),
@@ -532,16 +531,22 @@ export function reducer(state: AppState, action: Action): AppState {
 				},
 			};
 		case "PROGRAMS_SUCCEEDED": {
-			const autoSelect = !state.filters.programHandle && action.programs.length > 0;
+			// Keep a handle the launch-time local pick already selected, unless this token has no
+			// access to it any more — then fall back to the API's first program, which is also the
+			// path taken when nothing was selected yet. An empty list leaves the pick alone: the
+			// local mirror is still worth showing.
+			const current = state.filters.programHandle;
+			const handle =
+				current && action.programs.some((p) => p.handle === current)
+					? current
+					: (action.programs[0]?.handle ?? current);
 			return {
 				...state,
 				programsByOrg: {
 					...state.programsByOrg,
 					[action.orgId]: { status: "ready", data: action.programs },
 				},
-				filters: autoSelect
-					? { ...state.filters, programHandle: action.programs[0].handle }
-					: state.filters,
+				filters: handle === current ? state.filters : { ...state.filters, programHandle: handle },
 			};
 		}
 		case "PROGRAMS_FAILED":
@@ -552,28 +557,40 @@ export function reducer(state: AppState, action: Action): AppState {
 					[action.orgId]: { status: "error", error: action.error },
 				},
 			};
-		case "ASSETS_REQUESTED":
+		case "ASSET_OPTIONS_REQUESTED":
 			return {
 				...state,
-				assetsByOrg: {
-					...state.assetsByOrg,
-					[action.orgId]: { status: "loading" },
+				assetsByProgram: {
+					...state.assetsByProgram,
+					// As with the inbox options, a background refresh keeps the list we already have
+					// on screen until the fresh set arrives.
+					[action.programHandle]:
+						state.assetsByProgram[action.programHandle]?.status === "ready"
+							? state.assetsByProgram[action.programHandle]
+							: { status: "loading" },
 				},
 			};
-		case "ASSETS_SUCCEEDED":
+		case "ASSET_OPTIONS_SUCCEEDED": {
+			// Drop selected identifiers the fresh options no longer contain, so a stale selection
+			// can't keep filtering on an asset no synced report references.
+			const validAssets = new Set(action.assets);
+			const prunedAssets = state.filters.assets.filter((id) => validAssets.has(id));
+			const assetsChanged = prunedAssets.length !== state.filters.assets.length;
 			return {
 				...state,
-				assetsByOrg: {
-					...state.assetsByOrg,
-					[action.orgId]: { status: "ready", data: action.assets },
+				assetsByProgram: {
+					...state.assetsByProgram,
+					[action.programHandle]: { status: "ready", data: action.assets },
 				},
+				filters: assetsChanged ? { ...state.filters, assets: prunedAssets } : state.filters,
 			};
-		case "ASSETS_FAILED":
+		}
+		case "ASSET_OPTIONS_FAILED":
 			return {
 				...state,
-				assetsByOrg: {
-					...state.assetsByOrg,
-					[action.orgId]: { status: "error", error: action.error },
+				assetsByProgram: {
+					...state.assetsByProgram,
+					[action.programHandle]: { status: "error", error: action.error },
 				},
 			};
 		case "TEAM_MEMBERS_REQUESTED":
@@ -653,12 +670,23 @@ export function reducer(state: AppState, action: Action): AppState {
 				selectedReportId: null,
 				selectedReportIds: new Set(),
 			};
+		// The program found in the local mirror at launch. Ignored once anything has been selected,
+		// so it can never clobber a live selection if it loses the race with the programs API.
+		case "LOCAL_PROGRAM_DETECTED":
+			if (state.filters.programHandle) return state;
+			return { ...state, filters: { ...state.filters, programHandle: action.handle } };
 		case "PROGRAM_SELECTED":
 			return {
 				...state,
-				// Assignee tokens and inbox ids are program-scoped, so drop those selections when
-				// switching programs. The accumulated options stay (keyed by handle).
-				filters: { ...state.filters, programHandle: action.handle, assignees: [], inboxes: [] },
+				// Asset identifiers, assignee tokens and inbox ids are all program-scoped, so drop
+				// those selections when switching programs. The options stay (keyed by handle).
+				filters: {
+					...state.filters,
+					programHandle: action.handle,
+					assets: [],
+					assignees: [],
+					inboxes: [],
+				},
 				reports: { status: "idle" },
 				selectedReportId: null,
 				selectedReportIds: new Set(),
