@@ -56,9 +56,7 @@ function ResumeSession({ sessionId }: { sessionId: string }) {
 
 	return (
 		<div class="triage-resume">
-			<div class="triage-resume-label">
-				Resume this triage session in a terminal:
-			</div>
+			<div class="triage-resume-label">Resume this triage session in a terminal:</div>
 			<div class="triage-resume-row">
 				<code class="triage-resume-command">{command}</code>
 				<CopyButton
