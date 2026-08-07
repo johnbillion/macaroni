@@ -40,27 +40,6 @@ When the official docs are ambiguous or contradicted by 4xx responses, cross-ref
 - [nu11pointer/hackerone-cli](https://github.com/nu11pointer/hackerone-cli) — Go CLI; good for exact endpoint paths and request bodies.
 - [github/hackerone-client](https://github.com/github/hackerone-client) — Ruby wrapper; solid on reports, comments, state changes, and assignees (doesn't cover inboxes).
 
-### Querying the API directly during development
-
-When debugging or exploring API responses it's often useful to hit the HackerOne API directly rather than going through the Rust layer. The user's API credentials are stored in the macOS keychain under service `com.johnbillion.macaroni`, account `default`, as a JSON blob `{"username":"…","token":"…"}` (see [credentials.rs](src-tauri/src/credentials.rs)).
-
-The `scripts/` directory contains small Node helpers (`reports.js`, `inboxes.js`, `attachments.js`, `report-raw.js`, …) that read the credentials straight from the keychain and call the API with HTTP Basic auth. Run them with `node scripts/<name>.js <args>`. Use them — and add new ones — when you need to confirm response shapes or reproduce an edge case without rebuilding the app.
-
-Helper sketch for ad-hoc one-liners:
-
-```js
-import { execFileSync } from "node:child_process";
-const creds = JSON.parse(execFileSync("security",
-  ["find-generic-password","-s","com.johnbillion.macaroni","-a","default","-w"],
-  { encoding: "utf8" }).trim());
-const auth = `Basic ${Buffer.from(`${creds.username}:${creds.token}`).toString("base64")}`;
-const res = await fetch("https://api.hackerone.com/v1/…", {
-  headers: { Authorization: auth, Accept: "application/json" },
-});
-```
-
-Never echo the raw token to the terminal or commit it. The scripts read it into memory and use it only for outgoing requests.
-
 ## Important principles
 
 | Principle | Approach |
