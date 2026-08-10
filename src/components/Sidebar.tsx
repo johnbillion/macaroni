@@ -328,6 +328,8 @@ function InboxSection({ state }: { state: AsyncState<InboxRef[]> | undefined }) 
 			</div>
 		);
 	}
+	// Not every program uses inboxes; with none to filter on the section has nothing to say.
+	if (state.data.length === 0) return null;
 	return <InboxSectionReady inboxes={state.data} />;
 }
 
@@ -337,7 +339,7 @@ function InboxSectionReady({ inboxes }: { inboxes: InboxRef[] }) {
 	const selected = state.filters.inboxes;
 	const allIds = inboxes.map((i) => i.id);
 	const checked = new Set<string>(selected);
-	const allChecked = allIds.length > 0 && allIds.every((k) => checked.has(k));
+	const allChecked = allIds.every((k) => checked.has(k));
 	const someChecked = allIds.some((k) => checked.has(k));
 	const parentRef = useIndeterminate(allChecked, someChecked);
 
@@ -359,26 +361,21 @@ function InboxSectionReady({ inboxes }: { inboxes: InboxRef[] }) {
 						class="cb"
 						checked={allChecked}
 						onChange={toggleAll}
-						disabled={inboxes.length === 0}
 					/>
 					Inbox
 				</label>
 			</div>
-			{inboxes.length === 0 ? (
-				<div class="facet facet-muted">No inboxes</div>
-			) : (
-				inboxes.map((inbox) => (
-					<label key={inbox.id} class="facet">
-						<input
-							type="checkbox"
-							class="cb"
-							checked={checked.has(inbox.id)}
-							onChange={() => toggleOne(inbox.id)}
-						/>
-						<span>{inbox.name}</span>
-					</label>
-				))
-			)}
+			{inboxes.map((inbox) => (
+				<label key={inbox.id} class="facet">
+					<input
+						type="checkbox"
+						class="cb"
+						checked={checked.has(inbox.id)}
+						onChange={() => toggleOne(inbox.id)}
+					/>
+					<span>{inbox.name}</span>
+				</label>
+			))}
 		</div>
 	);
 }
