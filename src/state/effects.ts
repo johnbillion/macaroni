@@ -230,6 +230,9 @@ export type ReportsQuery = {
 	// to filter reports by inbox.
 	inboxIds: string[];
 	keyword: string;
+	// Match each keyword term at word boundaries only. Always false when keyword is empty,
+	// so toggling the checkbox with no search active doesn't change the query key.
+	wholeWords: boolean;
 };
 
 // Monotonic counter so a later loadReports call can invalidate any in-flight earlier one.
@@ -256,6 +259,7 @@ function reportsQueryKey(query: ReportsQuery): string {
 		n: [...query.assignees].sort(),
 		i: [...query.inboxIds].sort(),
 		k: query.keyword,
+		w: query.wholeWords,
 	});
 }
 
@@ -304,6 +308,7 @@ export async function loadReports(
 			assignees: query.assignees,
 			inbox_ids: query.inboxIds,
 			keyword: query.keyword || undefined,
+			whole_words: query.wholeWords,
 		});
 		if (myId !== reportsRequestId) return;
 		hydrateTriageValidity(
@@ -374,6 +379,7 @@ export function buildReportsQuery(state: AppState): ReportsQuery | null {
 			? []
 			: state.filters.inboxes;
 
+	const keyword = state.filters.search.trim();
 	return {
 		programHandle: handle,
 		states,
@@ -381,7 +387,8 @@ export function buildReportsQuery(state: AppState): ReportsQuery | null {
 		assetIdentifiers,
 		assignees: state.filters.assignees,
 		inboxIds,
-		keyword: state.filters.search.trim(),
+		keyword,
+		wholeWords: keyword.length > 0 && state.filters.searchWholeWords,
 	};
 }
 

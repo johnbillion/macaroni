@@ -133,6 +133,9 @@ export function App() {
 	const assigneesKey = state.filters.assignees.join(",");
 	const inboxesKey = state.filters.inboxes.join(",");
 	const searchKey = state.filters.search.trim();
+	// Effective only while a search is active — mirrors buildReportsQuery, so toggling the
+	// checkbox with an empty search box doesn't re-query.
+	const wholeWordsKey = searchKey.length > 0 && state.filters.searchWholeWords;
 
 	// Program selection and the sidebar facet filters (state, severity, asset, assignee) query the
 	// local DB immediately — local queries are instant, so there's nothing to debounce. This also
@@ -149,6 +152,7 @@ export function App() {
 		assetsKey,
 		assigneesKey,
 		inboxesKey,
+		wholeWordsKey,
 		availableAssetKey,
 		availableInboxKey,
 		dispatch,

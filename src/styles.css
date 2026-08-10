@@ -330,6 +330,10 @@ html.dark .theme-toggle {
 	}
 
 }
+.side-search .search-option {
+	margin-top: 6px;
+	color: var(--text-2);
+}
 .side-section {
 	padding: 0 18px 18px;
 }

@@ -296,6 +296,8 @@ export type AppState = {
 		// Selected inbox ids (see InboxRef.id).
 		inboxes: string[];
 		search: string;
+		// When true, each search term matches only whole words (so "RCE" won't match "source").
+		searchWholeWords: boolean;
 	};
 	// The report list, queried from the local SQLite mirror. Every query returns all matches —
 	// there is no pagination.
@@ -366,6 +368,7 @@ export type Action =
 	| { type: "ASSIGNEES_SET"; assignees: string[] }
 	| { type: "INBOXES_SET"; inboxes: string[] }
 	| { type: "SEARCH_SET"; search: string }
+	| { type: "SEARCH_WHOLE_WORDS_SET"; wholeWords: boolean }
 	| { type: "REPORTS_REQUESTED" }
 	// `replace` is true for a user-initiated query (filter change / manual refresh / first load)
 	// — it scrolls to top and may re-pick the selection. It's false for a background re-query
@@ -459,6 +462,7 @@ export const initialState: AppState = {
 		assignees: [],
 		inboxes: [],
 		search: "",
+		searchWholeWords: false,
 	},
 	reports: { status: "idle" },
 	reportsReplaceCount: 0,
@@ -665,6 +669,7 @@ export function reducer(state: AppState, action: Action): AppState {
 					assignees: [],
 					inboxes: [],
 					search: state.filters.search,
+					searchWholeWords: state.filters.searchWholeWords,
 				},
 				reports: { status: "idle" },
 				selectedReportId: null,
@@ -720,6 +725,11 @@ export function reducer(state: AppState, action: Action): AppState {
 			return {
 				...state,
 				filters: { ...state.filters, search: action.search },
+			};
+		case "SEARCH_WHOLE_WORDS_SET":
+			return {
+				...state,
+				filters: { ...state.filters, searchWholeWords: action.wholeWords },
 			};
 		case "REPORTS_REQUESTED":
 			return {

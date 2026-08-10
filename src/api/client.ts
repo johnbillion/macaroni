@@ -40,6 +40,7 @@ export const api = {
 		assignees: string[];
 		inbox_ids: string[];
 		keyword?: string;
+		whole_words?: boolean;
 	}) => call<ReportSummary[]>("query_reports", { query }),
 	// Distinct inboxes across all reports synced for a program, for the sidebar inbox filter.
 	listInboxes: (programHandle: string) => call<InboxRef[]>("list_inboxes", { programHandle }),

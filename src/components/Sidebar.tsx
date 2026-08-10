@@ -45,6 +45,17 @@ export function Sidebar() {
 						onInput={(e) => dispatch({ type: "SEARCH_SET", search: e.currentTarget.value })}
 					/>
 				</div>
+				<label class="facet search-option">
+					<input
+						type="checkbox"
+						class="cb"
+						checked={state.filters.searchWholeWords}
+						onChange={(e) =>
+							dispatch({ type: "SEARCH_WHOLE_WORDS_SET", wholeWords: e.currentTarget.checked })
+						}
+					/>
+					Match whole words only
+				</label>
 			</form>
 
 			<AssetSection key={`asset-${handle ?? "none"}`} state={assets} />

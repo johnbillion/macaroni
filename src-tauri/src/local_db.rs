@@ -52,6 +52,10 @@ pub struct LocalQuery {
     pub inbox_ids: Vec<String>,
     #[serde(default)]
     pub keyword: Option<String>,
+    // When set, each keyword term matches only at word boundaries (so "RCE" no longer
+    // matches "source").
+    #[serde(default)]
+    pub whole_words: bool,
 }
 
 // A row of the inbox list: the report's summary blob plus the one list-level fact that isn't in
@@ -206,6 +210,7 @@ impl SqliteStore {
         // Same idempotent-migration trick for the triage session id, added after the triage
         // columns shipped. Existing rows keep a NULL — those runs' sessions aren't recoverable.
         let _ = conn.execute("ALTER TABLE reports ADD COLUMN triage_session_id TEXT", []);
+        register_word_match(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -216,6 +221,7 @@ impl SqliteStore {
     pub(crate) fn in_memory() -> Self {
         let conn = Connection::open_in_memory().expect("open in-memory sqlite");
         conn.execute_batch(SCHEMA).expect("init schema");
+        register_word_match(&conn).expect("register word_match");
         Self {
             conn: Mutex::new(conn),
         }
@@ -336,6 +342,49 @@ pub fn exclude_from_backups(_path: &Path) {}
 
 fn summary_from_row(json: &str) -> Option<ReportSummary> {
     serde_json::from_str(json).ok()
+}
+
+// Case-insensitive whole-word match: the term must appear in the haystack with no letter,
+// digit, or underscore immediately on either side. Backs the `word_match` SQL function.
+fn word_match(term: &str, haystack: &str) -> bool {
+    let term = term.to_lowercase();
+    if term.is_empty() {
+        return false;
+    }
+    let hay = haystack.to_lowercase();
+    let is_word = |c: char| c.is_alphanumeric() || c == '_';
+    let mut start = 0;
+    while let Some(pos) = hay[start..].find(&term) {
+        let at = start + pos;
+        let before_ok = hay[..at].chars().next_back().is_none_or(|c| !is_word(c));
+        let after_ok = hay[at + term.len()..]
+            .chars()
+            .next()
+            .is_none_or(|c| !is_word(c));
+        if before_ok && after_ok {
+            return true;
+        }
+        // Advance one character, not one term-length — occurrences can overlap.
+        start = at + hay[at..].chars().next().map_or(1, char::len_utf8);
+    }
+    false
+}
+
+// Make `word_match(term, text)` available to SQL. NULL text (e.g. a report with no
+// description) is simply no match, mirroring how LIKE treats NULL.
+fn register_word_match(conn: &Connection) -> AppResult<()> {
+    conn.create_scalar_function(
+        "word_match",
+        2,
+        rusqlite::functions::FunctionFlags::SQLITE_UTF8
+            | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+        |ctx| {
+            let term = ctx.get::<String>(0)?;
+            let hay = ctx.get::<Option<String>>(1)?;
+            Ok(hay.is_some_and(|h| word_match(&term, &h)))
+        },
+    )
+    .map_err(AppError::other)
 }
 
 // Escape LIKE wildcards so a user's keyword is matched literally, and wrap it as a substring
@@ -491,11 +540,22 @@ impl ReportStore for SqliteStore {
         if let Some(kw) = q.keyword.as_deref() {
             for term in kw.split_whitespace() {
                 let n = binds.len() + 1;
-                let mut clause = format!(
-                    "json_extract(summary_json, '$.title') LIKE ?{n} ESCAPE '\\'
-                     OR json_extract(summary_json, '$.vulnerability_information') LIKE ?{n} ESCAPE '\\'"
-                );
-                binds.push(like_pattern(term));
+                let mut clause = if q.whole_words {
+                    format!(
+                        "word_match(?{n}, json_extract(summary_json, '$.title'))
+                         OR word_match(?{n}, json_extract(summary_json, '$.vulnerability_information'))"
+                    )
+                } else {
+                    format!(
+                        "json_extract(summary_json, '$.title') LIKE ?{n} ESCAPE '\\'
+                         OR json_extract(summary_json, '$.vulnerability_information') LIKE ?{n} ESCAPE '\\'"
+                    )
+                };
+                binds.push(if q.whole_words {
+                    term.to_string()
+                } else {
+                    like_pattern(term)
+                });
                 // An all-digits term is very likely a report number, which is the row's primary
                 // key rather than anything inside the blob. Matched exactly — a substring match
                 // on ids would drag in every report whose number merely contains the digits.
@@ -1034,6 +1094,61 @@ mod tests {
         // LIKE wildcards in the keyword are escaped, so they match literally rather than
         // acting as wildcards — a bare "%" matches nothing here.
         assert_eq!(query_kw("%").len(), 0);
+    }
+
+    #[test]
+    fn whole_words_keyword_matches_at_word_boundaries() {
+        let s = store();
+        s.upsert_summaries(
+            "wp",
+            &[
+                summary("1", "RCE via file upload", "new", Some("high")),
+                summary("2", "Leaked source code", "new", Some("low")),
+                summary("3", "Force-RCE, twice", "new", Some("low")),
+            ],
+        )
+        .unwrap();
+
+        let query_kw = |kw: &str, whole_words: bool| {
+            s.query(&LocalQuery {
+                program_handle: "wp".into(),
+                keyword: Some(kw.into()),
+                whole_words,
+                ..Default::default()
+            })
+            .unwrap()
+        };
+
+        // Substring search drags in "source"; whole-word search doesn't.
+        assert_eq!(query_kw("rce", false).len(), 3);
+        let hits = query_kw("rce", true);
+        assert_eq!(hits.len(), 2);
+        assert!(hits.iter().all(|h| h.summary.id != "2"));
+
+        // Punctuation counts as a boundary; a mid-word occurrence doesn't.
+        assert_eq!(query_kw("force", true).len(), 1);
+        assert_eq!(query_kw("upload", true).len(), 1);
+        assert_eq!(query_kw("uploa", true).len(), 0);
+
+        // Multiple terms still AND, each at word boundaries.
+        assert_eq!(query_kw("rce upload", true).len(), 1);
+        assert_eq!(query_kw("rce source", true).len(), 0);
+    }
+
+    #[test]
+    fn word_match_boundaries() {
+        assert!(word_match("rce", "RCE at the start"));
+        assert!(word_match("rce", "ends with RCE"));
+        assert!(word_match("RCE", "an rce, with punctuation"));
+        assert!(!word_match("rce", "source"));
+        assert!(!word_match(
+            "rce",
+            "rce_id has no boundary before underscore"
+        ));
+        assert!(!word_match("rce", ""));
+        assert!(!word_match("", "anything"));
+        // Overlapping occurrences: the valid one after an invalid prefix is still found.
+        assert!(word_match("aa", "xaa aa"));
     }
 
     #[test]
