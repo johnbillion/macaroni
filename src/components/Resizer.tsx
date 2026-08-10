@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
-import { PANEL_BOUNDS, type PanelKey } from "../state/store";
+import type { PanelKey } from "../state/store";
 
 type Orientation = "vertical" | "horizontal";
 
 type ResizerProps = {
 	panel: PanelKey;
-	label: string;
 	orientation?: Orientation;
-	step?: number;
 	/**
 	 * Set when the handle sits on the *leading* edge of the panel it resizes
 	 * (e.g. above a bottom-docked panel, or to the left of a right-docked
@@ -17,19 +15,10 @@ type ResizerProps = {
 	invert?: boolean;
 };
 
-const DEFAULT_STEP = 16;
-
-export function Resizer({
-	panel,
-	label,
-	orientation = "vertical",
-	step = DEFAULT_STEP,
-	invert = false,
-}: ResizerProps) {
+export function Resizer({ panel, orientation = "vertical", invert = false }: ResizerProps) {
 	const state = useAppState();
 	const dispatch = useDispatch();
 	const value = state.panelSizes[panel];
-	const bounds = PANEL_BOUNDS[panel];
 	const isHorizontal = orientation === "horizontal";
 
 	const [dragging, setDragging] = useState(false);
@@ -88,24 +77,6 @@ export function Resizer({
 		};
 	}, [dragging, isHorizontal, invert]);
 
-	const onKeyDown = useCallback(
-		(e: KeyboardEvent) => {
-			const primaryGrow = isHorizontal ? "ArrowDown" : "ArrowRight";
-			const primaryShrink = isHorizontal ? "ArrowUp" : "ArrowLeft";
-			const growKey = invert ? primaryShrink : primaryGrow;
-			const shrinkKey = invert ? primaryGrow : primaryShrink;
-			let next: number | null = null;
-			if (e.key === shrinkKey) next = value - step;
-			else if (e.key === growKey) next = value + step;
-			else if (e.key === "Home") next = bounds.min;
-			else if (e.key === "End") next = bounds.max;
-			if (next == null) return;
-			e.preventDefault();
-			setSizeRef.current(next);
-		},
-		[value, step, bounds, isHorizontal, invert],
-	);
-
 	const cls = [
 		"resizer",
 		isHorizontal ? "resizer-h" : "resizer-v",
@@ -115,19 +86,9 @@ export function Resizer({
 		.join(" ");
 
 	return (
-		// biome-ignore lint/a11y/useSemanticElements: a focusable, draggable splitter needs the separator role on a <div>; <hr> can't carry tabIndex, pointer/key handlers, or aria-valuenow.
-		<div
-			class={cls}
-			role="separator"
-			aria-orientation={isHorizontal ? "horizontal" : "vertical"}
-			aria-label={label}
-			aria-valuenow={value}
-			aria-valuemin={bounds.min}
-			aria-valuemax={bounds.max}
-			tabIndex={0}
-			onPointerDown={onPointerDown}
-			onKeyDown={onKeyDown}
-		>
+		// Pointer-only drag handle: with no keyboard controls it can't claim the focusable
+		// `separator` widget role, so it's presentational and the panels either side stand alone.
+		<div class={cls} aria-hidden="true" onPointerDown={onPointerDown}>
 			<span class="resizer-grip" aria-hidden="true" />
 		</div>
 	);

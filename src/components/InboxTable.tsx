@@ -3,6 +3,7 @@ import { CheckMenuItem, Menu } from "@tauri-apps/api/menu";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api } from "../api/client";
+import { useShortcut } from "../shortcuts";
 import { useAppState, useDispatch } from "../state/context";
 import { buildReportsQuery, loadReports, startReportSync } from "../state/effects";
 import type { AppError, AssigneeRef, UserRef } from "../state/store";
@@ -134,6 +135,11 @@ function formatReportError(error: AppError): string {
 	}
 }
 
+function scrollRowIntoView(reportId: string) {
+	const row = document.querySelector(`[data-report-id="${CSS.escape(reportId)}"]`);
+	if (row instanceof HTMLElement) row.scrollIntoView({ block: "nearest" });
+}
+
 export function InboxTable() {
 	const state = useAppState();
 	const dispatch = useDispatch();
@@ -159,6 +165,19 @@ export function InboxTable() {
 	const onSelect = (id: string) => {
 		dispatch({ type: "REPORT_SELECTED", reportId: id });
 	};
+
+	// j/k walk the list as rendered. With nothing selected either key starts at the top, and both
+	// stop at the ends rather than wrapping, so holding one down settles instead of cycling.
+	const step = (delta: number) => {
+		if (items.length === 0) return;
+		const current = items.findIndex((r) => r.id === state.selectedReportId);
+		const next = current === -1 ? 0 : Math.min(Math.max(current + delta, 0), items.length - 1);
+		if (next === current) return;
+		onSelect(items[next].id);
+		scrollRowIntoView(items[next].id);
+	};
+	useShortcut("selectNextReport", () => step(1));
+	useShortcut("selectPrevReport", () => step(-1));
 
 	const rangeAnchorRef = useRef<string | null>(null);
 
@@ -294,6 +313,7 @@ export function InboxTable() {
 						return (
 							<tr
 								key={r.id}
+								data-report-id={r.id}
 								class={classes.join(" ")}
 								onClick={(e) => {
 									// Clicks inside the select-report label toggle the checkbox; don't also open the report.

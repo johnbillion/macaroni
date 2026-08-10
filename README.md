@@ -77,6 +77,10 @@ Prerequisites:
 - Dark/light mode and side/bottom layout arrangement are controlled by the buttons in the top toolbar.
 - Inbox table column visibility are controled via the cog at the top right of the table. They're not all shown by default.
 
+### Keyboard shortcuts
+
+Hit the <kbd>?</kbd> key to display a list of keyboard shortcuts.
+
 ## Settings
 
 You can change your credentials or log out at any time from the settings dialog in the top bar. Logging out asks whether to delete the local database along with the credentials: deleting it leaves no report data on disk, while keeping it means the next login carries on from the reports already synced instead of mirroring the program from scratch.

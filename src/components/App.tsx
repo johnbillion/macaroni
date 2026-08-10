@@ -1,6 +1,8 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef } from "preact/hooks";
 import { api } from "../api/client";
+import { useShortcut } from "../shortcuts";
 import { useAppState, useDispatch } from "../state/context";
 import {
 	adoptLocalProgram,
@@ -175,6 +177,13 @@ export function App() {
 	// should populate the detail pane. We only react to the selection itself changing —
 	// detail updates are read from the same render's closure and don't re-fire.
 	const selectedReportId = state.selectedReportId;
+
+	useShortcut(
+		"openReport",
+		() => openUrl(`https://hackerone.com/reports/${selectedReportId}`),
+		selectedReportId !== null,
+	);
+
 	useEffect(() => {
 		if (!selectedReportId) return;
 		const existing = state.detail[selectedReportId];
@@ -347,14 +356,9 @@ export function App() {
 				<div class="app-main">
 					<InboxTable />
 					{bottom ? (
-						<Resizer
-							panel="detailBottom"
-							label="Resize detail panel height"
-							orientation="horizontal"
-							invert
-						/>
+						<Resizer panel="detailBottom" orientation="horizontal" invert />
 					) : (
-						<Resizer panel="detailRight" label="Resize detail panel width" invert />
+						<Resizer panel="detailRight" invert />
 					)}
 					<DetailPanel />
 				</div>

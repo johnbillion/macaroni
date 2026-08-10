@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "preact/hooks";
+import { useShortcut } from "../shortcuts";
 import { useAppState, useDispatch } from "../state/context";
 import { buildReportsQuery, cancelPendingReportsLoad, loadReports } from "../state/effects";
 import { CLOSED_STATES, OPEN_STATES, SEVERITY_FACETS, type StateFacet } from "../state/filters";
@@ -21,6 +22,7 @@ export function Sidebar() {
 		? state.inboxesByProgram[handle]
 		: undefined;
 	const locked = state.selectedReportIds.size > 0;
+	const searchRef = useSearchShortcut(locked);
 	return (
 		<aside class={`side${locked ? " side-locked" : ""}`} aria-disabled={locked}>
 			<form
@@ -35,6 +37,7 @@ export function Sidebar() {
 			>
 				<div class="search-box">
 					<input
+						ref={searchRef}
 						type="search"
 						placeholder="search"
 						value={state.filters.search}
@@ -76,6 +79,21 @@ export function Sidebar() {
 			<SeveritySection />
 		</aside>
 	);
+}
+
+// Focusing the search box selects any existing text, so typing replaces it. Inert while the sidebar
+// is locked in multi-select mode, matching the pointer-events lockout.
+function useSearchShortcut(locked: boolean) {
+	const ref = useRef<HTMLInputElement>(null);
+	useShortcut(
+		"focusSearch",
+		() => {
+			ref.current?.focus();
+			ref.current?.select();
+		},
+		!locked,
+	);
+	return ref;
 }
 
 function useIndeterminate(allChecked: boolean, someChecked: boolean) {

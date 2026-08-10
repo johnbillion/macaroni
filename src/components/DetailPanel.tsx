@@ -2,6 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api } from "../api/client";
+import { useShortcut } from "../shortcuts";
 import { useAppState, useDispatch } from "../state/context";
 import type { Activity, DetailToast } from "../state/store";
 import { pillFor } from "../utils/pill";
@@ -25,6 +26,20 @@ function isHackbotPreSubmissionTrigger(a: Activity | undefined): boolean {
 	return /pre-submission[- ]trigger/i.test(a.message);
 }
 
+function useSaveFile() {
+	const [busy, setBusy] = useState(false);
+	const save = async (contents: string, filename: string) => {
+		if (busy) return;
+		setBusy(true);
+		try {
+			await api.saveTextFile(contents, filename);
+		} finally {
+			setBusy(false);
+		}
+	};
+	return { busy, save };
+}
+
 function SaveFileButton({
 	contents,
 	filename,
@@ -36,20 +51,13 @@ function SaveFileButton({
 	label: string;
 	class?: string;
 }) {
-	const [busy, setBusy] = useState(false);
+	const { busy, save } = useSaveFile();
 	return (
 		<button
 			type="button"
 			class={className}
 			disabled={busy}
-			onClick={async () => {
-				setBusy(true);
-				try {
-					await api.saveTextFile(contents, filename);
-				} finally {
-					setBusy(false);
-				}
-			}}
+			onClick={() => save(contents, filename)}
 		>
 			{label}
 		</button>
@@ -205,6 +213,14 @@ function ToastStack({ toasts }: { toasts: DetailToast[] }) {
 function ReportTab() {
 	const state = useAppState();
 	const id = state.selectedReportId;
+
+	// ⌘S mirrors the description's "Save as file" button, so it's only live once the detail has
+	// loaded and there's actually a description to write. Hooks run before the early returns below.
+	const loaded = id ? state.detail[id] : undefined;
+	const markdown =
+		loaded?.status === "ready" ? (loaded.data.vulnerability_information ?? null) : null;
+	const { save } = useSaveFile();
+	useShortcut("saveReport", () => id && markdown && save(markdown, `${id}.md`), !!markdown);
 
 	if (!id) {
 		return <div class="detail-empty">Select a report</div>;

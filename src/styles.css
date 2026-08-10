@@ -281,14 +281,9 @@ html.dark .theme-toggle {
 	pointer-events: none;
 }
 .resizer:hover .resizer-grip,
-.resizer:focus-visible .resizer-grip,
 .resizer-dragging .resizer-grip {
 	background: var(--accent);
 	opacity: 0.85;
-}
-.resizer:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: -2px;
 }
 
 /* Sidebar */
@@ -563,6 +558,10 @@ input[type="radio"] {
 	top: 0;
 	z-index: 2;
 	white-space: nowrap;
+}
+/* Keeps a row stepped to with j/k clear of the sticky header rather than tucked under it. */
+.inbox-table tbody tr {
+	scroll-margin-top: 2.75rem;
 }
 .inbox-table tbody td {
 	padding: 10px 15px 10px 0;
@@ -1634,6 +1633,52 @@ a[target="_blank"]::after {
 	border-top: 1px solid var(--border);
 	margin: 0.25rem 0;
 	width: 100%;
+}
+
+/* Keyboard shortcuts dialog — a reference sheet rather than a form, so it reads a size up. */
+.shortcuts-dialog {
+	min-width: 440px;
+	max-width: 600px;
+	max-height: 85dvh;
+	overflow: auto;
+}
+.shortcuts-dialog .dialog-card {
+	gap: 1rem;
+	padding: 1.5rem 1.75rem 1.75rem;
+}
+.shortcuts-dialog h1 {
+	font-size: var(--fs-2xl);
+}
+.shortcut-list {
+	display: grid;
+	gap: 0.6rem;
+	margin: 0;
+}
+.shortcut-row {
+	display: grid;
+	grid-template-columns: minmax(9rem, max-content) 1fr;
+	align-items: baseline;
+	gap: 1rem;
+}
+.shortcut-row dd {
+	margin: 0;
+	font-size: var(--fs-lg);
+	color: var(--text-2);
+}
+.shortcut-list kbd {
+	font: inherit;
+	font-size: var(--fs-lg);
+	padding: 0.2rem 0.5rem;
+	border: 1px solid var(--border-2);
+	border-bottom-width: 2px;
+	border-radius: var(--radius-sm);
+	background: var(--bg);
+	color: var(--text);
+	white-space: nowrap;
+}
+.shortcut-or {
+	color: var(--text-3);
+	font-size: var(--fs-md);
 }
 
 /* Log-out confirmation dialog — the choices stack full-width rather than sitting in a row. */

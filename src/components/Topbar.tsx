@@ -1,6 +1,8 @@
 import { useEffect, useState } from "preact/hooks";
+import { useShortcut } from "../shortcuts";
 import { useAppState, useDispatch } from "../state/context";
 import { Settings } from "./Settings";
+import { ShortcutsDialog } from "./ShortcutsDialog";
 
 function useTheme() {
 	const [dark, setDark] = useState<boolean>(() => {
@@ -21,18 +23,10 @@ export function Topbar() {
 	const dispatch = useDispatch();
 	const { toggle } = useTheme();
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
-	// ⌘, shortcut for opening preferences.
-	useEffect(() => {
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.metaKey && e.key === ",") {
-				e.preventDefault();
-				setSettingsOpen(true);
-			}
-		};
-		window.addEventListener("keydown", onKeyDown);
-		return () => window.removeEventListener("keydown", onKeyDown);
-	}, []);
+	useShortcut("openSettings", () => setSettingsOpen(true));
+	useShortcut("showShortcuts", () => setShortcutsOpen(true));
 
 	const programHandle = state.filters.programHandle ?? "—";
 	const placement = state.detailPlacement;
@@ -77,6 +71,7 @@ export function Topbar() {
 				</button>
 			</div>
 			<Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+			<ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 		</div>
 	);
 }
