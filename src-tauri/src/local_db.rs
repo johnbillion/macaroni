@@ -1,9 +1,11 @@
+use crate::db_key::DbKey;
 use crate::error::{AppError, AppResult};
 use crate::hackerone::{Activity, Attachment, InboxRef, ReportDetail, ReportSummary};
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use zeroize::Zeroize;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TriageRecord {
@@ -165,8 +167,23 @@ CREATE TABLE IF NOT EXISTS sync_state (
 ";
 
 impl SqliteStore {
-    pub fn open(path: &Path) -> AppResult<Self> {
+    pub fn open(path: &Path, key: &DbKey) -> AppResult<Self> {
+        migrate_plaintext(path, key)?;
         let conn = Connection::open(path).map_err(AppError::other)?;
+        // 0600 before WAL mode is enabled, so the -wal/-shm sidecars (which SQLite creates
+        // with the main file's permissions) are born restricted too.
+        restrict_permissions(path);
+        apply_key(&conn, key)?;
+        // Probe before touching the schema: with a wrong key every statement fails with the
+        // unhelpful "file is not a database", so turn it into something actionable.
+        conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))
+            .map_err(|_| AppError::Other {
+                message: format!(
+                    "the local database at {} cannot be decrypted with the key in the keychain; \
+                     delete it to re-sync from scratch",
+                    path.display()
+                ),
+            })?;
         // WAL keeps background sync writes from blocking foreground queries; busy_timeout gives
         // any contended lock a moment to clear rather than erroring out immediately.
         conn.pragma_update(None, "journal_mode", "WAL")
@@ -204,6 +221,118 @@ impl SqliteStore {
         }
     }
 }
+
+fn apply_key(conn: &Connection, key: &DbKey) -> AppResult<()> {
+    let mut keyspec = key.keyspec();
+    let result = conn.pragma_update(None, "key", &keyspec);
+    keyspec.zeroize();
+    // Never stringify this error wholesale: rusqlite's `SqlInputError` embeds the offending SQL,
+    // which here is the `PRAGMA key` statement carrying the raw key.
+    result.map_err(|e| AppError::Other {
+        message: match e {
+            rusqlite::Error::SqliteFailure(code, msg) => format!(
+                "failed to apply the database key: sqlite error {} ({})",
+                code.extended_code,
+                msg.as_deref().unwrap_or("no detail")
+            ),
+            _ => "failed to apply the database key".to_string(),
+        },
+    })
+}
+
+fn sidecar(path: &Path, suffix: &str) -> PathBuf {
+    let mut os = path.as_os_str().to_owned();
+    os.push(suffix);
+    PathBuf::from(os)
+}
+
+// The database holds the full text of every report in the program, so it must not be readable
+// by other local user accounts. Same-user processes are out of scope here — that's what the
+// encryption is for.
+#[cfg(unix)]
+fn restrict_permissions(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    for p in [
+        path.to_path_buf(),
+        sidecar(path, "-wal"),
+        sidecar(path, "-shm"),
+    ] {
+        if p.exists() {
+            let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600));
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn restrict_permissions(_path: &Path) {}
+
+// Databases created before encryption shipped are plaintext SQLite, identified by the magic
+// header (an encrypted database's first page is indistinguishable from random bytes). Export
+// into an encrypted copy with sqlcipher_export and swap it into place. The plaintext pages
+// linger on unallocated disk sectors afterwards; full-disk encryption is the floor there.
+fn migrate_plaintext(path: &Path, key: &DbKey) -> AppResult<()> {
+    use std::io::Read;
+    let mut header = [0u8; 16];
+    match std::fs::File::open(path) {
+        Ok(mut f) => {
+            if f.read_exact(&mut header).is_err() || &header != b"SQLite format 3\0" {
+                return Ok(());
+            }
+        }
+        Err(_) => return Ok(()),
+    }
+
+    let tmp = sidecar(path, ".migrating");
+    let _ = std::fs::remove_file(&tmp);
+    let plain = Connection::open(path).map_err(AppError::other)?;
+    let mut keyspec = key.keyspec();
+    let attached = plain.execute(
+        "ATTACH DATABASE ?1 AS encrypted KEY ?2",
+        params![tmp.to_string_lossy().into_owned(), keyspec],
+    );
+    keyspec.zeroize();
+    attached.map_err(AppError::other)?;
+    plain
+        .query_row("SELECT sqlcipher_export('encrypted')", [], |_| Ok(()))
+        .map_err(AppError::other)?;
+    plain
+        .execute("DETACH DATABASE encrypted", [])
+        .map_err(AppError::other)?;
+    drop(plain);
+    std::fs::rename(&tmp, path).map_err(AppError::other)?;
+    // The encrypted copy never had these sidecars; any left behind are plaintext remnants.
+    let _ = std::fs::remove_file(sidecar(path, "-wal"));
+    let _ = std::fs::remove_file(sidecar(path, "-shm"));
+    Ok(())
+}
+
+// Best-effort, macOS only: the mirror is fully reconstructible from the API, so there's no
+// reason for report contents to propagate into Time Machine backups. The exclusion is an
+// xattr on the file, so it's re-applied every launch (sidecars get deleted and recreated).
+#[cfg(target_os = "macos")]
+pub fn exclude_from_backups(path: &Path) {
+    let paths: Vec<PathBuf> = [
+        path.to_path_buf(),
+        sidecar(path, "-wal"),
+        sidecar(path, "-shm"),
+    ]
+    .into_iter()
+    .filter(|p| p.exists())
+    .collect();
+    if paths.is_empty() {
+        return;
+    }
+    let status = std::process::Command::new("tmutil")
+        .arg("addexclusion")
+        .args(&paths)
+        .status();
+    if !matches!(status, Ok(s) if s.success()) {
+        log::warn!("failed to exclude the local database from Time Machine backups");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn exclude_from_backups(_path: &Path) {}
 
 fn summary_from_row(json: &str) -> Option<ReportSummary> {
     serde_json::from_str(json).ok()
@@ -1252,5 +1381,70 @@ mod tests {
                 attachments: vec![],
             },
         )
+    }
+
+    const PLAINTEXT_MAGIC: &[u8; 16] = b"SQLite format 3\0";
+
+    fn file_header(path: &Path) -> [u8; 16] {
+        use std::io::Read;
+        let mut header = [0u8; 16];
+        std::fs::File::open(path)
+            .unwrap()
+            .read_exact(&mut header)
+            .unwrap();
+        header
+    }
+
+    #[test]
+    fn fresh_db_is_encrypted_with_restricted_permissions() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("macaroni.db");
+        let key = DbKey::parse("ab".repeat(32)).unwrap();
+        let store = SqliteStore::open(&path, &key).unwrap();
+        store
+            .upsert_summaries("wp", &[summary("1", "t", "new", None)])
+            .unwrap();
+        drop(store);
+
+        assert_ne!(&file_header(&path), PLAINTEXT_MAGIC);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+    }
+
+    #[test]
+    fn plaintext_db_is_migrated_in_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("macaroni.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA).unwrap();
+            conn.execute(
+                "INSERT INTO sync_state (id, program_handle) VALUES (1, 'acme')",
+                [],
+            )
+            .unwrap();
+        }
+        assert_eq!(&file_header(&path), PLAINTEXT_MAGIC);
+
+        let key = DbKey::parse("cd".repeat(32)).unwrap();
+        let store = SqliteStore::open(&path, &key).unwrap();
+        assert_eq!(
+            store.get_sync_state().unwrap().program_handle.as_deref(),
+            Some("acme")
+        );
+        drop(store);
+        assert_ne!(&file_header(&path), PLAINTEXT_MAGIC);
+    }
+
+    #[test]
+    fn wrong_key_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("macaroni.db");
+        drop(SqliteStore::open(&path, &DbKey::parse("11".repeat(32)).unwrap()).unwrap());
+        assert!(SqliteStore::open(&path, &DbKey::parse("22".repeat(32)).unwrap()).is_err());
     }
 }

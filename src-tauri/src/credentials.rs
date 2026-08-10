@@ -1,9 +1,27 @@
-use crate::error::AppResult;
+use crate::db_key::DbKey;
+use crate::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub const SERVICE: &str = "com.johnbillion.macaroni";
 pub const ACCOUNT: &str = "default";
+
+// Everything secret the app holds, in a single keychain item, to avoid multiple prompts for access.
+#[derive(Serialize, Deserialize)]
+struct Secrets {
+    db_key: String,
+    #[serde(default)]
+    credentials: Option<Credentials>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Stored {
+    Current(Secrets),
+    // v0.2.0 stored the credentials on their own under this account, before the database
+    // key joined them in the same item.
+    Legacy(Credentials),
+}
 
 // `ZeroizeOnDrop` wipes the heap backing the token (and username) when the value is dropped,
 // so the cleartext secret doesn't linger in freed memory, swap, or a core dump. We reload
@@ -47,19 +65,11 @@ impl KeyringStore {
     fn entry(&self) -> AppResult<keyring::Entry> {
         Ok(keyring::Entry::new(&self.service, &self.account)?)
     }
-}
 
-impl Default for KeyringStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl CredentialStore for KeyringStore {
-    fn load(&self) -> AppResult<Option<Credentials>> {
+    fn read_stored(&self) -> AppResult<Option<Stored>> {
         match self.entry()?.get_password() {
-            // `s` is the cleartext JSON blob holding the token — parse it, then wipe it
-            // before it's dropped.
+            // `s` is the cleartext JSON blob holding the token and the database key — parse
+            // it, then wipe it before it's dropped.
             Ok(mut s) => {
                 let parsed = serde_json::from_str(&s);
                 s.zeroize();
@@ -70,20 +80,85 @@ impl CredentialStore for KeyringStore {
         }
     }
 
-    fn save(&self, creds: &Credentials) -> AppResult<()> {
-        let mut serialized = serde_json::to_string(creds)?;
-        let result = self.entry()?.set_password(&serialized);
-        serialized.zeroize();
-        result?;
-        Ok(())
+    fn read(&self) -> AppResult<Option<Secrets>> {
+        Ok(match self.read_stored()? {
+            None => None,
+            Some(Stored::Current(secrets)) => Some(secrets),
+            // Fold pre-existing credentials into the current shape with a fresh database
+            // key and write them straight back, so the token survives the upgrade.
+            Some(Stored::Legacy(creds)) => {
+                let secrets = Secrets {
+                    db_key: DbKey::generate()?.hex().to_string(),
+                    credentials: Some(creds),
+                };
+                self.write(&secrets)?;
+                Some(secrets)
+            }
+        })
     }
 
-    fn clear(&self) -> AppResult<()> {
-        match self.entry()?.delete_credential() {
-            Ok(()) => Ok(()),
-            Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(e.into()),
+    fn write(&self, secrets: &Secrets) -> AppResult<()> {
+        let mut serialized = serde_json::to_string(secrets)?;
+        let result = self.entry()?.set_password(&serialized);
+        serialized.zeroize();
+        Ok(result?)
+    }
+
+    // Called once during setup, before the database is opened, so every later credential
+    // read or write finds the item already there.
+    pub fn load_or_create_db_key(&self) -> AppResult<DbKey> {
+        if let Some(secrets) = self.read()? {
+            return DbKey::parse(secrets.db_key);
         }
+        let key = DbKey::generate()?;
+        self.write(&Secrets {
+            db_key: key.hex().to_string(),
+            credentials: None,
+        })?;
+        Ok(key)
+    }
+
+    fn read_for_update(&self) -> AppResult<Secrets> {
+        self.read()?.ok_or_else(|| AppError::Keychain {
+            message: "keychain item is missing".into(),
+        })
+    }
+}
+
+impl Default for KeyringStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CredentialStore for KeyringStore {
+    fn load(&self) -> AppResult<Option<Credentials>> {
+        let Some(mut secrets) = self.read()? else {
+            return Ok(None);
+        };
+        let creds = secrets.credentials.take();
+        secrets.db_key.zeroize();
+        Ok(creds)
+    }
+
+    fn save(&self, creds: &Credentials) -> AppResult<()> {
+        let mut secrets = self.read_for_update()?;
+        secrets.credentials = Some(creds.clone());
+        let result = self.write(&secrets);
+        secrets.db_key.zeroize();
+        result
+    }
+
+    // Clears the credentials but keeps the item: deleting it would take the database key
+    // with it, leaving an undecryptable mirror on disk.
+    fn clear(&self) -> AppResult<()> {
+        let Some(mut secrets) = self.read()? else {
+            return Ok(());
+        };
+        secrets.credentials = None;
+        let result = self.write(&secrets);
+        secrets.db_key.zeroize();
+        result
     }
 }
 
@@ -130,6 +205,37 @@ mod tests {
         assert!(rendered.contains("alice"));
         assert!(!rendered.contains("super-secret-token"));
         assert!(rendered.contains("<redacted>"));
+    }
+
+    #[test]
+    fn stored_blob_without_a_key_is_read_as_legacy_credentials() {
+        let stored: Stored = serde_json::from_str(r#"{"username":"u","token":"t"}"#).unwrap();
+        let Stored::Legacy(creds) = stored else {
+            panic!("expected the legacy shape");
+        };
+        assert_eq!(creds.username, "u");
+        assert_eq!(creds.token, "t");
+    }
+
+    #[test]
+    fn stored_blob_holds_the_key_alongside_the_credentials() {
+        let json = r#"{"db_key":"ab","credentials":{"username":"u","token":"t"}}"#;
+        let stored: Stored = serde_json::from_str(json).unwrap();
+        let Stored::Current(secrets) = stored else {
+            panic!("expected the current shape");
+        };
+        assert_eq!(secrets.db_key, "ab");
+        assert_eq!(secrets.credentials.unwrap().token, "t");
+    }
+
+    // The item is created at launch with the key alone, before any credentials exist.
+    #[test]
+    fn stored_blob_may_hold_the_key_alone() {
+        let stored: Stored = serde_json::from_str(r#"{"db_key":"ab"}"#).unwrap();
+        let Stored::Current(secrets) = stored else {
+            panic!("expected the current shape");
+        };
+        assert!(secrets.credentials.is_none());
     }
 
     #[test]

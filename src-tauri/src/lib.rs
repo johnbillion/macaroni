@@ -1,6 +1,7 @@
 mod appearance;
 mod commands;
 mod credentials;
+mod db_key;
 mod error;
 mod hackerone;
 mod local_db;
@@ -99,8 +100,12 @@ pub fn run() {
             let api = Arc::new(
                 ReqwestClient::new(creds.clone()).expect("failed to build HackerOne HTTP client"),
             );
-            let reports =
-                Arc::new(SqliteStore::open(&data_dir.join("macaroni.db")).expect("open local db"));
+            let db_path = data_dir.join("macaroni.db");
+            let db_key = creds
+                .load_or_create_db_key()
+                .expect("load or create database key");
+            let reports = Arc::new(SqliteStore::open(&db_path, &db_key).expect("open local db"));
+            local_db::exclude_from_backups(&db_path);
             let settings = Arc::new(FileSettingsStore::new(data_dir.join("settings.json")));
 
             let triages = Arc::new(Mutex::new(HashMap::new()));
