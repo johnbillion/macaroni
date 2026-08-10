@@ -1547,6 +1547,24 @@ a[target="_blank"]::after {
 	backdrop-filter: blur(3px);
 }
 
+/* Padded card that fills a dialog. `.settings-card` is the same thing on a <form>. */
+.dialog-card,
+.settings-card {
+	display: grid;
+	gap: 0.75rem;
+	padding: 1.25rem 1.5rem 1.5rem;
+}
+.dialog-card h1,
+.settings-head h1 {
+	font-size: var(--fs-xl);
+	font-weight: 600;
+}
+.dialog-card .muted,
+.settings-card .muted {
+	color: var(--text-3);
+	font-size: var(--fs-sm);
+}
+
 /* Settings dialog */
 .settings-dialog {
 	min-width: 360px;
@@ -1554,20 +1572,11 @@ a[target="_blank"]::after {
 	max-height: 85dvh;
 	overflow: auto;
 }
-.settings-card {
-	display: grid;
-	gap: 0.75rem;
-	padding: 1.25rem 1.5rem 1.5rem;
-}
 .settings-head {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	gap: 0.5rem;
-}
-.settings-head h1 {
-	font-size: var(--fs-xl);
-	font-weight: 600;
 }
 .settings-close {
 	font: inherit;
@@ -1588,10 +1597,6 @@ a[target="_blank"]::after {
 	background: var(--accent);
 	border-color: var(--accent);
 	color: var(--on-accent);
-}
-.settings-card .muted {
-	color: var(--text-3);
-	font-size: var(--fs-sm);
 }
 .settings-card label {
 	display: grid;
@@ -1620,39 +1625,7 @@ a[target="_blank"]::after {
 	gap: 0.5rem;
 	margin-top: 0.25rem;
 }
-.settings-card button[type="submit"] {
-	font: inherit;
-	font-size: var(--fs-sm);
-	padding: 0.55rem 1rem;
-	border: 1px solid var(--accent);
-	background: var(--accent);
-	color: var(--on-accent);
-	font-weight: 600;
-	cursor: pointer;
-	border-radius: var(--radius-sm);
-	box-shadow: var(--shadow-sm);
-}
-.settings-card button[type="submit"]:hover:not([disabled]) {
-	background: var(--accent-strong);
-	border-color: var(--accent-strong);
-	box-shadow: 0 0 0 3px var(--glow-acc), var(--shadow-md);
-}
-.settings-logout {
-	font: inherit;
-	font-size: var(--fs-sm);
-	padding: 0.55rem 1rem;
-	border: 1px solid var(--border);
-	background: transparent;
-	color: var(--crit);
-	cursor: pointer;
-	border-radius: var(--radius-sm);
-}
-.settings-logout:hover:not([disabled]) {
-	background: var(--crit);
-	border-color: var(--crit);
-	color: var(--on-accent);
-}
-.settings-card button[disabled] {
+.settings-close[disabled] {
 	opacity: 0.5;
 	cursor: not-allowed;
 }
@@ -1661,6 +1634,17 @@ a[target="_blank"]::after {
 	border-top: 1px solid var(--border);
 	margin: 0.25rem 0;
 	width: 100%;
+}
+
+/* Log-out confirmation dialog — the choices stack full-width rather than sitting in a row. */
+.confirm-dialog {
+	min-width: 340px;
+	max-width: 420px;
+}
+.confirm-actions {
+	display: grid;
+	gap: 0.5rem;
+	margin-top: 0.25rem;
 }
 
 /* Triage working-directory picker — shared by the Settings dialog and the Triage tab. */

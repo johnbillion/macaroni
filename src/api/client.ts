@@ -26,7 +26,8 @@ export const api = {
 		call<{ has_credentials: boolean; username: string | null }>("credentials_status"),
 	credentialsSave: (username: string, token: string) =>
 		call<void>("credentials_save", { username, token }),
-	credentialsClear: () => call<void>("credentials_clear"),
+	// Forget the credentials, optionally deleting the local report mirror as well.
+	logOut: (deleteDatabase: boolean) => call<void>("log_out", { deleteDatabase }),
 	listOrganizations: () => call<Organization[]>("list_organizations"),
 	listPrograms: (orgId: string) => call<Program[]>("list_programs", { orgId }),
 	listProgramMembers: (programId: string) =>

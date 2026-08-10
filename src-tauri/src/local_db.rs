@@ -100,6 +100,10 @@ pub trait ReportStore: Send + Sync {
     // Total reports stored for a program, and how many of those have cached detail.
     fn count_reports(&self, program_handle: &str) -> AppResult<i64>;
     fn count_detail(&self, program_handle: &str) -> AppResult<i64>;
+    // Drop every mirrored report (with its triage) and the sync bookkeeping, reclaiming the
+    // freed pages. Backs "log out and delete the local database"; the mirror is fully
+    // reconstructible from the API, so nothing here is unrecoverable.
+    fn wipe(&self) -> AppResult<()>;
 
     fn get_sync_state(&self) -> AppResult<SyncState>;
     fn put_sync_state(&self, state: &SyncState) -> AppResult<()>;
@@ -717,6 +721,15 @@ impl ReportStore for SqliteStore {
         .map_err(AppError::other)
     }
 
+    fn wipe(&self) -> AppResult<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute_batch("DELETE FROM reports; DELETE FROM sync_state;")
+            .map_err(AppError::other)?;
+        // Deleting rows only marks their pages free — the report text stays in the file (and its
+        // WAL) until something reuses them. VACUUM rewrites the database from live content only.
+        c.execute_batch("VACUUM").map_err(AppError::other)
+    }
+
     fn get_sync_state(&self) -> AppResult<SyncState> {
         let c = self.conn.lock().unwrap();
         let state = c
@@ -959,6 +972,36 @@ mod tests {
             inboxes: vec![],
             bounty: None,
         }
+    }
+
+    #[test]
+    fn wipe_removes_every_program_and_the_sync_state() {
+        let s = store();
+        s.upsert_summaries("wp", &[summary("1", "One", "new", None)])
+            .unwrap();
+        s.upsert_summaries("other", &[summary("2", "Two", "new", None)])
+            .unwrap();
+        s.set_triage("1", "a summary", Some("valid"), &[], None)
+            .unwrap();
+        assert!(s.get_triage("1").unwrap().is_some());
+        s.put_sync_state(&SyncState {
+            program_handle: Some("wp".into()),
+            backfill_summaries_complete: true,
+            update_watermark: Some("2024-02-01T00:00:00.000Z".into()),
+            last_sync_at: Some("@1".into()),
+        })
+        .unwrap();
+
+        s.wipe().unwrap();
+
+        assert_eq!(s.count_reports("wp").unwrap(), 0);
+        assert_eq!(s.count_reports("other").unwrap(), 0);
+        assert!(s.distinct_program_handles().unwrap().is_empty());
+        assert!(s.get_triage("1").unwrap().is_none());
+        let state = s.get_sync_state().unwrap();
+        assert!(state.program_handle.is_none());
+        assert!(!state.backfill_summaries_complete);
+        assert!(state.update_watermark.is_none());
     }
 
     #[test]

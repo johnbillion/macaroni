@@ -110,6 +110,7 @@ pub fn run() {
 
             let triages = Arc::new(Mutex::new(HashMap::new()));
             let sync_running = Arc::new(AtomicBool::new(false));
+            let sync_cancel = Arc::new(AtomicBool::new(false));
 
             app.manage(AppContext {
                 creds,
@@ -118,6 +119,7 @@ pub fn run() {
                 settings,
                 triages,
                 sync_running,
+                sync_cancel,
             });
 
             // Reflect the macOS system accent colour into the UI, and keep it live when the
@@ -128,7 +130,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::credentials_status,
             commands::credentials_save,
-            commands::credentials_clear,
+            commands::log_out,
             commands::list_organizations,
             commands::list_programs,
             commands::list_program_members,

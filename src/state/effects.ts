@@ -88,9 +88,16 @@ export async function setTriagePrompt(
 	}
 }
 
-export async function clearCredentials(dispatch: Dispatch): Promise<AppError | null> {
+export async function logOut(
+	dispatch: Dispatch,
+	deleteDatabase: boolean,
+): Promise<AppError | null> {
 	try {
-		await api.credentialsClear();
+		await api.logOut(deleteDatabase);
+		cancelPendingReportsLoad();
+		// The reducer resets to the initial (empty) report list, so the next login has to re-issue
+		// whatever query it lands on even if it's identical to the one from this session.
+		lastIssuedQueryKey = null;
 		dispatch({ type: "CREDENTIALS_CLEARED" });
 		return null;
 	} catch (e) {

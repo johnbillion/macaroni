@@ -5,7 +5,7 @@ use crate::local_db::{LocalQuery, ReportListItem, ReportStore, TriageRecord};
 use crate::settings::{DEFAULT_TRIAGE_PROMPT, Settings, SettingsStore};
 use std::collections::HashMap;
 use std::process::Stdio;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -20,6 +20,8 @@ pub struct AppContext {
     pub triages: Arc<Mutex<HashMap<String, u32>>>,
     // Guards the background report sync so overlapping `start_report_sync` calls no-op.
     pub sync_running: Arc<AtomicBool>,
+    // Set to ask an in-flight sync to stop before its next write. Cleared when a sync starts.
+    pub sync_cancel: Arc<AtomicBool>,
 }
 
 // RAII guard that ensures a report's PID is removed from the running-triages map on every
@@ -73,9 +75,33 @@ pub async fn credentials_save(
     Ok(())
 }
 
+// Forget the API credentials, optionally deleting the local mirror on the way out. The keychain
+// item itself survives either way — it also holds the database key (see `credentials::KeyringStore`).
 #[tauri::command]
-pub async fn credentials_clear(ctx: State<'_, AppContext>) -> AppResult<()> {
-    ctx.creds.clear()
+pub async fn log_out(ctx: State<'_, AppContext>, delete_database: bool) -> AppResult<()> {
+    // Cancel the sync before clearing the credentials it's using: a run that already has a
+    // response in hand would otherwise write those reports back after the wipe.
+    ctx.sync_cancel.store(true, Ordering::SeqCst);
+    ctx.creds.clear()?;
+    if delete_database {
+        wait_for_sync_to_stop(&ctx.sync_running).await;
+        ctx.reports.wipe()?;
+    }
+    Ok(())
+}
+
+// Give a cancelled sync a moment to unwind so the wipe is the last write. With the credentials
+// gone every further request fails immediately, so this resolves as soon as the in-flight ones
+// land; the cap keeps a wedged request from blocking the wipe indefinitely (the cancel flag
+// still stops such a run from writing).
+async fn wait_for_sync_to_stop(running: &AtomicBool) {
+    const POLL_MS: u64 = 50;
+    const MAX_WAIT_MS: u64 = 5_000;
+    let mut waited = 0;
+    while running.load(Ordering::SeqCst) && waited < MAX_WAIT_MS {
+        tokio::time::sleep(std::time::Duration::from_millis(POLL_MS)).await;
+        waited += POLL_MS;
+    }
 }
 
 #[tauri::command]
@@ -156,8 +182,9 @@ pub async fn start_report_sync(
     let api = ctx.api.clone();
     let store = ctx.reports.clone();
     let running = ctx.sync_running.clone();
+    let cancel = ctx.sync_cancel.clone();
     tokio::spawn(async move {
-        crate::sync::run_sync(app, api, store, running, program_handle).await;
+        crate::sync::run_sync(app, api, store, running, cancel, program_handle).await;
     });
     Ok(())
 }

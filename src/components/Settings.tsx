@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
-import { clearCredentials, saveCredentials } from "../state/effects";
+import { logOut, saveCredentials } from "../state/effects";
 import type { AppError } from "../state/store";
+import { LogOutDialog } from "./LogOutDialog";
 import { TriagePromptField } from "./TriagePromptField";
 import { TriageWorkingDirField } from "./TriageWorkingDirField";
 
@@ -19,6 +20,7 @@ export function Settings({ open, onClose }: Props) {
 	const [token, setToken] = useState("");
 	const [submitting, setSubmitting] = useState(false);
 	const [loggingOut, setLoggingOut] = useState(false);
+	const [confirmingLogOut, setConfirmingLogOut] = useState(false);
 	const [error, setError] = useState<AppError | null>(null);
 
 	useEffect(() => {
@@ -28,6 +30,7 @@ export function Settings({ open, onClose }: Props) {
 			setUsername(state.username ?? "");
 			setToken("");
 			setError(null);
+			setConfirmingLogOut(false);
 			dialog.showModal();
 		} else if (!open && dialog.open) {
 			dialog.close();
@@ -48,11 +51,12 @@ export function Settings({ open, onClose }: Props) {
 		onClose();
 	};
 
-	const onLogOut = async () => {
+	const onLogOut = async (deleteDatabase: boolean) => {
 		setLoggingOut(true);
 		setError(null);
-		const err = await clearCredentials(dispatch);
+		const err = await logOut(dispatch, deleteDatabase);
 		setLoggingOut(false);
+		setConfirmingLogOut(false);
 		if (err) {
 			setError(err);
 			return;
@@ -63,58 +67,77 @@ export function Settings({ open, onClose }: Props) {
 	const busy = submitting || loggingOut;
 
 	return (
-		<dialog ref={ref} class="app-dialog settings-dialog" onClose={onClose}>
-			<form class="settings-card" onSubmit={onSubmit}>
-				<header class="settings-head">
-					<h1>Settings</h1>
-					<button
-						type="button"
-						class="settings-close"
-						aria-label="Close"
-						onClick={onClose}
-						disabled={busy}
-					>
-						×
-					</button>
-				</header>
-				<p class="muted">
-					Signed in as <b>{state.username ?? "—"}</b>. Credentials are stored in your macOS
-					keychain.
-				</p>
-				<label>
-					<span>API username</span>
-					<input
-						type="text"
-						autocomplete="off"
-						value={username}
-						onInput={(e) => setUsername(e.currentTarget.value)}
-						disabled={busy}
-					/>
-				</label>
-				<label>
-					<span>API token</span>
-					<input
-						type="password"
-						autocomplete="off"
-						placeholder="Enter a new token to update"
-						value={token}
-						onInput={(e) => setToken(e.currentTarget.value)}
-						disabled={busy}
-					/>
-				</label>
-				<hr class="settings-divider" />
-				<TriageWorkingDirField />
-				<TriagePromptField />
-				{error && <div class="error">{error.message}</div>}
-				<div class="settings-actions">
-					<button type="button" class="settings-logout" onClick={onLogOut} disabled={busy}>
-						{loggingOut ? "Logging out…" : "Log out"}
-					</button>
-					<button type="submit" disabled={busy || !username || !token}>
-						{submitting ? "Saving…" : "Save"}
-					</button>
-				</div>
-			</form>
-		</dialog>
+		<>
+			<dialog ref={ref} class="app-dialog settings-dialog" onClose={onClose}>
+				<form class="settings-card" onSubmit={onSubmit}>
+					<header class="settings-head">
+						<h1>Settings</h1>
+						<button
+							type="button"
+							class="settings-close"
+							aria-label="Close"
+							onClick={onClose}
+							disabled={busy}
+						>
+							×
+						</button>
+					</header>
+					<p class="muted">
+						Signed in as <b>{state.username ?? "—"}</b>. Credentials are stored in your macOS
+						keychain.
+					</p>
+					<label>
+						<span>API username</span>
+						<input
+							type="text"
+							autocomplete="off"
+							value={username}
+							onInput={(e) => setUsername(e.currentTarget.value)}
+							disabled={busy}
+						/>
+					</label>
+					<label>
+						<span>API token</span>
+						<input
+							type="password"
+							autocomplete="off"
+							placeholder="Enter a new token to update"
+							value={token}
+							onInput={(e) => setToken(e.currentTarget.value)}
+							disabled={busy}
+						/>
+					</label>
+					<hr class="settings-divider" />
+					<TriageWorkingDirField />
+					<TriagePromptField />
+					{error && <div class="error">{error.message}</div>}
+					<div class="settings-actions">
+						<button
+							type="button"
+							class="button button-danger"
+							onClick={() => setConfirmingLogOut(true)}
+							disabled={busy}
+						>
+							{loggingOut ? "Logging out…" : "Log out"}
+						</button>
+						<button
+							type="submit"
+							class="button button-primary"
+							disabled={busy || !username || !token}
+						>
+							{submitting ? "Saving…" : "Save"}
+						</button>
+					</div>
+				</form>
+			</dialog>
+			<LogOutDialog
+				open={confirmingLogOut}
+				busy={loggingOut}
+				onConfirm={onLogOut}
+				onCancel={() => {
+					if (!loggingOut) setConfirmingLogOut(false);
+				}}
+			/>
+		</>
 	);
 }

@@ -100,12 +100,14 @@ fn max_activity(items: &[ReportSummary], current: Option<String>) -> Option<Stri
 
 // Drive a full sync of `program_handle`: an initial open-reports page (fast, blocks first paint),
 // then in the background an incremental update catch-up, a full summary backfill, and a full
-// detail backfill. The `running` flag guards against overlapping runs.
+// detail backfill. The `running` flag guards against overlapping runs; setting `cancel` asks an
+// in-flight run to stop before its next write (see `commands::log_out`, which wipes the mirror).
 pub async fn run_sync(
     app: AppHandle,
     api: Arc<dyn HackerOneApi>,
     store: Arc<dyn ReportStore>,
     running: Arc<AtomicBool>,
+    cancel: Arc<AtomicBool>,
     program_handle: String,
 ) {
     // compare_exchange: bail if a sync is already in flight.
@@ -115,16 +117,23 @@ pub async fn run_sync(
     {
         return;
     }
+    // A cancellation from a previous run has been honoured by now — this run starts clean.
+    cancel.store(false, Ordering::SeqCst);
     let events: Arc<dyn SyncEvents> = Arc::new(TauriSyncEvents(app));
-    let _ = run_sync_inner(&events, &api, &store, &program_handle).await;
+    let _ = run_sync_inner(&events, &api, &store, &cancel, &program_handle).await;
     running.store(false, Ordering::SeqCst);
     emit_status(&events, "idle", 0, 0, false);
+}
+
+fn cancelled(cancel: &AtomicBool) -> bool {
+    cancel.load(Ordering::SeqCst)
 }
 
 async fn run_sync_inner(
     events: &Arc<dyn SyncEvents>,
     api: &Arc<dyn HackerOneApi>,
     store: &Arc<dyn ReportStore>,
+    cancel: &Arc<AtomicBool>,
     program_handle: &str,
 ) -> Result<(), AppError> {
     let mut sync_state = store.get_sync_state()?;
@@ -150,6 +159,9 @@ async fn run_sync_inner(
         },
     )
     .await;
+    if cancelled(cancel) {
+        return Ok(());
+    }
     if let Some(page) = initial {
         store.upsert_summaries(program_handle, &page.items)?;
         emit_changed(events);
@@ -161,6 +173,7 @@ async fn run_sync_inner(
             events,
             api,
             store,
+            cancel,
             program_handle,
             &watermark,
             &mut sync_state,
@@ -170,15 +183,18 @@ async fn run_sync_inner(
 
     // --- Phase A: full summary backfill, oldest-first for pagination stability. ---
     if !sync_state.backfill_summaries_complete {
-        backfill_summaries(events, api, store, program_handle, &mut sync_state).await?;
+        backfill_summaries(events, api, store, cancel, program_handle, &mut sync_state).await?;
     }
 
     // --- Phase B: full detail backfill for any report lacking cached detail. Runs every sync,
     // not just until the first clean pass: the initial page and the incremental catch-up above
     // both mirror reports whose detail we haven't fetched, and the catch-up explicitly marks
     // touched reports' detail stale. It's a no-op once nothing is missing. ---
-    backfill_detail(events, api, store, program_handle).await?;
+    backfill_detail(events, api, store, cancel, program_handle).await?;
 
+    if cancelled(cancel) {
+        return Ok(());
+    }
     sync_state.last_sync_at = Some(now_marker());
     store.put_sync_state(&sync_state)?;
     Ok(())
@@ -188,6 +204,7 @@ async fn incremental_sync(
     events: &Arc<dyn SyncEvents>,
     api: &Arc<dyn HackerOneApi>,
     store: &Arc<dyn ReportStore>,
+    cancel: &Arc<AtomicBool>,
     program_handle: &str,
     watermark: &str,
     sync_state: &mut SyncState,
@@ -207,6 +224,9 @@ async fn incremental_sync(
         let Some(page) = fetch_page(api, query).await else {
             break;
         };
+        if cancelled(cancel) {
+            return Ok(());
+        }
         if page.items.is_empty() {
             break;
         }
@@ -253,6 +273,7 @@ async fn backfill_summaries(
     events: &Arc<dyn SyncEvents>,
     api: &Arc<dyn HackerOneApi>,
     store: &Arc<dyn ReportStore>,
+    cancel: &Arc<AtomicBool>,
     program_handle: &str,
     sync_state: &mut SyncState,
 ) -> Result<(), AppError> {
@@ -270,6 +291,9 @@ async fn backfill_summaries(
         let Some(page) = fetch_page(api, query).await else {
             break;
         };
+        if cancelled(cancel) {
+            return Ok(());
+        }
         if !page.items.is_empty() {
             store.upsert_summaries(program_handle, &page.items)?;
             newest = max_activity(&page.items, newest);
@@ -295,6 +319,7 @@ async fn backfill_detail(
     events: &Arc<dyn SyncEvents>,
     api: &Arc<dyn HackerOneApi>,
     store: &Arc<dyn ReportStore>,
+    cancel: &Arc<AtomicBool>,
     program_handle: &str,
 ) -> Result<(), AppError> {
     let ids = store.ids_missing_detail(program_handle)?;
@@ -309,6 +334,9 @@ async fn backfill_detail(
     let mut set = tokio::task::JoinSet::new();
 
     for id in ids {
+        if cancelled(cancel) {
+            break;
+        }
         let Ok(permit) = sem.clone().acquire_owned().await else {
             break;
         };
@@ -316,6 +344,7 @@ async fn backfill_detail(
         let store = store.clone();
         let done = done.clone();
         let events = events.clone();
+        let cancel = cancel.clone();
         let base = already;
         set.spawn(async move {
             let _permit = permit;
@@ -324,7 +353,9 @@ async fn backfill_detail(
             for attempt in 0..=MAX_RETRIES {
                 match api.get_report(&id).await {
                     Ok(detail) => {
-                        let _ = store.upsert_detail(&detail);
+                        if !cancelled(&cancel) {
+                            let _ = store.upsert_detail(&detail);
+                        }
                         break;
                     }
                     Err(AppError::RateLimited { .. }) | Err(AppError::Network { .. })
@@ -486,6 +517,10 @@ mod tests {
         Arc::new(NoopEvents)
     }
 
+    fn no_cancel() -> Arc<AtomicBool> {
+        Arc::new(AtomicBool::new(false))
+    }
+
     #[tokio::test]
     async fn full_sync_mirrors_all_reports_and_detail() {
         let api: Arc<dyn HackerOneApi> = Arc::new(MockApi {
@@ -497,7 +532,9 @@ mod tests {
         });
         let store: Arc<dyn ReportStore> = Arc::new(SqliteStore::in_memory());
 
-        run_sync_inner(&events(), &api, &store, "wp").await.unwrap();
+        run_sync_inner(&events(), &api, &store, &no_cancel(), "wp")
+            .await
+            .unwrap();
 
         // All reports mirrored (open + closed), all detail hydrated.
         assert_eq!(store.count_reports("wp").unwrap(), 3);
@@ -528,15 +565,36 @@ mod tests {
             reports: vec![summary("1", "new", "2024-02-01T00:00:00.000Z")],
         });
         let store: Arc<dyn ReportStore> = Arc::new(SqliteStore::in_memory());
-        run_sync_inner(&events(), &api, &store, "wp").await.unwrap();
+        run_sync_inner(&events(), &api, &store, &no_cancel(), "wp")
+            .await
+            .unwrap();
         assert_eq!(store.count_detail("wp").unwrap(), 1);
 
         store.mark_detail_stale(&["1"]).unwrap();
         assert_eq!(store.count_detail("wp").unwrap(), 0);
 
-        run_sync_inner(&events(), &api, &store, "wp").await.unwrap();
+        run_sync_inner(&events(), &api, &store, &no_cancel(), "wp")
+            .await
+            .unwrap();
         assert_eq!(store.count_detail("wp").unwrap(), 1);
         assert!(store.ids_missing_detail("wp").unwrap().is_empty());
+    }
+
+    // A cancelled sync must not write: `log_out` cancels before wiping the mirror, so a write
+    // from a run that already has the API's response in hand would resurrect deleted reports.
+    #[tokio::test]
+    async fn a_cancelled_sync_mirrors_nothing() {
+        let api: Arc<dyn HackerOneApi> = Arc::new(MockApi {
+            reports: vec![summary("1", "new", "2024-02-01T00:00:00.000Z")],
+        });
+        let store: Arc<dyn ReportStore> = Arc::new(SqliteStore::in_memory());
+        let cancel = Arc::new(AtomicBool::new(true));
+
+        run_sync_inner(&events(), &api, &store, &cancel, "wp")
+            .await
+            .unwrap();
+
+        assert_eq!(store.count_reports("wp").unwrap(), 0);
     }
 
     #[tokio::test]
@@ -560,6 +618,7 @@ mod tests {
             &events(),
             &api,
             &store,
+            &no_cancel(),
             "wp",
             "2024-05-01T00:00:00.000Z",
             &mut sync_state,

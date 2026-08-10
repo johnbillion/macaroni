@@ -79,7 +79,7 @@ Prerequisites:
 
 ## Settings
 
-You can change your credentials or log out at any time from the settings dialog in the top bar.
+You can change your credentials or log out at any time from the settings dialog in the top bar. Logging out asks whether to delete the local database along with the credentials: deleting it leaves no report data on disk, while keeping it means the next login carries on from the reports already synced instead of mirroring the program from scratch.
 
 ## License
 
