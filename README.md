@@ -2,7 +2,7 @@
 
 A read-only desktop inbox for [HackerOne](https://hackerone.com/) bug bounty programs.
 
-Browse reports across your organisations and programs, filter by state, and read full report details — comments, activity, severity, asset, weakness — without leaving the app.
+Browse and search reports across your program, filter by state or asset, and read full report details without leaving the app.
 
 Macaroni rhymes with HackerOne.
 
@@ -11,6 +11,8 @@ Macaroni rhymes with HackerOne.
 ## How it works
 
 Macaroni mirrors your program's reports into a local SQLite database and works primarily from that mirror, so filtering and searching are instant rather than waiting on the (slow) HackerOne API. On launch it shows the latest open reports right away, then in the background it backfills every report — open and closed — page by page, and fetches each report's full detail. A progress indicator in the top bar shows what the sync is doing. Each time you open the app it also catches up on anything that changed since the last sync. All searches and filters run against the local database; the app remains **read-only** against HackerOne (it only ever issues `GET` requests).
+
+The local database is encrypted at rest with SQLCipher using a random key held in your macOS keychain, so report contents aren't readable by anything that can't get past a keychain prompt.
 
 ## Requirements
 
@@ -78,3 +80,7 @@ Prerequisites:
 ## Settings
 
 You can change your credentials or log out at any time from the settings dialog in the top bar.
+
+## License
+
+MIT
