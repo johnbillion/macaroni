@@ -381,10 +381,11 @@ export function TriageEventLog({ events, live }: { events: TriageEvent[]; live: 
 		if (!el) return;
 		el.scrollTop = el.scrollHeight;
 	}, [events.length, live]);
+	const items = toLogItems(events);
 	return (
 		<div class="triage-log" ref={ref}>
-			{events.map((e, i) => (
-				<TriageEventRow key={i} event={e} />
+			{items.map((item, i) => (
+				<TriageLogRow key={i} item={item} />
 			))}
 			{live && events.length === 0 ? (
 				<div class="triage-log-empty">Waiting for first event…</div>
@@ -404,6 +405,9 @@ function prettyToolName(name: string): string {
 // biome-ignore lint/suspicious/noExplicitAny: tool inputs vary in shape per tool
 function summarizeToolInput(name: string, input: any): string {
 	if (input == null || typeof input !== "object") return "";
+	if (typeof input.description === "string" && input.description.trim()) {
+		return input.description.trim();
+	}
 	switch (name) {
 		case "Bash":
 			return String(input.command ?? "");
@@ -476,130 +480,268 @@ function isToolResultError(content: any): boolean {
 	return false;
 }
 
-function Row({
-	kind,
-	klass,
-	primary,
-	secondary,
-}: {
-	kind: string;
-	klass: string;
-	primary?: string;
-	secondary?: string;
-}) {
-	return (
-		<div class={`triage-event ${klass}`}>
-			<span class="triage-event-kind">{kind}</span>
-			<span class="triage-event-text">
-				{primary ? <span class="triage-event-primary">{primary}</span> : null}
-				{secondary ? <span class="triage-event-secondary"> {secondary}</span> : null}
-			</span>
-		</div>
-	);
+// A tool call that was blocked by the permission system didn't fail — claude simply wasn't
+// allowed to run it — so it's labelled and coloured apart from a genuine failure.
+type OutcomeStatus = "ok" | "error" | "denied";
+type ToolOutcome = { text: string; status: OutcomeStatus };
+
+// The log is rendered from a flattened item list rather than straight from events: runs of
+// thinking events collapse into one row, and a tool result is folded into the row of the tool
+// call it belongs to.
+type LogItem =
+	| { kind: "system"; text: string }
+	| { kind: "thinking" }
+	| { kind: "assistant"; text: string }
+	| { kind: "reasoning"; text: string }
+	| { kind: "tool"; name: string; summary: string; outcome: ToolOutcome | null; elapsed: number }
+	| { kind: "task"; description: string; outcome: ToolOutcome | null }
+	| { kind: "outcome"; outcome: ToolOutcome }
+	| { kind: "final"; text: string };
+
+type ToolItem = LogItem & { kind: "tool" };
+type TaskItem = LogItem & { kind: "task" };
+
+function str(value: unknown): string {
+	return typeof value === "string" ? value : "";
 }
 
-function TriageEventRow({ event }: { event: TriageEvent }) {
-	const t = event.type;
-	if (t === "system") {
-		const subtype = typeof event.subtype === "string" ? event.subtype : "";
-		// Stream-json system events carry different payloads per subtype — pull whichever
-		// field has actual content (model on init, description/message on task lifecycle).
-		const detail =
-			typeof event.model === "string"
-				? event.model
-				: typeof event.description === "string"
-					? event.description
-					: typeof event.message === "string"
-						? event.message
-						: typeof event.content === "string"
-							? event.content
-							: "";
-		return <Row kind="SYSTEM" klass="triage-event-system" primary={subtype} secondary={detail} />;
-	}
-	if (t === "assistant") {
-		const content = event.message?.content;
-		if (!Array.isArray(content)) {
-			return <Row kind="CLAUDE" klass="triage-event-assistant" />;
+// The line to show for a system event, or null for the ones carrying no information a
+// neighbouring row doesn't already give (bookkeeping, empty status pings).
+function systemLine(event: TriageEvent, subtype: string): string | null {
+	switch (subtype) {
+		case "init":
+			return `Started ${str(event.model)}`.trim();
+		case "status":
+			return str(event.status) || null;
+		// Emitted alongside every task lifecycle event with the full task list — the task rows
+		// already say the same thing in a readable way.
+		case "background_tasks_changed":
+			return null;
+		default: {
+			// Unknown subtypes — pull whichever field has actual content.
+			const detail =
+				str(event.description) || str(event.message) || str(event.content) || str(event.model);
+			return [subtype, detail].filter(Boolean).join(" ") || null;
 		}
-		return (
-			<>
-				{content.map(
-					(
-						// biome-ignore lint/suspicious/noExplicitAny: content blocks vary by type
-						block: any,
-						i: number,
-					) => {
-						const key = `${event.message?.id ?? "msg"}-${i}`;
-						if (block.type === "text") {
-							const text = String(block.text ?? "").trim();
-							if (!text) return null;
-							return <Row key={key} kind="CLAUDE" klass="triage-event-assistant" primary={text} />;
-						}
-						if (block.type === "thinking") {
-							const text = String(block.thinking ?? "").trim();
-							if (!text) return null;
-							return <Row key={key} kind="THINK" klass="triage-event-thinking" primary={text} />;
-						}
-						if (block.type === "tool_use") {
-							const name = prettyToolName(String(block.name ?? "(unknown)"));
-							const summary = summarizeToolInput(String(block.name ?? ""), block.input);
-							return (
-								<Row
-									key={key}
-									kind="TOOL"
-									klass="triage-event-tool"
-									primary={name}
-									secondary={summary}
-								/>
-							);
-						}
-						return null;
-					},
-				)}
-			</>
-		);
 	}
-	if (t === "user") {
-		// Tool results — pull the first textual line from each result block in the message.
-		const content = event.message?.content;
-		if (!Array.isArray(content)) {
-			return <Row kind="RESULT" klass="triage-event-result" primary="(no content)" />;
+}
+
+function toLogItems(events: TriageEvent[]): LogItem[] {
+	const items: LogItem[] = [];
+	// tool_use_id → its tool row, so parallel tool calls in one assistant message each pick up
+	// the right result out of the following user message.
+	const toolsById = new Map<string, ToolItem>();
+	// Tools the permission system blocked. The `permission_denied` event arrives before the
+	// tool_result, so the denial is recorded here and applied when the result lands.
+	const denied = new Set<string>();
+	// task_id → its background-task row, so the later lifecycle events fold into the row that
+	// started the task rather than repeating its description further down the log.
+	const tasksById = new Map<string, TaskItem>();
+	// The run's result repeats the final assistant message verbatim, and that's rendered as
+	// formatted markdown in the analysis section directly below the log — so the log skips its
+	// own copy, which is otherwise a screenful of raw verdict JSON. Failed runs save no record,
+	// leaving nothing else to show it, so those are left in place.
+	const finalTexts = new Set(
+		events
+			.filter((e) => e.type === "result" && e.is_error !== true)
+			.map((e) => str(e.result).trim())
+			.filter(Boolean),
+	);
+
+	for (const event of events) {
+		const t = event.type;
+		if (t === "system") {
+			const subtype = str(event.subtype);
+			if (subtype === "thinking_tokens") {
+				if (items[items.length - 1]?.kind !== "thinking") items.push({ kind: "thinking" });
+				continue;
+			}
+			if (subtype === "permission_denied") {
+				const id = str(event.tool_use_id);
+				const tool = toolsById.get(id);
+				if (id) denied.add(id);
+				if (tool?.outcome) tool.outcome.status = "denied";
+				// Without a tool to attach to there's nothing else showing the denial, so keep it.
+				if (!tool) items.push({ kind: "system", text: str(event.message) || "Permission denied" });
+				continue;
+			}
+			if (subtype === "task_started") {
+				const item: TaskItem = {
+					kind: "task",
+					description: str(event.description) || str(event.task_id) || "(unnamed)",
+					outcome: null,
+				};
+				items.push(item);
+				if (str(event.task_id)) tasksById.set(event.task_id, item);
+				continue;
+			}
+			// The end of a task arrives as both an update and a notification, in either order, so
+			// each overwrites the last — they describe the same finish.
+			if (subtype === "task_updated" || subtype === "task_notification") {
+				const status = str(event.status) || str(event.patch?.status);
+				if (!status) continue;
+				const outcome: ToolOutcome = {
+					text: status,
+					status: /fail|error/i.test(status) ? "error" : "ok",
+				};
+				const task = tasksById.get(str(event.task_id));
+				if (task) task.outcome = outcome;
+				else items.push({ kind: "system", text: `Background task ${status}` });
+				continue;
+			}
+			const line = systemLine(event, subtype || "system");
+			if (line) items.push({ kind: "system", text: line });
+			continue;
 		}
-		return (
-			<>
-				{content.map(
-					(
-						// biome-ignore lint/suspicious/noExplicitAny: tool_result blocks vary
-						block: any,
-						i: number,
-					) => {
-						if (!block || block.type !== "tool_result") return null;
-						const summary = summarizeToolResult(block.content) || "(empty)";
-						const errored = block.is_error === true || isToolResultError(block.content);
-						const key = `res-${block.tool_use_id ?? i}`;
-						return (
-							<Row
-								key={key}
-								kind={errored ? "ERROR" : "RESULT"}
-								klass={errored ? "triage-event-error" : "triage-event-result"}
-								primary={summary}
-							/>
-						);
-					},
-				)}
-			</>
-		);
+		if (t === "assistant") {
+			const content = event.message?.content;
+			if (!Array.isArray(content)) continue;
+			for (const block of content) {
+				if (!block || typeof block !== "object") continue;
+				if (block.type === "text") {
+					const text = String(block.text ?? "").trim();
+					if (text && !finalTexts.has(text)) items.push({ kind: "assistant", text });
+				} else if (block.type === "thinking") {
+					const text = String(block.thinking ?? "").trim();
+					if (text) items.push({ kind: "reasoning", text });
+				} else if (block.type === "tool_use") {
+					const item: ToolItem = {
+						kind: "tool",
+						name: prettyToolName(String(block.name ?? "(unknown)")),
+						summary: summarizeToolInput(String(block.name ?? ""), block.input),
+						outcome: null,
+						elapsed: 0,
+					};
+					items.push(item);
+					if (str(block.id)) toolsById.set(block.id, item);
+				}
+			}
+			continue;
+		}
+		if (t === "user") {
+			const content = event.message?.content;
+			if (!Array.isArray(content)) continue;
+			for (const block of content) {
+				if (!block || block.type !== "tool_result") continue;
+				const id = str(block.tool_use_id);
+				const errored = block.is_error === true || isToolResultError(block.content);
+				const outcome: ToolOutcome = {
+					text: summarizeToolResult(block.content) || "(empty)",
+					status: denied.has(id) ? "denied" : errored ? "error" : "ok",
+				};
+				const tool = toolsById.get(id);
+				if (tool) tool.outcome = outcome;
+				else items.push({ kind: "outcome", outcome });
+			}
+			continue;
+		}
+		if (t === "result") {
+			const subtype = str(event.subtype) || "done";
+			const duration =
+				typeof event.duration_ms === "number" ? `${Math.round(event.duration_ms / 1000)}s` : "";
+			const text = [subtype, duration].filter(Boolean).join(" ");
+			items.push(
+				event.is_error === true || subtype.startsWith("error")
+					? { kind: "outcome", outcome: { text, status: "error" } }
+					: { kind: "final", text },
+			);
+			continue;
+		}
+		if (t === "raw") {
+			items.push({ kind: "system", text: String(event.line ?? "") });
+			continue;
+		}
+		// Progress pings for a tool that's still running: a heartbeat, an elapsed-time tick, or a
+		// subagent retry. Only the retry is worth a row of its own — the rest just time-stamp the
+		// tool call they belong to, which is already on screen.
+		if (t === "tool_progress") {
+			const retry = event.subagent_retry;
+			if (retry && typeof retry === "object") {
+				const attempt = [retry.attempt, retry.max_retries].filter(Boolean).join("/");
+				const agent = str(event.subagent_type) || "Subagent";
+				items.push({ kind: "system", text: `${agent} retrying${attempt ? ` (${attempt})` : ""}` });
+				continue;
+			}
+			// Heartbeats carry a synthetic `<id>-heartbeat-N` tool_use_id and put the real one in
+			// parent_tool_use_id, so fall back to the parent when the id doesn't resolve.
+			const tool =
+				toolsById.get(str(event.tool_use_id)) ?? toolsById.get(str(event.parent_tool_use_id));
+			const elapsed = event.elapsed_time_seconds;
+			if (tool && typeof elapsed === "number" && elapsed > tool.elapsed) tool.elapsed = elapsed;
+			continue;
+		}
+		if (t === "rate_limit_event") {
+			// Sent on every turn; only worth a row when it says something other than "allowed".
+			const status = str(event.rate_limit_info?.status);
+			if (status && status !== "allowed")
+				items.push({ kind: "system", text: `Rate limit: ${status}` });
+			continue;
+		}
+		items.push({ kind: "system", text: t.replace(/_/g, " ") });
 	}
-	if (t === "result") {
-		const subtype = typeof event.subtype === "string" ? event.subtype : "done";
-		const detail =
-			typeof event.duration_ms === "number" ? `${Math.round(event.duration_ms / 1000)}s` : "";
-		return <Row kind="FINAL" klass="triage-event-final" primary={subtype} secondary={detail} />;
+	return items;
+}
+
+function formatElapsed(seconds: number): string {
+	const whole = Math.round(seconds);
+	if (whole < 60) return `${whole}s`;
+	return `${Math.floor(whole / 60)}m ${whole % 60}s`;
+}
+
+const OUTCOME_PREFIX: Record<OutcomeStatus, string> = {
+	ok: "",
+	error: "Error: ",
+	denied: "Blocked: ",
+};
+
+function Outcome({ outcome, attached }: { outcome: ToolOutcome; attached: boolean }) {
+	const classes = ["triage-event-outcome", `triage-event-outcome-${outcome.status}`];
+	if (attached) classes.push("triage-event-outcome-attached");
+	return <div class={classes.join(" ")}>{`${OUTCOME_PREFIX[outcome.status]}${outcome.text}`}</div>;
+}
+
+function TriageLogRow({ item }: { item: LogItem }) {
+	switch (item.kind) {
+		case "thinking":
+			return <div class="triage-event triage-event-thinking">Thinking…</div>;
+		case "assistant":
+			return <div class="triage-event triage-event-assistant">{item.text}</div>;
+		case "reasoning":
+			return <div class="triage-event triage-event-reasoning">{item.text}</div>;
+		case "tool":
+			return (
+				<div class="triage-event triage-event-tool">
+					<div class="triage-event-tool-call">
+						<span class="triage-event-tool-name">{item.name}</span>
+						{item.summary ? <span class="triage-event-tool-args">{item.summary}</span> : null}
+						{item.elapsed >= 1 ? (
+							<span class="triage-event-tool-time">{formatElapsed(item.elapsed)}</span>
+						) : null}
+					</div>
+					{item.outcome ? <Outcome outcome={item.outcome} attached /> : null}
+				</div>
+			);
+		case "task":
+			return (
+				<div class="triage-event triage-event-task">
+					<div class="triage-event-tool-call">
+						<span class="triage-event-task-label">Background task</span>
+						<span class="triage-event-tool-args">{item.description}</span>
+					</div>
+					{item.outcome ? <Outcome outcome={item.outcome} attached /> : null}
+				</div>
+			);
+		case "outcome":
+			return (
+				<div class="triage-event">
+					<Outcome outcome={item.outcome} attached={false} />
+				</div>
+			);
+		case "final":
+			return <div class="triage-event triage-event-final">{item.text}</div>;
+		default:
+			return <div class="triage-event triage-event-system">{item.text}</div>;
 	}
-	if (t === "raw") {
-		return <Row kind="RAW" klass="triage-event-raw" primary={String(event.line ?? "")} />;
-	}
-	return <Row kind={t.toUpperCase()} klass="" />;
 }
 
 export function TriageDisclosure() {

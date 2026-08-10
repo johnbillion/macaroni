@@ -518,8 +518,16 @@ pub async fn run_triage(
         AppError::other("No triage working directory is set. Choose one in Settings.")
     })?;
 
+    // `--permission-mode auto` overrides whatever `defaultMode` the working directory's settings ask for.
     let mut child = tokio::process::Command::new(claude_binary()?)
-        .args(["-p", "--output-format", "stream-json", "--verbose"])
+        .args([
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--permission-mode",
+            "auto",
+        ])
         .current_dir(&working_dir)
         .env("PATH", claude_search_path())
         .stdin(Stdio::piped())

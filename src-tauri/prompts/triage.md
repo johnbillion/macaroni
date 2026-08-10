@@ -27,7 +27,7 @@ Autonomously use this development environment to attempt to reproduce the vulner
 * Create and use a mu-plugin in the `src/wp-content/mu-plugins` directory if it's necessary for custom PHP to be in effect, for example to mimic a plugin using a filter or action.
 * Use a direct mysql database connection, the `$wpdb` global in PHP, or WP-CLI to read data from the database as necessary.
 * You can write to the database directly only if there isn't an existing API in WordPress, WP-CLI command, or REST API endpoint to achieve the same.
-* You can use your standard writing and editing tools to write to files. The `src` directory is mounted to the container.
+* When writing to files, always use your standard "Edit" and "Write" tools. The `src` directory is mounted to the container.
 
 The vulnerability may require a chain of actions, such as configuring the site, using users with specific roles, setting up options or menus or theme settings, creating content, and then viewing the site, the wp-admin area, the REST API, or XMLRPC. Carefully follow multi-step instructions to reproduce.
 
