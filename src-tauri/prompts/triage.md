@@ -10,7 +10,7 @@ The local development environment is accessible at http://localhost:8889/. Read 
 
 If the environment isn't running, run `npm run env:start`.
 
-Use Playwright MCP in headless mode to access the environment at its URL, read the console, and interact with the web page. Use `browser_run_code` to speed up sequences of interactions where appropriate.
+Use Playwright MCP to access the environment at its URL, read the console, and interact with the web page. Use `browser_run_code` to speed up sequences of interactions where appropriate.
 
 To use WP-CLI you _may_ need to include the `@wp` alias in the commands if the bare `wp` command does not work:
 

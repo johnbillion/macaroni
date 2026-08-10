@@ -41,7 +41,7 @@ Reports can be filtered and searched from the sidebar. There are no pagination c
 
 ### AI-powered triage
 
-A report can be triaged by AI from the "Triage" section near the top of the details pane of a report. This kicks off a Claude Code session in the background that will report back once it's made a determination. Be aware that this will spawn foreground Chrome windows because Playwright doesn't respect the instructions to run in headless mode. You can tweak the prompt before running the triage if necessary (eg. to remove cruft from the report or provide more specific instructions).
+A report can be triaged by AI from the "Triage" section near the top of the details pane of a report. This kicks off a Claude Code session in the background that will report back once it's made a determination. You may see Chrome briefly pop up in your dock when Playwright MCP spawns a headless instance. You can tweak the prompt before running the triage if necessary (eg. to remove cruft from the report or provide more specific instructions).
 
 This can take a few minutes.
 

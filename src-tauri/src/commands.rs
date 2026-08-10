@@ -530,6 +530,7 @@ pub async fn run_triage(
         ])
         .current_dir(&working_dir)
         .env("PATH", claude_search_path())
+        .env("PLAYWRIGHT_MCP_HEADLESS", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
