@@ -46,11 +46,11 @@ export function TriageWorkingDirField() {
 			<span>Triage working directory</span>
 			<div class="dir-field-row">
 				<span class={`dir-field-path${dir ? "" : " dir-field-unset"}`}>{dir ?? "Not set"}</span>
-				<button type="button" onClick={choose} disabled={busy}>
+				<button type="button" class="button" onClick={choose} disabled={busy}>
 					{busy ? "…" : "Choose…"}
 				</button>
 				{dir ? (
-					<button type="button" class="dir-field-clear" onClick={clear} disabled={busy}>
+					<button type="button" class="button button-danger" onClick={clear} disabled={busy}>
 						Clear
 					</button>
 				) : null}

@@ -46,7 +46,11 @@ export function CredentialsGate() {
 					/>
 				</label>
 				{error && <div class="error">{error.message}</div>}
-				<button type="submit" disabled={submitting || !username || !token}>
+				<button
+					type="submit"
+					class="button button-primary"
+					disabled={submitting || !username || !token}
+				>
 					{submitting ? "Validating…" : "Save"}
 				</button>
 			</form>

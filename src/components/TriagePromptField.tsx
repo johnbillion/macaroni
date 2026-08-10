@@ -70,11 +70,11 @@ export function TriagePromptField() {
 					{state.triagePrompt == null ? "Using the default prompt" : "Customised"}
 				</span>
 				{state.triagePrompt != null ? (
-					<button type="button" onClick={reset} disabled={busy}>
+					<button type="button" class="button" onClick={reset} disabled={busy}>
 						Reset to default
 					</button>
 				) : null}
-				<button type="button" onClick={save} disabled={busy || !dirty}>
+				<button type="button" class="button" onClick={save} disabled={busy || !dirty}>
 					{busy ? "…" : "Save prompt"}
 				</button>
 			</div>

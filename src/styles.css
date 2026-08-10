@@ -1480,26 +1480,52 @@ a[target="_blank"]::after {
 	border-color: var(--accent);
 	box-shadow: 0 0 0 3px var(--glow-acc);
 }
-.gate-card button {
-	font: inherit;
+.gate-card .button {
 	font-size: var(--fs-md);
 	padding: 0.6rem;
-	border: 1px solid var(--accent);
+}
+
+/* Buttons. Neutral outline that fills with the accent on hover; `.button-primary` is filled from
+   the start and `.button-danger` swaps the accent for the critical colour. */
+.button {
+	font: inherit;
+	font-size: var(--fs-sm);
+	padding: 0.45rem 0.7rem;
+	border: 1px solid var(--border);
+	background: transparent;
+	color: var(--text);
+	cursor: pointer;
+	border-radius: var(--radius-sm);
+	white-space: nowrap;
+}
+.button:hover:not([disabled]) {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: var(--on-accent);
+}
+.button[disabled] {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+.button-primary {
+	border-color: var(--accent);
 	background: var(--accent);
 	color: var(--on-accent);
 	font-weight: 600;
-	cursor: pointer;
-	border-radius: var(--radius-sm);
 	box-shadow: var(--shadow-sm);
 }
-.gate-card button:hover:not([disabled]) {
+.button-primary:hover:not([disabled]) {
 	background: var(--accent-strong);
 	border-color: var(--accent-strong);
 	box-shadow: 0 0 0 3px var(--glow-acc), var(--shadow-md);
 }
-.gate-card button[disabled] {
-	opacity: 0.5;
-	cursor: not-allowed;
+.button-danger {
+	color: var(--crit);
+}
+.button-danger:hover:not([disabled]) {
+	background: var(--crit);
+	border-color: var(--crit);
+	color: var(--on-accent);
 }
 
 /* Reusable modal dialog frame: centered, content-sized, with darkened backdrop. */
@@ -1670,34 +1696,6 @@ a[target="_blank"]::after {
 	color: var(--text-3);
 	font-style: italic;
 }
-.dir-field-row button {
-	font: inherit;
-	font-size: var(--fs-sm);
-	padding: 0.45rem 0.7rem;
-	border: 1px solid var(--border);
-	background: transparent;
-	color: var(--text);
-	cursor: pointer;
-	border-radius: var(--radius-sm);
-	white-space: nowrap;
-}
-.dir-field-row button:hover:not([disabled]) {
-	background: var(--accent);
-	border-color: var(--accent);
-	color: var(--on-accent);
-}
-.dir-field-row button[disabled] {
-	opacity: 0.5;
-	cursor: not-allowed;
-}
-.dir-field-clear {
-	color: var(--crit) !important;
-}
-.dir-field-clear:hover:not([disabled]) {
-	background: var(--crit) !important;
-	border-color: var(--crit) !important;
-	color: var(--on-accent) !important;
-}
 
 /* Triage prompt template editor in the Settings dialog. */
 .prompt-field {
@@ -1736,26 +1734,6 @@ a[target="_blank"]::after {
 	min-width: 0;
 	font-size: var(--fs-sm);
 	color: var(--text-3);
-}
-.prompt-field-row button {
-	font: inherit;
-	font-size: var(--fs-sm);
-	padding: 0.45rem 0.7rem;
-	border: 1px solid var(--border);
-	background: transparent;
-	color: var(--text);
-	cursor: pointer;
-	border-radius: var(--radius-sm);
-	white-space: nowrap;
-}
-.prompt-field-row button:hover:not([disabled]) {
-	background: var(--accent);
-	border-color: var(--accent);
-	color: var(--on-accent);
-}
-.prompt-field-row button[disabled] {
-	opacity: 0.5;
-	cursor: not-allowed;
 }
 
 .placeholder {
