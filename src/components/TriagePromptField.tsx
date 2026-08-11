@@ -1,56 +1,14 @@
-import { useEffect, useState } from "preact/hooks";
-import { api } from "../api/client";
-import { useAppState, useDispatch } from "../state/context";
-import { setTriagePrompt } from "../state/effects";
-import type { AppError } from "../state/store";
+// The triage prompt editor. Purely controlled: the Settings dialog owns the draft and persists
+// it with everything else when the dialog is saved, so there's no save button of its own.
+type Props = {
+	value: string | null;
+	defaultPrompt: string | null;
+	disabled: boolean;
+	onChange: (value: string) => void;
+};
 
-export function TriagePromptField() {
-	const state = useAppState();
-	const dispatch = useDispatch();
-	const [defaultPrompt, setDefaultPrompt] = useState<string | null>(null);
-	const [draft, setDraft] = useState<string | null>(null);
-	const [busy, setBusy] = useState(false);
-	const [error, setError] = useState<AppError | null>(null);
-
-	useEffect(() => {
-		let cancelled = false;
-		api
-			.getDefaultTriagePrompt()
-			.then((p) => {
-				if (!cancelled) setDefaultPrompt(p);
-			})
-			.catch((e: AppError) => {
-				if (!cancelled) setError(e);
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-
-	const saved = state.triagePrompt ?? defaultPrompt;
-	useEffect(() => {
-		setDraft(saved);
-	}, [saved]);
-
-	const save = async () => {
-		if (draft == null) return;
-		setBusy(true);
-		setError(null);
-		const value = draft === defaultPrompt ? null : draft;
-		const err = await setTriagePrompt(dispatch, value);
-		setBusy(false);
-		if (err) setError(err);
-	};
-
-	const reset = async () => {
-		setBusy(true);
-		setError(null);
-		const err = await setTriagePrompt(dispatch, null);
-		setBusy(false);
-		if (err) setError(err);
-	};
-
-	const dirty = draft != null && draft !== saved;
+export function TriagePromptField({ value, defaultPrompt, disabled, onChange }: Props) {
+	const isDefault = value != null && value === defaultPrompt;
 
 	return (
 		<div class="prompt-field">
@@ -60,25 +18,26 @@ export function TriagePromptField() {
 					class="prompt-field-input"
 					rows={10}
 					spellcheck={false}
-					value={draft ?? ""}
-					disabled={busy || draft == null}
-					onInput={(e) => setDraft(e.currentTarget.value)}
+					value={value ?? ""}
+					disabled={disabled || value == null}
+					onInput={(e) => onChange(e.currentTarget.value)}
 				/>
 			</label>
 			<div class="prompt-field-row">
 				<span class="prompt-field-status">
-					{state.triagePrompt == null ? "Using the default prompt" : "Customised"}
+					{isDefault ? "Using the default prompt" : "Customised"}
 				</span>
-				{state.triagePrompt != null ? (
-					<button type="button" class="button" onClick={reset} disabled={busy}>
+				{!isDefault && defaultPrompt != null ? (
+					<button
+						type="button"
+						class="button"
+						onClick={() => onChange(defaultPrompt)}
+						disabled={disabled}
+					>
 						Reset to default
 					</button>
 				) : null}
-				<button type="button" class="button" onClick={save} disabled={busy || !dirty}>
-					{busy ? "…" : "Save prompt"}
-				</button>
 			</div>
-			{error && <div class="error">{error.message}</div>}
 		</div>
 	);
 }

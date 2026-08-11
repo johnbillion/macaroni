@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { api } from "../api/client";
 import { useAppState, useDispatch } from "../state/context";
-import { logOut, saveCredentials } from "../state/effects";
+import { logOut, saveCredentials, setTriagePrompt } from "../state/effects";
 import { type AppError, THEME_STORAGE_KEY, type Theme } from "../state/store";
 import { LogOutDialog } from "./LogOutDialog";
 import { TriagePromptField } from "./TriagePromptField";
@@ -28,6 +29,8 @@ export function Settings({ open, onClose }: Props) {
 	const [loggingOut, setLoggingOut] = useState(false);
 	const [confirmingLogOut, setConfirmingLogOut] = useState(false);
 	const [error, setError] = useState<AppError | null>(null);
+	const [defaultPrompt, setDefaultPrompt] = useState<string | null>(null);
+	const [promptDraft, setPromptDraft] = useState<string | null>(null);
 
 	useEffect(() => {
 		const dialog = ref.current;
@@ -43,17 +46,61 @@ export function Settings({ open, onClose }: Props) {
 		}
 	}, [open, state.username]);
 
+	useEffect(() => {
+		let cancelled = false;
+		api
+			.getDefaultTriagePrompt()
+			.then((p) => {
+				if (!cancelled) setDefaultPrompt(p);
+			})
+			.catch((e: AppError) => {
+				if (!cancelled) setError(e);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	// An unset prompt means "use the default", so the editor shows the default's text — which is
+	// also why saving a draft equal to the default stores null rather than a copy of it.
+	const savedPrompt = state.triagePrompt ?? defaultPrompt;
+	useEffect(() => {
+		setPromptDraft(savedPrompt);
+	}, [savedPrompt]);
+
+	const usernameEdited = username !== (state.username ?? "");
+	const credentialsEntered = Boolean(username && token);
+	const promptEdited = promptDraft != null && promptDraft !== savedPrompt;
+
 	const onSubmit = async (e: Event) => {
 		e.preventDefault();
-		if (!username || !token) return;
-		setSubmitting(true);
 		setError(null);
-		const err = await saveCredentials(dispatch, username, token);
-		setSubmitting(false);
-		if (err) {
-			setError(err);
+		if (usernameEdited && !token) {
+			setError({ kind: "other", message: "Enter the matching API token to change the username." });
 			return;
 		}
+		if (!credentialsEntered && !promptEdited) return;
+		setSubmitting(true);
+		if (promptEdited) {
+			const err = await setTriagePrompt(
+				dispatch,
+				promptDraft === defaultPrompt ? null : promptDraft,
+			);
+			if (err) {
+				setSubmitting(false);
+				setError(err);
+				return;
+			}
+		}
+		if (credentialsEntered) {
+			const err = await saveCredentials(dispatch, username, token);
+			if (err) {
+				setSubmitting(false);
+				setError(err);
+				return;
+			}
+		}
+		setSubmitting(false);
 		onClose();
 	};
 
@@ -140,7 +187,12 @@ export function Settings({ open, onClose }: Props) {
 						</div>
 					</fieldset>
 					<TriageWorkingDirField />
-					<TriagePromptField />
+					<TriagePromptField
+						value={promptDraft}
+						defaultPrompt={defaultPrompt}
+						disabled={busy}
+						onChange={setPromptDraft}
+					/>
 					{error && <div class="error">{error.message}</div>}
 					<div class="settings-actions">
 						<button
@@ -154,7 +206,7 @@ export function Settings({ open, onClose }: Props) {
 						<button
 							type="submit"
 							class="button button-primary"
-							disabled={busy || !username || !token}
+							disabled={busy || !(credentialsEntered || promptEdited || usernameEdited)}
 						>
 							{submitting ? "Saving…" : "Save"}
 						</button>
