@@ -477,6 +477,15 @@ export function InboxTable() {
 								<span>{syncLabel}</span>
 							</div>
 						) : null}
+						{selected.size > 0 ? (
+							<div
+								class="sync-indicator"
+								role="status"
+								title="No reports are fetched or re-queried while any are selected, so the list and any duplicate check stay put while you work on them. Clear the selection to catch up."
+							>
+								<span>Auto-refresh paused</span>
+							</div>
+						) : null}
 					</div>
 					{canRefresh ? (
 						<button

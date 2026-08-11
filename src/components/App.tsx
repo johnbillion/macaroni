@@ -192,6 +192,11 @@ export function App() {
 	// detail updates are read from the same render's closure and don't re-fire.
 	const selectedReportId = state.selectedReportId;
 
+	// A bulk selection (the inbox checkboxes) puts a hold on every automatic fetch.
+	const refreshHeld = state.selectedReportIds.size > 0;
+	const refreshHeldRef = useRef(refreshHeld);
+	refreshHeldRef.current = refreshHeld;
+
 	useShortcut(
 		"openReport",
 		() => openUrl(`https://hackerone.com/reports/${selectedReportId}`),
@@ -203,7 +208,7 @@ export function App() {
 		const existing = state.detail[selectedReportId];
 		if (!existing || existing.status === "error") {
 			loadReportDetail(dispatch, selectedReportId);
-		} else if (existing.status === "ready") {
+		} else if (existing.status === "ready" && !refreshHeldRef.current) {
 			// Already-loaded detail: refresh it in the background (like the focus catch-up) so
 			// switching back to a report surfaces anything that changed while it was off screen.
 			refreshReportDetail(dispatch, selectedReportId);
@@ -223,9 +228,10 @@ export function App() {
 	// without the user having to reselect. The reducer diffs the result against the prior
 	// snapshot and emits toasts. Polling pauses when the window loses focus (no point
 	// hitting the API while the user is in another app) and fires an immediate catch-up
-	// refresh when focus returns, so the toasts surface whatever happened while away.
+	// refresh when focus returns, so the toasts surface whatever happened while away. It also
+	// pauses entirely while a bulk selection holds refreshes off.
 	useEffect(() => {
-		if (!selectedReportId) return;
+		if (!selectedReportId || refreshHeld) return;
 		let intervalId: number | null = null;
 		const start = () => {
 			if (intervalId !== null) return;
@@ -251,7 +257,7 @@ export function App() {
 			window.removeEventListener("focus", onFocus);
 			window.removeEventListener("blur", stop);
 		};
-	}, [selectedReportId, dispatch]);
+	}, [selectedReportId, refreshHeld, dispatch]);
 
 	// The report list is now driven by the local SQLite mirror. Kick off the background sync
 	// whenever the selected program changes — on the Rust side it fetches the initial open-reports
@@ -262,8 +268,12 @@ export function App() {
 	// pulls in anything created or updated on HackerOne while we were away and slots it into the
 	// inbox (via the sync:changed → re-query path). If a sync is already running the Rust guard
 	// makes the focus call a no-op.
+	//
+	// Held off entirely while a bulk selection is active, refocus included — that's the case where
+	// the user has just been closing those reports on hackerone.com. Clearing the selection re-runs
+	// this effect, which is what performs the deferred catch-up.
 	useEffect(() => {
-		if (!handle) return;
+		if (!handle || refreshHeld) return;
 		const sync = () => {
 			startReportSync(handle);
 			refreshSyncedCount(dispatch, handle);
@@ -271,26 +281,38 @@ export function App() {
 		sync();
 		window.addEventListener("focus", sync);
 		return () => window.removeEventListener("focus", sync);
-	}, [handle, dispatch]);
+	}, [handle, refreshHeld, dispatch]);
 
 	// React to sync progress: `sync:changed` means the local DB moved, so re-run the active query
 	// in the background (no scroll/selection reset); `sync:status` feeds the Topbar indicator. A
 	// ref holds the latest state so the changed-listener rebuilds the query from current filters.
 	const stateRef = useRef(state);
 	stateRef.current = state;
+	// Set when a sync:changed arrived while a bulk selection held refreshes off, so the release
+	// applies it once instead of leaving the list stale until the next sync.
+	const deferredSyncChangeRef = useRef(false);
+	const applySyncChange = () => {
+		refreshReports(dispatch, stateRef.current);
+		const h = stateRef.current.filters.programHandle;
+		if (h) {
+			refreshSyncedCount(dispatch, h);
+			// New reports may carry assets or inboxes not yet in the sidebar lists — re-derive.
+			loadAssets(dispatch, h);
+			loadInboxes(dispatch, h);
+		}
+	};
+	const applySyncChangeRef = useRef(applySyncChange);
+	applySyncChangeRef.current = applySyncChange;
 	useEffect(() => {
 		let unlistenChanged: UnlistenFn | null = null;
 		let unlistenStatus: UnlistenFn | null = null;
 		(async () => {
 			unlistenChanged = await listen("sync:changed", () => {
-				refreshReports(dispatch, stateRef.current);
-				const h = stateRef.current.filters.programHandle;
-				if (h) {
-					refreshSyncedCount(dispatch, h);
-					// New reports may carry assets or inboxes not yet in the sidebar lists — re-derive.
-					loadAssets(dispatch, h);
-					loadInboxes(dispatch, h);
+				if (refreshHeldRef.current) {
+					deferredSyncChangeRef.current = true;
+					return;
 				}
+				applySyncChangeRef.current();
 			});
 			unlistenStatus = await listen<SyncStatus>("sync:status", (e) => {
 				dispatch({ type: "SYNC_STATUS", status: e.payload });
@@ -301,6 +323,21 @@ export function App() {
 			unlistenStatus?.();
 		};
 	}, [dispatch]);
+
+	// Releasing the hold (last checkbox unticked, or the selection cleared) catches up on what was
+	// suppressed: the deferred sync:changed re-query and a fresh copy of the selected report. The
+	// sync kick-off and the detail poll resume via their own effects re-running.
+	const wasHeldRef = useRef(refreshHeld);
+	useEffect(() => {
+		const wasHeld = wasHeldRef.current;
+		wasHeldRef.current = refreshHeld;
+		if (refreshHeld || !wasHeld) return;
+		if (deferredSyncChangeRef.current) {
+			deferredSyncChangeRef.current = false;
+			applySyncChangeRef.current();
+		}
+		if (selectedReportId) refreshReportDetail(dispatch, selectedReportId);
+	}, [refreshHeld, selectedReportId, dispatch]);
 
 	useEffect(() => {
 		const onResize = () => {
