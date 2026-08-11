@@ -16,14 +16,30 @@ Read every report below and decide how they relate. Consider the vulnerability t
 
 ## Output format
 
-Respond **briefly** in markdown — a few sentences, not a full report. Your response must:
+Respond in markdown using exactly the structure below — no preamble, no closing summary, no other headings.
 
-* State a clear verdict up front: whether the reports are duplicates of one another, and if only some are, which ones.
-* When there are duplicates, name the canonical report (the lowest ID) and list the report IDs that duplicate it.
-* Give a one- or two-sentence justification referencing the shared (or differing) vulnerability and component.
+For each set of reports that duplicate one another, output one section headed by the canonical report's ID, with its duplicates as bullets:
 
-If the reports are **not** duplicates, say so plainly and briefly explain why they're distinct.
+```
+#### Canonical: #<canonical id>
 
-Do not output anything other than this short markdown verdict.
+* Duplicate: #<duplicate id> — <one sentence: the shared vulnerability and component>
+```
+
+Then, if any report is not a duplicate of any other, output one final section listing them:
+
+```
+#### Not duplicates
+
+* #<id> — <one sentence: what makes it distinct>
+```
+
+Rules:
+
+* **Every report ID appears exactly once in your entire response** — either as a section heading or as a single bullet. Never write an ID you have already written, and never add a sentence that restates the verdict using IDs again.
+* In the justification sentences, refer to reports as "this report", "the canonical report", or by component — never by ID.
+* A canonical heading must have at least one bullet under it. A report with no duplicates belongs under "Not duplicates", not under its own heading.
+* If none of the reports duplicate one another, output only the "Not duplicates" section.
+* Keep each bullet to one sentence.
 
 ## Reports
