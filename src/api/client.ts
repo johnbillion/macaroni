@@ -69,17 +69,19 @@ export const api = {
 	getSettings: () => call<Settings>("get_settings"),
 	setTriageWorkingDir: (dir: string | null) => call<Settings>("set_triage_working_dir", { dir }),
 	setTriagePrompt: (prompt: string | null) => call<Settings>("set_triage_prompt", { prompt }),
+	// Record that the pre-run data-training notice has been confirmed, so it isn't shown again.
+	acknowledgeAiNotice: () => call<Settings>("acknowledge_ai_notice"),
 	getDefaultTriagePrompt: () => call<string>("get_default_triage_prompt"),
 	pickDirectory: () => call<string | null>("pick_directory"),
 	getTriage: (reportId: string) => call<TriageRecord | null>("get_triage", { reportId }),
-	// The pasteable `cd … && claude --resume …` command for a finished triage run.
+	// The pasteable terminal command for a finished triage run.
 	triageResumeCommand: (sessionId: string) => call<string>("triage_resume_command", { sessionId }),
 	getTriagePrompt: (reportTitle: string, reportBody: string) =>
 		call<string>("get_triage_prompt", { reportTitle, reportBody }),
 	runTriage: (reportId: string, prompt: string) =>
 		call<TriageRecord>("run_triage", { reportId, prompt }),
 	stopTriage: (reportId: string) => call<boolean>("stop_triage", { reportId }),
-	// Ask Claude whether the supplied reports are duplicates of one another. `requestId` keys
+	// Ask an AI agent whether the supplied reports are duplicates of one another. `requestId` keys
 	// both the streamed event channel and the stop signal.
 	runDuplicates: (requestId: string, reports: DuplicateInput[]) =>
 		call<DuplicateResult>("run_duplicates", { requestId, reports }),

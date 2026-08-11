@@ -3,6 +3,7 @@ import { useAppState, useDispatch } from "../state/context";
 import { runDuplicateCheck, stopDuplicateCheck } from "../state/effects";
 import type { AppError, DuplicateInput } from "../state/store";
 import { formatTitle } from "../utils/title";
+import { useAiTrainingGate } from "./AiTrainingDialog";
 import { Markdown } from "./Markdown";
 import { ReportLink } from "./ReportLink";
 import { TriageEventLog } from "./TriagePanel";
@@ -33,6 +34,7 @@ function requestIdFor(reports: DuplicateInput[]): string {
 export function DuplicatesPanel() {
 	const state = useAppState();
 	const dispatch = useDispatch();
+	const gate = useAiTrainingGate();
 	const check = state.duplicateCheck;
 
 	// Build the comparison inputs from the loaded report summaries (which already carry the
@@ -54,7 +56,7 @@ export function DuplicatesPanel() {
 
 	const onRun = () => {
 		if (reports.length < 2) return;
-		void runDuplicateCheck(dispatch, requestId, reports);
+		gate.guard(() => void runDuplicateCheck(dispatch, requestId, reports));
 	};
 
 	return (
@@ -84,6 +86,7 @@ export function DuplicatesPanel() {
 							: "Check for duplicates"}
 					</button>
 				)}
+				{gate.dialog}
 			</div>
 
 			{check.status === "running" ? <TriageEventLog events={check.events} live /> : null}

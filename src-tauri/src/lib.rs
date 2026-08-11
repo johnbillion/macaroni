@@ -149,6 +149,7 @@ pub fn run() {
             commands::get_settings,
             commands::set_triage_working_dir,
             commands::set_triage_prompt,
+            commands::acknowledge_ai_notice,
             commands::pick_directory,
             commands::get_triage,
             commands::triage_resume_command,

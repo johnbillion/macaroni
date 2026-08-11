@@ -88,6 +88,17 @@ export async function setTriagePrompt(
 	}
 }
 
+// Confirm the data-training notice. Dispatched before the write lands so the run it gates isn't
+// held up; a failed write just means the notice appears once more on the next launch.
+export async function acknowledgeAiNotice(dispatch: Dispatch) {
+	dispatch({ type: "AI_NOTICE_ACKNOWLEDGED" });
+	try {
+		await api.acknowledgeAiNotice();
+	} catch {
+		// Non-fatal — see above.
+	}
+}
+
 export async function logOut(
 	dispatch: Dispatch,
 	deleteDatabase: boolean,

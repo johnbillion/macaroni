@@ -19,6 +19,8 @@ pub struct Settings {
     pub triage_working_dir: Option<String>,
     #[serde(default)]
     pub triage_prompt: Option<String>,
+    #[serde(default)]
+    pub ai_notice_acknowledged: bool,
 }
 
 impl Settings {
@@ -81,6 +83,7 @@ mod tests {
         let loaded = store.load().unwrap();
         assert!(loaded.triage_working_dir.is_none());
         assert!(loaded.triage_prompt.is_none());
+        assert!(!loaded.ai_notice_acknowledged);
         assert_eq!(loaded.triage_prompt(), DEFAULT_TRIAGE_PROMPT);
     }
 
@@ -93,11 +96,13 @@ mod tests {
             .save(&Settings {
                 triage_working_dir: Some("/tmp/wp".into()),
                 triage_prompt: Some("custom".into()),
+                ai_notice_acknowledged: true,
             })
             .unwrap();
         let loaded = store.load().unwrap();
         assert_eq!(loaded.triage_working_dir.as_deref(), Some("/tmp/wp"));
         assert_eq!(loaded.triage_prompt(), "custom");
+        assert!(loaded.ai_notice_acknowledged);
         let _ = std::fs::remove_file(&path);
     }
 }

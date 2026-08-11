@@ -1692,6 +1692,18 @@ a[target="_blank"]::after {
 	margin-top: 0.25rem;
 }
 
+.ai-notice-dialog .dialog-card > .muted {
+	display: grid;
+	gap: 0.6rem;
+	line-height: 1.5;
+}
+.ai-notice-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 0.5rem;
+	margin-top: 0.25rem;
+}
+
 /* Triage working-directory picker — shared by the Settings dialog and the Triage tab. */
 .dir-field {
 	display: grid;
@@ -2148,7 +2160,7 @@ a[target="_blank"]::after {
 	margin-bottom: 8px;
 }
 
-/* New files claude wrote during the run — one deletable row each. */
+/* New files written during the triage run — one deletable row each. */
 .triage-files {
 	list-style: none;
 	margin: 0;

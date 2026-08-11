@@ -4,6 +4,7 @@ import { useAppState, useDispatch } from "../state/context";
 import { deleteTriageFile, runTriage, stopTriage } from "../state/effects";
 import type { AppError, TriageEvent, TriageRecord, TriageValidity } from "../state/store";
 import { formatTitle } from "../utils/title";
+import { useAiTrainingGate } from "./AiTrainingDialog";
 import { CopyButton } from "./CopyButton";
 import { Markdown } from "./Markdown";
 import { Spinner } from "./Spinner";
@@ -114,7 +115,7 @@ export function TriagePanel() {
 				<div class="triage-head">
 					<div class="triage-title">AI-assisted triage</div>
 					<div class="triage-sub">
-						Choose a working directory before running triage — the local checkout where Claude
+						Choose a working directory before running triage — the local checkout where an AI agent
 						investigates the report. You can also set this in Settings.
 					</div>
 					<TriageWorkingDirField />
@@ -204,6 +205,7 @@ function PromptEditor({
 	buttonLabel: string;
 }) {
 	const dispatch = useDispatch();
+	const gate = useAiTrainingGate();
 	const [prompt, setPrompt] = useState<string | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -226,7 +228,7 @@ function PromptEditor({
 
 	const start = () => {
 		if (prompt == null) return;
-		void runTriage(dispatch, reportId, prompt);
+		gate.guard(() => void runTriage(dispatch, reportId, prompt));
 	};
 
 	return (
@@ -253,6 +255,7 @@ function PromptEditor({
 			>
 				{buttonLabel}
 			</button>
+			{gate.dialog}
 		</div>
 	);
 }

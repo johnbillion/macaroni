@@ -500,6 +500,16 @@ pub async fn set_triage_prompt(
     Ok(settings)
 }
 
+// Record that the user has seen the data-training notice shown before their first triage or
+// duplicate-check run. One-way — nothing clears it short of editing the settings file.
+#[tauri::command]
+pub async fn acknowledge_ai_notice(ctx: State<'_, AppContext>) -> AppResult<Settings> {
+    let mut settings = ctx.settings.load()?;
+    settings.ai_notice_acknowledged = true;
+    ctx.settings.save(&settings)?;
+    Ok(settings)
+}
+
 fn claude_search_path() -> String {
     let home = std::env::var("HOME").unwrap_or_default();
     let mut dirs = vec![

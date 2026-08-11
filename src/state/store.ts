@@ -18,7 +18,11 @@ export type AsyncState<T> =
 
 // Non-secret user preferences, persisted on the Rust side (see settings.rs). `triage_working_dir`
 // is null until the user picks a directory — there's no default.
-export type Settings = { triage_working_dir: string | null; triage_prompt: string | null };
+export type Settings = {
+	triage_working_dir: string | null;
+	triage_prompt: string | null;
+	ai_notice_acknowledged: boolean;
+};
 
 export type Organization = { id: string; handle: string };
 export type Program = { id: string; handle: string };
@@ -269,6 +273,9 @@ export type AppState = {
 	triageWorkingDir: string | null;
 	// Null means no override — the app's shipped template is in use.
 	triagePrompt: string | null;
+	// Whether the one-time "report contents are sent to Claude" notice has been confirmed. Gates
+	// the first triage and duplicate-check run of the app's lifetime, not of each session.
+	aiNoticeAcknowledged: boolean;
 	bootstrap: AsyncState<{ orgs: Organization[] }>;
 	programsByOrg: Record<string, AsyncState<Program[]>>;
 	// Asset filter options per program handle: the identifiers seen on synced reports, which is what
@@ -344,6 +351,7 @@ export type Action =
 	| { type: "SETTINGS_LOADED"; settings: Settings }
 	| { type: "TRIAGE_WORKING_DIR_SET"; dir: string | null }
 	| { type: "TRIAGE_PROMPT_SET"; prompt: string | null }
+	| { type: "AI_NOTICE_ACKNOWLEDGED" }
 	| { type: "BOOTSTRAP_REQUESTED" }
 	| { type: "BOOTSTRAP_SUCCEEDED"; orgs: Organization[] }
 	| { type: "BOOTSTRAP_FAILED"; error: AppError }
@@ -449,6 +457,7 @@ export const initialState: AppState = {
 	username: null,
 	triageWorkingDir: null,
 	triagePrompt: null,
+	aiNoticeAcknowledged: false,
 	bootstrap: { status: "idle" },
 	programsByOrg: {},
 	assetsByProgram: {},
@@ -500,6 +509,7 @@ export function reducer(state: AppState, action: Action): AppState {
 				// account — keep them across a logout the same way panel layout survives.
 				triageWorkingDir: state.triageWorkingDir,
 				triagePrompt: state.triagePrompt,
+				aiNoticeAcknowledged: state.aiNoticeAcknowledged,
 				detailPlacement: state.detailPlacement,
 				panelSizes: state.panelSizes,
 				viewport: state.viewport,
@@ -509,11 +519,14 @@ export function reducer(state: AppState, action: Action): AppState {
 				...state,
 				triageWorkingDir: action.settings.triage_working_dir,
 				triagePrompt: action.settings.triage_prompt,
+				aiNoticeAcknowledged: action.settings.ai_notice_acknowledged,
 			};
 		case "TRIAGE_WORKING_DIR_SET":
 			return { ...state, triageWorkingDir: action.dir };
 		case "TRIAGE_PROMPT_SET":
 			return { ...state, triagePrompt: action.prompt };
+		case "AI_NOTICE_ACKNOWLEDGED":
+			return { ...state, aiNoticeAcknowledged: true };
 		case "BOOTSTRAP_REQUESTED":
 			return { ...state, bootstrap: { status: "loading" } };
 		case "BOOTSTRAP_SUCCEEDED":
