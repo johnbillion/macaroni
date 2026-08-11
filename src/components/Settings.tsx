@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useAppState, useDispatch } from "../state/context";
 import { logOut, saveCredentials } from "../state/effects";
-import type { AppError } from "../state/store";
+import { type AppError, THEME_STORAGE_KEY, type Theme } from "../state/store";
 import { LogOutDialog } from "./LogOutDialog";
 import { TriagePromptField } from "./TriagePromptField";
 import { TriageWorkingDirField } from "./TriageWorkingDirField";
@@ -10,6 +10,12 @@ type Props = {
 	open: boolean;
 	onClose: () => void;
 };
+
+const THEME_OPTIONS: { value: Theme; label: string }[] = [
+	{ value: "system", label: "Match system" },
+	{ value: "light", label: "Light" },
+	{ value: "dark", label: "Dark" },
+];
 
 export function Settings({ open, onClose }: Props) {
 	const state = useAppState();
@@ -64,6 +70,13 @@ export function Settings({ open, onClose }: Props) {
 		onClose();
 	};
 
+	const setTheme = (theme: Theme) => {
+		try {
+			localStorage.setItem(THEME_STORAGE_KEY, theme);
+		} catch {}
+		dispatch({ type: "THEME_SET", theme });
+	};
+
 	const busy = submitting || loggingOut;
 
 	return (
@@ -108,6 +121,24 @@ export function Settings({ open, onClose }: Props) {
 						/>
 					</label>
 					<hr class="settings-divider" />
+					<fieldset class="radio-field">
+						<legend>Appearance</legend>
+						<div class="radio-row">
+							{THEME_OPTIONS.map((option) => (
+								<label key={option.value} class="radio-option">
+									<input
+										type="radio"
+										name="theme"
+										value={option.value}
+										checked={state.theme === option.value}
+										onChange={() => setTheme(option.value)}
+										disabled={busy}
+									/>
+									{option.label}
+								</label>
+							))}
+						</div>
+					</fieldset>
 					<TriageWorkingDirField />
 					<TriagePromptField />
 					{error && <div class="error">{error.message}</div>}

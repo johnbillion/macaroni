@@ -156,6 +156,8 @@ export type DetailToast = {
 
 export type DetailPlacement = "right" | "bottom";
 
+export type Theme = "system" | "light" | "dark";
+
 export type PanelKey = "detailRight" | "detailBottom";
 export type PanelSizes = Record<PanelKey, number>;
 export type PanelBounds = { min: number; max: number };
@@ -340,6 +342,7 @@ export type AppState = {
 	// cleared on REPORT_SELECTED so they don't bleed across navigations.
 	detailToasts: DetailToast[];
 	detailPlacement: DetailPlacement;
+	theme: Theme;
 	panelSizes: PanelSizes;
 	viewport: Viewport;
 };
@@ -413,6 +416,7 @@ export type Action =
 	| { type: "DETAIL_REFRESHED"; reportId: string; detail: ReportDetail }
 	| { type: "DETAIL_TOAST_DISMISSED"; toastId: string }
 	| { type: "DETAIL_PLACEMENT_SET"; placement: DetailPlacement }
+	| { type: "THEME_SET"; theme: Theme }
 	| { type: "PANEL_SIZE_SET"; panel: PanelKey; size: number }
 	| { type: "VIEWPORT_RESIZED"; width: number; height: number };
 
@@ -422,6 +426,16 @@ function loadDetailPlacement(): DetailPlacement {
 		if (stored === "bottom" || stored === "right") return stored;
 	} catch {}
 	return "right";
+}
+
+export const THEME_STORAGE_KEY = "macaroni.theme";
+
+function loadTheme(): Theme {
+	try {
+		const stored = localStorage.getItem(THEME_STORAGE_KEY);
+		if (stored === "light" || stored === "dark" || stored === "system") return stored;
+	} catch {}
+	return "system";
 }
 
 function loadPanelSizes(vp: Viewport): PanelSizes {
@@ -487,6 +501,7 @@ export const initialState: AppState = {
 	triageValidityByReport: {},
 	detailToasts: [],
 	detailPlacement: loadDetailPlacement(),
+	theme: loadTheme(),
 	panelSizes: loadPanelSizes(readViewport()),
 	viewport: readViewport(),
 };
@@ -511,6 +526,7 @@ export function reducer(state: AppState, action: Action): AppState {
 				triagePrompt: state.triagePrompt,
 				aiNoticeAcknowledged: state.aiNoticeAcknowledged,
 				detailPlacement: state.detailPlacement,
+				theme: state.theme,
 				panelSizes: state.panelSizes,
 				viewport: state.viewport,
 			};
@@ -1035,6 +1051,8 @@ export function reducer(state: AppState, action: Action): AppState {
 			};
 		case "DETAIL_PLACEMENT_SET":
 			return { ...state, detailPlacement: action.placement };
+		case "THEME_SET":
+			return { ...state, theme: action.theme };
 		case "PANEL_SIZE_SET":
 			return {
 				...state,

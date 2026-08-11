@@ -1604,7 +1604,7 @@ a[target="_blank"]::after {
 	font-weight: 500;
 	color: var(--text-2);
 }
-.settings-card input {
+.settings-card input:not([type="radio"]) {
 	font: inherit;
 	font-size: var(--fs-md);
 	padding: 0.45rem 0.6rem;
@@ -1613,10 +1613,37 @@ a[target="_blank"]::after {
 	background: var(--bg);
 	color: var(--text);
 }
-.settings-card input:focus {
+.settings-card input:not([type="radio"]):focus {
 	outline: none;
 	border-color: var(--accent);
 	box-shadow: 0 0 0 3px var(--glow-acc);
+}
+/* Radio group (appearance) — the legend carries the field label, so it matches the weight and
+   colour of a normal field's <span>, and the options themselves read as plain body text. */
+.radio-field {
+	border: none;
+	padding: 0;
+}
+.radio-field legend {
+	padding: 0;
+	margin-bottom: 0.35rem;
+	font-size: var(--fs-sm);
+	font-weight: 500;
+	color: var(--text-2);
+}
+.radio-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25rem 1rem;
+}
+.settings-card .radio-option {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	font-size: var(--fs-md);
+	font-weight: 400;
+	color: var(--text);
+	cursor: pointer;
 }
 .settings-actions {
 	display: flex;

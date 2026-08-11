@@ -36,8 +36,8 @@ export function LogOutDialog({ open, busy, onConfirm, onCancel }: Props) {
 			<div class="dialog-card">
 				<h1 id="logout-title">Log out</h1>
 				<p id="logout-desc" class="muted">
-					The local database holds every synced report. Deleting it frees the space;
-					keeping it means the next login starts with the reports already mirrored.
+					The local database holds every synced report. Deleting it frees the space; keeping it
+					means the next login starts with the reports already mirrored.
 				</p>
 				<div class="confirm-actions">
 					<button

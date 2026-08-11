@@ -77,6 +77,20 @@ export function App() {
 		return () => unlisten?.();
 	}, []);
 
+	// Light/dark is chosen in Settings; "system" follows the OS appearance live, so the media
+	// query stays subscribed rather than being read once.
+	useEffect(() => {
+		const query = window.matchMedia("(prefers-color-scheme: dark)");
+		const apply = () => {
+			const dark = state.theme === "system" ? query.matches : state.theme === "dark";
+			document.documentElement.classList.toggle("dark", dark);
+		};
+		apply();
+		if (state.theme !== "system") return;
+		query.addEventListener("change", apply);
+		return () => query.removeEventListener("change", apply);
+	}, [state.theme]);
+
 	useEffect(() => {
 		const orgId = state.filters.orgId;
 		if (orgId && !state.programsByOrg[orgId]) {
