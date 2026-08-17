@@ -89,6 +89,7 @@ pub trait ReportStore: Send + Sync {
     fn distinct_program_handles(&self) -> AppResult<Vec<String>>;
     // Distinct asset identifiers across a program's synced reports, sorted. Drives the sidebar
     // asset filter, which matches on the identifier anyway — see the asset_identifier column.
+    // Assets with only a single report are omitted: filtering to one report isn't worth a facet.
     fn distinct_asset_identifiers(&self, program_handle: &str) -> AppResult<Vec<String>>;
     // The cached full detail for a report, if we've fetched it before.
     fn get_detail(&self, id: &str) -> AppResult<Option<ReportDetail>>;
@@ -634,8 +635,10 @@ impl ReportStore for SqliteStore {
         let c = self.conn.lock().unwrap();
         let mut stmt = c
             .prepare(
-                "SELECT DISTINCT asset_identifier FROM reports
+                "SELECT asset_identifier FROM reports
                  WHERE program_handle = ?1 AND asset_identifier IS NOT NULL
+                 GROUP BY asset_identifier
+                 HAVING count(*) > 1
                  ORDER BY asset_identifier COLLATE NOCASE",
             )
             .map_err(AppError::other)?;
@@ -1022,8 +1025,10 @@ mod tests {
         let r3 = summary("3", "Three", "new", None);
         let mut r4 = summary("4", "Four", "new", None);
         r4.asset = asset("2750", "WordPress Core");
+        let mut r5 = summary("5", "Five", "new", None);
+        r5.asset = asset("2750", "WordPress Core");
         s.upsert_summaries("wp", &[r1, r2, r3]).unwrap();
-        s.upsert_summaries("other", &[r4]).unwrap();
+        s.upsert_summaries("other", &[r4, r5]).unwrap();
 
         assert_eq!(
             s.distinct_asset_identifiers("wp").unwrap(),
@@ -1032,6 +1037,31 @@ mod tests {
         assert_eq!(
             s.distinct_asset_identifiers("other").unwrap(),
             vec!["WordPress Core".to_string()]
+        );
+    }
+
+    #[test]
+    fn distinct_asset_identifiers_skips_assets_with_a_single_report() {
+        let s = store();
+        let asset = |id: &str, ident: &str| {
+            Some(AssetRef {
+                id: id.to_string(),
+                asset_identifier: ident.to_string(),
+                asset_type: Some("SOURCE_CODE".into()),
+            })
+        };
+        let mut r1 = summary("1", "One", "new", None);
+        r1.asset = asset("2752", "bbPress Core");
+        let mut r2 = summary("2", "Two", "new", None);
+        r2.asset = asset("2752", "bbPress Core");
+        // Only one report against this asset — no point offering it as a filter.
+        let mut r3 = summary("3", "Three", "new", None);
+        r3.asset = asset("2750", "WordPress Core");
+        s.upsert_summaries("wp", &[r1, r2, r3]).unwrap();
+
+        assert_eq!(
+            s.distinct_asset_identifiers("wp").unwrap(),
+            vec!["bbPress Core".to_string()]
         );
     }
 
