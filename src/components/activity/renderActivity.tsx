@@ -61,6 +61,7 @@ function severityChangeVerb(oldSeverity: string, newSeverity: string): string {
 export function describeEvent(
 	activity: EventActivity,
 	currentInboxNames: string[] | null,
+	currentCveIds: string[] | null,
 	programCurrency: string | null,
 ): JSX.Element | null {
 	switch (activity.kind) {
@@ -149,9 +150,18 @@ export function describeEvent(
 				<>changed the report title</>
 			);
 		case "cve-id-added":
-			// The H1 `activity-cve-id-added` event fires for both adding and removing a
-			// CVE ID and carries no attributes.
-			return <>updated the CVE ID</>;
+			// The H1 `activity-cve-id-added` event fires for adding, replacing, and removing
+			// a CVE ID alike and carries no attributes, so only the latest one can be named.
+			if (currentCveIds === null) {
+				return <>updated the CVE ID</>;
+			}
+			return currentCveIds.length > 0 ? (
+				<>
+					updated the CVE ID to <b>{currentCveIds.join(", ")}</b>
+				</>
+			) : (
+				<>removed the CVE reference</>
+			);
 		case "report-organization-inboxes-updated":
 			return currentInboxNames && currentInboxNames.length > 0 ? (
 				<>
@@ -224,6 +234,7 @@ export function renderActivity(
 	teamMemberIds: Set<string>,
 	programHandle: string | null,
 	currentInboxNames: string[] | null = null,
+	currentCveIds: string[] | null = null,
 	// HackerOne doesn't put a currency on a suggested-bounty activity, so the caller
 	// passes the program's payout currency (inferred from awarded bounties) for display.
 	programCurrency: string | null = null,
@@ -246,7 +257,7 @@ export function renderActivity(
 
 	// Non-state-change events with no message body collapse to a one-line tick.
 	if (activity.type === "event" && !newState && !hasMessage) {
-		const description = describeEvent(activity, currentInboxNames, programCurrency);
+		const description = describeEvent(activity, currentInboxNames, currentCveIds, programCurrency);
 		const tickClasses = ["event-tick", activity.internal ? "internal" : ""]
 			.filter(Boolean)
 			.join(" ");

@@ -193,6 +193,8 @@ pub struct ReportDetail {
     pub weakness: Option<WeaknessRef>,
     pub asset: Option<AssetRef>,
     pub inboxes: Vec<InboxRef>,
+    /// `None` when the stored detail predates this field and hasn't been re-fetched yet.
+    pub cve_ids: Option<Vec<String>>,
     pub activities: Vec<Activity>,
     pub attachments: Vec<Attachment>,
 }
@@ -899,6 +901,17 @@ fn parse_report_detail(body: &serde_json::Value) -> Option<ReportDetail> {
             .and_then(|r| r.get("structured_scope"))
             .and_then(parse_asset_ref),
         inboxes: parse_inboxes(rel),
+        cve_ids: Some(
+            attrs
+                .get("cve_ids")
+                .and_then(|v| v.as_array())
+                .map(|ids| {
+                    ids.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        ),
         activities,
         attachments: parse_attachments(rel),
     })

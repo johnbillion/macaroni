@@ -469,6 +469,7 @@ mod tests {
                 weakness: None,
                 asset: None,
                 inboxes: vec![],
+                cve_ids: None,
                 activities: vec![Activity::Comment {
                     id: format!("{}-c1", s.id),
                     created_at: s.created_at.clone(),

@@ -443,6 +443,7 @@ impl ReportStore for SqliteStore {
         // source of truth for those fields) so there's no value stored in two places.
         let extra = ReportDetailExtra {
             main_state: detail.main_state.clone(),
+            cve_ids: detail.cve_ids.clone(),
             activities: detail.activities.clone(),
             attachments: detail.attachments.clone(),
         };
@@ -876,6 +877,8 @@ impl ReportStore for SqliteStore {
 #[derive(Serialize, Deserialize)]
 struct ReportDetailExtra {
     main_state: String,
+    #[serde(default)]
+    cve_ids: Option<Vec<String>>,
     activities: Vec<Activity>,
     attachments: Vec<Attachment>,
 }
@@ -897,6 +900,7 @@ fn report_detail_from(s: &ReportSummary, extra: &ReportDetailExtra) -> ReportDet
         weakness: s.weakness.clone(),
         asset: s.asset.clone(),
         inboxes: s.inboxes.clone(),
+        cve_ids: extra.cve_ids.clone(),
         activities: extra.activities.clone(),
         attachments: extra.attachments.clone(),
     }
@@ -1453,6 +1457,7 @@ mod tests {
             weakness: None,
             asset: None,
             inboxes: vec![],
+            cve_ids: None,
             activities: vec![Activity::Comment {
                 id: "a1".into(),
                 created_at: "2024-01-02T00:00:00.000Z".into(),
@@ -1565,6 +1570,7 @@ mod tests {
             s,
             &ReportDetailExtra {
                 main_state: "closed".into(),
+                cve_ids: None,
                 activities,
                 attachments: vec![],
             },

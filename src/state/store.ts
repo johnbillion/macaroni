@@ -137,6 +137,8 @@ export type ReportDetail = {
 	weakness: WeaknessRef | null;
 	asset: AssetRef | null;
 	inboxes: InboxRef[];
+	// Null when the mirrored detail predates this field and hasn't been re-fetched yet.
+	cve_ids: string[] | null;
 	activities: Activity[];
 	attachments: Attachment[];
 };
@@ -1107,6 +1109,7 @@ function summaryToPartialDetail(s: ReportSummary): ReportDetail {
 		weakness: s.weakness,
 		asset: s.asset,
 		inboxes: s.inboxes,
+		cve_ids: null,
 		activities: [],
 		attachments: [],
 	};

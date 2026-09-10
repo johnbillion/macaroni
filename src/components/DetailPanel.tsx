@@ -130,7 +130,7 @@ function toastDescription(
 	programCurrency: string | null,
 ): JSX.Element | null {
 	if (!activity || activity.type !== "event") return null;
-	const phrase = describeEvent(activity, null, programCurrency);
+	const phrase = describeEvent(activity, null, null, programCurrency);
 	if (!phrase) return null;
 	const actor = activity.actor?.username ?? "system";
 	return (
@@ -270,6 +270,13 @@ function ReportTab() {
 		(a) => a.type === "event" && a.kind === "report-organization-inboxes-updated",
 	);
 	const latestInboxUpdateId = inboxUpdateEvents[inboxUpdateEvents.length - 1]?.id ?? null;
+
+	// Same story for `cve-id-added`, which fires for adds, replacements, and removals alike
+	// with no payload. Only the most recent one can be read off the report's current CVE list.
+	const cveUpdateEvents = r.activities.filter(
+		(a) => a.type === "event" && a.kind === "cve-id-added",
+	);
+	const latestCveUpdateId = cveUpdateEvents[cveUpdateEvents.length - 1]?.id ?? null;
 
 	const handle = state.filters.programHandle ?? null;
 	// Suggested-bounty activities carry no currency; a program pays in a single
@@ -422,6 +429,7 @@ function ReportTab() {
 								teamMemberIds,
 								handle,
 								a.id === latestInboxUpdateId ? inboxNames : null,
+								a.id === latestCveUpdateId ? r.cve_ids : null,
 								programCurrency,
 							),
 						)}
