@@ -241,6 +241,7 @@ function ReportTab() {
 	const r = detail.data;
 	const pending = !!state.detailPending[id];
 	const pill = pillFor(r.state);
+	const reportUrl = `https://hackerone.com/reports/${r.id}`;
 	const submittedClock = formatClock(r.created_at);
 	const reporterUsername = r.reporter.username;
 	const reporterName = r.reporter.name;
@@ -307,11 +308,8 @@ function ReportTab() {
 						<span class={`pill ${pill.className}`}>{pill.label}</span>
 					)}
 					<CopyButton text={r.id} label="Copy ID" class="dh-action dh-action-first" />
-					<button
-						type="button"
-						class="dh-action"
-						onClick={() => openUrl(`https://hackerone.com/reports/${r.id}`)}
-					>
+					<CopyButton text={reportUrl} label="Copy URL" class="dh-action" />
+					<button type="button" class="dh-action" onClick={() => openUrl(reportUrl)}>
 						Open ↗
 					</button>
 				</div>
