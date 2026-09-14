@@ -114,11 +114,13 @@ export function DetailPanel() {
 
 const TOAST_AUTO_DISMISS_MS = 10000;
 
-function scrollToActivity(activityId: string) {
+// Scrolls the thread to one activity, reporting whether it was there to scroll to — the callers
+// that jump to an activity can be asked for one before the thread has rendered.
+function scrollToActivity(activityId: string): boolean {
 	const el = document.querySelector(`[data-activity-id="${CSS.escape(activityId)}"]`);
-	if (el instanceof HTMLElement) {
-		el.scrollIntoView({ behavior: "smooth", block: "center" });
-	}
+	if (!(el instanceof HTMLElement)) return false;
+	el.scrollIntoView({ behavior: "smooth", block: "center" });
+	return true;
 }
 
 // Render the same rich verb-phrase the activity log uses (via describeEvent), prefixed
@@ -221,6 +223,18 @@ function ReportTab() {
 		loaded?.status === "ready" ? (loaded.data.vulnerability_information ?? null) : null;
 	const { save } = useSaveFile();
 	useShortcut("saveReport", () => id && markdown && save(markdown, `${id}.md`), !!markdown);
+
+	// Opening a report from the discussion view asks for one of its comments. The thread isn't in
+	// the DOM until the full detail lands, so this retries as the detail changes and remembers the
+	// jump it made — a later background refresh of the same report shouldn't drag the view back.
+	const focusActivityId = state.focusActivityId;
+	const jumpedRef = useRef<string | null>(null);
+	useEffect(() => {
+		if (!id || !focusActivityId) return;
+		const key = `${id}:${focusActivityId}`;
+		if (jumpedRef.current === key) return;
+		if (scrollToActivity(focusActivityId)) jumpedRef.current = key;
+	}, [id, focusActivityId, loaded]);
 
 	if (!id) {
 		return <div class="detail-empty">Select a report</div>;

@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import { useShortcut } from "../shortcuts";
 import { useAppState, useDispatch } from "../state/context";
+import { type AppView, VIEW_STORAGE_KEY } from "../state/store";
 import { Settings } from "./Settings";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 
@@ -14,6 +15,11 @@ export function Topbar() {
 	useShortcut("showShortcuts", () => setShortcutsOpen(true));
 
 	const programHandle = state.filters.programHandle ?? "—";
+	const view = state.view;
+	const setView = (next: AppView) => {
+		localStorage.setItem(VIEW_STORAGE_KEY, next);
+		dispatch({ type: "VIEW_SET", view: next });
+	};
 	const placement = state.detailPlacement;
 	const toggleDetailPlacement = () => {
 		const next = placement === "right" ? "bottom" : "right";
@@ -23,6 +29,26 @@ export function Topbar() {
 
 	return (
 		<div class="topbar" data-tauri-drag-region>
+			<div class="view-tabs" role="tablist" aria-label="View">
+				<button
+					type="button"
+					role="tab"
+					aria-selected={view === "inbox"}
+					class={`view-tab${view === "inbox" ? " active" : ""}`}
+					onClick={() => setView("inbox")}
+				>
+					Inbox
+				</button>
+				<button
+					type="button"
+					role="tab"
+					aria-selected={view === "discussion"}
+					class={`view-tab${view === "discussion" ? " active" : ""}`}
+					onClick={() => setView("discussion")}
+				>
+					Discussion
+				</button>
+			</div>
 			<div class="brand">Macaroni / {programHandle}</div>
 			<div class="status-cluster">
 				<button

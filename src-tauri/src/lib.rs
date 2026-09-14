@@ -135,6 +135,7 @@ pub fn run() {
             commands::list_programs,
             commands::list_program_members,
             commands::query_reports,
+            commands::query_comments,
             commands::list_inboxes,
             commands::list_local_assets,
             commands::list_local_programs,

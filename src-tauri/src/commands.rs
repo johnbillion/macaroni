@@ -1,7 +1,7 @@
 use crate::credentials::{CredentialStore, Credentials};
 use crate::error::{AppError, AppResult};
 use crate::hackerone::{HackerOneApi, InboxRef, Organization, Program, ReportDetail, TeamMember};
-use crate::local_db::{LocalQuery, ReportListItem, ReportStore, TriageRecord};
+use crate::local_db::{CommentListItem, LocalQuery, ReportListItem, ReportStore, TriageRecord};
 use crate::settings::{DEFAULT_TRIAGE_PROMPT, Settings, SettingsStore};
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -131,6 +131,18 @@ pub async fn query_reports(
     query: LocalQuery,
 ) -> AppResult<Vec<ReportListItem>> {
     ctx.reports.query(&query)
+}
+
+// The newest comments across a program's synced reports, for the discussion view. Fully derived
+// from the activities already mirrored in each report's detail blob — nothing is fetched from
+// HackerOne or stored for it. Capped by `limit`: it's a recent-activity feed, not an archive.
+#[tauri::command]
+pub async fn query_comments(
+    ctx: State<'_, AppContext>,
+    program_handle: String,
+    limit: i64,
+) -> AppResult<Vec<CommentListItem>> {
+    ctx.reports.recent_comments(&program_handle, limit)
 }
 
 // Distinct inboxes seen across all reports synced for a program, for the sidebar inbox filter.

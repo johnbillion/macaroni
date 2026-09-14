@@ -220,6 +220,19 @@ export async function refreshReportDetail(dispatch: Dispatch, reportId: string) 
 	}
 }
 
+// Re-read a report's detail from the local mirror, replacing whatever snapshot is in state. Only
+// the selected report is polled, so every other report's snapshot goes stale as the sync lands new
+// activity — this is how a stale one is topped up without a HackerOne call. It reads the same blob
+// the discussion feed is built from, so a comment in the feed is always in the result.
+export async function reloadCachedReportDetail(dispatch: Dispatch, reportId: string) {
+	try {
+		const cached = await api.getCachedReport(reportId);
+		if (cached) dispatch({ type: "DETAIL_SUCCEEDED", reportId, detail: cached });
+	} catch {
+		// Best-effort — the pane keeps the snapshot it already has.
+	}
+}
+
 const VALID_VALIDITIES = new Set<string>(["valid", "partially-valid", "invalid", "indeterminate"]);
 
 async function hydrateTriageValidity(dispatch: Dispatch, ids: string[]) {
@@ -338,6 +351,23 @@ export async function loadReports(
 		if (replace && lastIssuedQueryKey === key) lastIssuedQueryKey = null;
 		if (myId !== reportsRequestId) return;
 		dispatch({ type: "REPORTS_FAILED", error: asError(e) });
+	}
+}
+
+// How many comments the discussion view holds. Unlike the inbox — where a filtered query is
+// bounded by the filters themselves — this feed spans every report in every state, so it's capped
+// at the newest slice rather than returning tens of thousands of rows.
+export const DISCUSSION_LIMIT = 100;
+
+// Load the discussion feed for a program. Fully derived from the local mirror: no HackerOne call,
+// nothing stored. Called when the view is opened and on its manual refresh.
+export async function loadComments(dispatch: Dispatch, programHandle: string) {
+	dispatch({ type: "COMMENTS_REQUESTED" });
+	try {
+		const items = await api.queryComments(programHandle, DISCUSSION_LIMIT);
+		dispatch({ type: "COMMENTS_SUCCEEDED", items });
+	} catch (e) {
+		dispatch({ type: "COMMENTS_FAILED", error: asError(e) });
 	}
 }
 

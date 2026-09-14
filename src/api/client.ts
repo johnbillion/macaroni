@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
 	AppError,
+	CommentSummary,
 	DuplicateInput,
 	DuplicateResult,
 	InboxRef,
@@ -43,6 +44,10 @@ export const api = {
 		keyword?: string;
 		whole_words?: boolean;
 	}) => call<ReportSummary[]>("query_reports", { query }),
+	// The newest `limit` comments across a program's synced reports, newest first. Derived in SQL
+	// from the activities already mirrored in each report's detail — nothing extra is stored.
+	queryComments: (programHandle: string, limit: number) =>
+		call<CommentSummary[]>("query_comments", { programHandle, limit }),
 	// Distinct inboxes across all reports synced for a program, for the sidebar inbox filter.
 	listInboxes: (programHandle: string) => call<InboxRef[]>("list_inboxes", { programHandle }),
 	// Distinct asset identifiers across a program's synced reports, for the sidebar asset filter.

@@ -56,6 +56,19 @@ export type UserRef = {
 	name: string | null;
 	profile_picture_url: string | null;
 };
+
+// One row of the discussion view: a single comment, with just enough of its report to identify it.
+// Derived on read from the activities in each report's mirrored detail — see `recent_comments`.
+// `id` is the activity id, which is also what the detail pane's thread scrolls to.
+export type CommentSummary = {
+	id: string;
+	report_id: string;
+	report_title: string;
+	created_at: string;
+	message: string;
+	internal: boolean;
+	actor: UserRef | null;
+};
 export type AssigneeRef = {
 	type: "user" | "group" | string;
 	id: string;
@@ -157,6 +170,10 @@ export type DetailToast = {
 };
 
 export type DetailPlacement = "right" | "bottom";
+
+// Which list fills the main pane: the filtered report inbox, or the cross-report comment feed.
+// Both share the same detail panel.
+export type AppView = "inbox" | "discussion";
 
 export type Theme = "system" | "light" | "dark";
 
@@ -316,6 +333,15 @@ export type AppState = {
 	// Bumped each time the report list is replaced by a fresh query (filter change / manual
 	// refresh). Consumers watch this to react to "fresh list" events — e.g. scrolling to top.
 	reportsReplaceCount: number;
+	// Which list the main pane shows. Persisted so a relaunch lands where the user left off.
+	view: AppView;
+	// The discussion feed: the newest comments across every synced report, newest first, capped at
+	// DISCUSSION_LIMIT. Loaded only while the discussion view is active.
+	comments: AsyncState<{ items: CommentSummary[] }>;
+	// The activity the detail pane should scroll to once it has rendered, set when a comment row is
+	// clicked. It also marks which comment row is the active one, so it lives until another report
+	// is selected (every REPORT_SELECTED without one clears it).
+	focusActivityId: string | null;
 	// Latest background-sync progress, for the Topbar indicator.
 	sync: SyncStatus;
 	// Total reports mirrored locally for the current program (null until first counted). Shown in
@@ -388,9 +414,15 @@ export type Action =
 	// driven by the sync engine, which leaves scroll position and selection untouched.
 	| { type: "REPORTS_SUCCEEDED"; items: ReportSummary[]; replace: boolean }
 	| { type: "REPORTS_FAILED"; error: AppError }
+	| { type: "VIEW_SET"; view: AppView }
+	| { type: "COMMENTS_REQUESTED" }
+	| { type: "COMMENTS_SUCCEEDED"; items: CommentSummary[] }
+	| { type: "COMMENTS_FAILED"; error: AppError }
 	| { type: "SYNC_STATUS"; status: SyncStatus }
 	| { type: "SYNCED_COUNT_SET"; count: number }
-	| { type: "REPORT_SELECTED"; reportId: string | null }
+	// `focusActivityId` asks the detail pane to scroll to one of the report's activities once it's
+	// rendered — how a discussion row opens on the comment that was clicked.
+	| { type: "REPORT_SELECTED"; reportId: string | null; focusActivityId?: string }
 	| { type: "SELECTION_TOGGLED"; reportId: string }
 	| { type: "SELECTION_SET"; reportIds: string[]; checked: boolean }
 	| { type: "SELECTION_CLEARED" }
@@ -428,6 +460,16 @@ function loadDetailPlacement(): DetailPlacement {
 		if (stored === "bottom" || stored === "right") return stored;
 	} catch {}
 	return "right";
+}
+
+export const VIEW_STORAGE_KEY = "macaroni.view";
+
+function loadView(): AppView {
+	try {
+		const stored = localStorage.getItem(VIEW_STORAGE_KEY);
+		if (stored === "inbox" || stored === "discussion") return stored;
+	} catch {}
+	return "inbox";
 }
 
 export const THEME_STORAGE_KEY = "macaroni.theme";
@@ -491,6 +533,9 @@ export const initialState: AppState = {
 	},
 	reports: { status: "idle" },
 	reportsReplaceCount: 0,
+	view: loadView(),
+	comments: { status: "idle" },
+	focusActivityId: null,
 	sync: { phase: "idle", done: 0, total: 0, running: false },
 	syncedReportCount: null,
 	selectedReportId: null,
@@ -527,6 +572,7 @@ export function reducer(state: AppState, action: Action): AppState {
 				triageWorkingDir: state.triageWorkingDir,
 				triagePrompt: state.triagePrompt,
 				aiNoticeAcknowledged: state.aiNoticeAcknowledged,
+				view: state.view,
 				detailPlacement: state.detailPlacement,
 				theme: state.theme,
 				panelSizes: state.panelSizes,
@@ -806,6 +852,25 @@ export function reducer(state: AppState, action: Action): AppState {
 				...state,
 				reports: { status: "error", error: action.error },
 			};
+		case "VIEW_SET":
+			if (action.view === state.view) return state;
+			return {
+				...state,
+				view: action.view,
+				// A bulk selection belongs to the inbox table's checkboxes, which the discussion view
+				// doesn't render — leaving it set would hold refreshes off after switching back.
+				selectedReportIds: action.view === "inbox" ? state.selectedReportIds : new Set(),
+				duplicateCheck: action.view === "inbox" ? state.duplicateCheck : { status: "idle" },
+			};
+		case "COMMENTS_REQUESTED":
+			return {
+				...state,
+				comments: state.comments.status === "ready" ? state.comments : { status: "loading" },
+			};
+		case "COMMENTS_SUCCEEDED":
+			return { ...state, comments: { status: "ready", data: { items: action.items } } };
+		case "COMMENTS_FAILED":
+			return { ...state, comments: { status: "error", error: action.error } };
 		case "SYNC_STATUS":
 			return { ...state, sync: action.status };
 		case "SYNCED_COUNT_SET":
@@ -817,6 +882,7 @@ export function reducer(state: AppState, action: Action): AppState {
 				// Clicking a report opens it in the Report tab, even while bulk-selecting.
 				detailActiveTab: action.reportId ? "report" : state.detailActiveTab,
 				detailToasts: [],
+				focusActivityId: action.focusActivityId ?? null,
 			};
 		case "SELECTION_TOGGLED": {
 			const next = new Set(state.selectedReportIds);

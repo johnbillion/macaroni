@@ -163,6 +163,41 @@ body,
 	font-size: var(--fs-lg);
 }
 
+/* View switcher: which list fills the main pane. Sits in the title bar's first column, so it
+   needs a left inset to clear the macOS traffic lights overlaying the window corner. */
+.view-tabs {
+	grid-column: 1;
+	justify-self: start;
+	padding-left: 78px;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+.view-tab {
+	background: transparent;
+	border: none;
+	border-radius: var(--radius-sm);
+	padding: 3px 10px;
+	font-family: inherit;
+	font-size: var(--fs-sm);
+	font-weight: 600;
+	color: var(--text-2);
+	cursor: pointer;
+	white-space: nowrap;
+}
+.view-tab:hover {
+	color: var(--accent-strong);
+	background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.view-tab.active {
+	color: var(--on-accent);
+	background: var(--accent);
+}
+.view-tab.active:hover {
+	color: var(--on-accent);
+	background: var(--accent-strong);
+}
+
 .status-cluster {
 	grid-column: 3;
 	justify-self: end;
@@ -673,6 +708,48 @@ input[type="radio"] {
 		inset 0 2px var(--accent),
 		inset 0 -2px var(--accent);
 }
+/* Discussion feed: rows are the inbox table's (it shares .inbox-table), minus the checkbox column
+   — so the first column takes over the left inset .th-check was providing. The comment column
+   carries the row, so it takes all the spare width and its body is clamped to three lines rather
+   than being truncated at one. */
+.discussion-table th:first-child,
+.discussion-table td:first-child {
+	padding-left: 20px;
+}
+.discussion-table th.th-comment {
+	width: 100%;
+}
+.discussion-table td.comment {
+	white-space: normal;
+}
+.comment-meta {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: var(--fs-sm);
+	color: var(--text-3);
+	margin-bottom: 2px;
+}
+.comment-author {
+	font-weight: 600;
+	color: var(--text-2);
+}
+.comment-time {
+	font-variant-numeric: tabular-nums;
+}
+.comment-body {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
+	line-clamp: 3;
+	overflow: hidden;
+	margin: 0;
+	/* Comments are markdown, rendered here as the plain text it was written as. */
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	color: var(--text);
+}
+
 .person-cell {
 	display: inline-flex;
 	align-items: center;

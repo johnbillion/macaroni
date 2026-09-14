@@ -39,6 +39,10 @@ The report list can be manually refreshed if necessary via the reload button at 
 
 Reports can be filtered and searched from the sidebar. There are no pagination controls, all matching results are always shown.
 
+### Discussion view
+
+The tabs at the top left switch the main pane between the inbox and the discussion view, which lists the recent comments across every report regardless of its state, newest first.
+
 ### AI-powered triage
 
 A report can be triaged by AI from the "Triage" section near the top of the details pane of a report. This kicks off a Claude Code session in the background that will report back once it's made a determination. You may see Chrome briefly pop up in your dock when Playwright MCP spawns a headless instance. You can tweak the prompt before running the triage if necessary (eg. to remove cruft from the report or provide more specific instructions).

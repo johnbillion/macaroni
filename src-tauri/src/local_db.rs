@@ -1,6 +1,6 @@
 use crate::db_key::DbKey;
 use crate::error::{AppError, AppResult};
-use crate::hackerone::{Activity, Attachment, InboxRef, ReportDetail, ReportSummary};
+use crate::hackerone::{Activity, Attachment, InboxRef, ReportDetail, ReportSummary, UserRef};
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -70,6 +70,21 @@ pub struct ReportListItem {
     pub bounty_ineligible: bool,
 }
 
+// A row of the discussion feed: one comment, with just enough of its report to identify it. Every
+// field is read out of data the mirror already holds — the comment out of the report's detail blob,
+// the title out of its summary blob — so nothing is fetched or stored for this view.
+#[derive(Debug, Clone, Serialize)]
+pub struct CommentListItem {
+    // The activity id, which is also the scroll target in the detail pane's thread.
+    pub id: String,
+    pub report_id: String,
+    pub report_title: String,
+    pub created_at: String,
+    pub message: String,
+    pub internal: bool,
+    pub actor: Option<UserRef>,
+}
+
 pub trait ReportStore: Send + Sync {
     // Insert or update the list-level data for a batch of reports (the summary shape from the
     // /reports endpoint). Only the blob is written; the queryable columns derive from it.
@@ -80,6 +95,10 @@ pub trait ReportStore: Send + Sync {
     fn upsert_detail(&self, detail: &ReportDetail) -> AppResult<()>;
     // Run a filtered query against the local DB, newest-created first. Returns every match.
     fn query(&self, q: &LocalQuery) -> AppResult<Vec<ReportListItem>>;
+    // The newest `limit` comments across every report stored for a program, regardless of report
+    // state. Derived on read by expanding the activities in each report's detail blob — comments
+    // are neither stored nor indexed separately.
+    fn recent_comments(&self, program_handle: &str, limit: i64) -> AppResult<Vec<CommentListItem>>;
     // Distinct inboxes across every report stored for a program, sorted by name. Drives the
     // sidebar inbox filter — HackerOne has no endpoint to enumerate a program's inboxes, so the
     // set is derived from the inboxes seen on synced reports.
@@ -590,6 +609,57 @@ impl ReportStore for SqliteStore {
                     bounty_ineligible,
                 });
             }
+        }
+        Ok(out)
+    }
+
+    fn recent_comments(&self, program_handle: &str, limit: i64) -> AppResult<Vec<CommentListItem>> {
+        let c = self.conn.lock().unwrap();
+        // json_each expands each report's activities into rows, so the whole feed is one join over
+        // the blobs we already store. `created_at` is ISO-8601 UTC throughout, which sorts
+        // chronologically as text. Reports with no detail synced yet contribute nothing.
+        let mut stmt = c
+            .prepare(
+                "SELECT r.id,
+                        json_extract(r.summary_json, '$.title'),
+                        json_extract(a.value, '$.id'),
+                        json_extract(a.value, '$.created_at'),
+                        json_extract(a.value, '$.message'),
+                        json_extract(a.value, '$.internal'),
+                        json_extract(a.value, '$.actor')
+                 FROM reports r, json_each(r.detail_json, '$.activities') a
+                 WHERE r.program_handle = ?1
+                   AND r.detail_json IS NOT NULL
+                   AND json_extract(a.value, '$.type') = 'comment'
+                   -- hackbot's pre-submission trigger notices aren't discussion, and the detail
+                   -- pane already hides them (see isHackbotPreSubmissionTrigger). They're a
+                   -- sizeable share of all comments, so they'd otherwise swamp the feed.
+                   AND NOT (
+                       lower(coalesce(json_extract(a.value, '$.actor.username'), '')) = 'hackbot'
+                       AND json_extract(a.value, '$.message') LIKE '%pre-submission%trigger%'
+                   )
+                 ORDER BY json_extract(a.value, '$.created_at') DESC
+                 LIMIT ?2",
+            )
+            .map_err(AppError::other)?;
+        let rows = stmt
+            .query_map(params![program_handle, limit], |row| {
+                Ok(CommentListItem {
+                    report_id: row.get(0)?,
+                    report_title: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                    id: row.get(2)?,
+                    created_at: row.get(3)?,
+                    message: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                    internal: row.get::<_, Option<bool>>(5)?.unwrap_or(false),
+                    actor: row
+                        .get::<_, Option<String>>(6)?
+                        .and_then(|j| serde_json::from_str(&j).ok()),
+                })
+            })
+            .map_err(AppError::other)?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(AppError::other)?);
         }
         Ok(out)
     }
@@ -1537,6 +1607,120 @@ mod tests {
         };
         assert!(by_id("1"));
         assert!(!by_id("2"));
+    }
+
+    #[test]
+    fn recent_comments_span_reports_newest_first_and_respect_the_limit() {
+        let s = store();
+        let one = summary("1", "One", "new", None);
+        let two = summary("2", "Two", "resolved", None);
+        s.upsert_summaries("wp", &[one.clone(), two.clone()])
+            .unwrap();
+        s.upsert_summaries("other", &[summary("3", "Three", "new", None)])
+            .unwrap();
+        s.upsert_detail(&detail_with_activities(
+            &one,
+            vec![
+                comment("c1", "2024-03-01T00:00:00.000Z", "oldest", false),
+                event("e1", "bug-triaged"),
+                comment("c2", "2024-03-03T00:00:00.000Z", "newest", true),
+            ],
+        ))
+        .unwrap();
+        s.upsert_detail(&detail_with_activities(
+            &two,
+            vec![comment("c3", "2024-03-02T00:00:00.000Z", "middle", false)],
+        ))
+        .unwrap();
+        // Another program's comments never leak in, and a report with no detail synced yet
+        // simply contributes nothing.
+        s.upsert_detail(&detail_with_activities(
+            &summary("3", "Three", "new", None),
+            vec![comment(
+                "c4",
+                "2024-03-04T00:00:00.000Z",
+                "other program",
+                false,
+            )],
+        ))
+        .unwrap();
+
+        let rows = s.recent_comments("wp", 100).unwrap();
+        let ids: Vec<&str> = rows.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["c2", "c3", "c1"]);
+        assert_eq!(rows[0].report_id, "1");
+        assert_eq!(rows[0].report_title, "One");
+        assert_eq!(rows[0].message, "newest");
+        assert!(rows[0].internal);
+        assert_eq!(rows[0].actor.as_ref().unwrap().username, "carol");
+        assert!(!rows[1].internal);
+        assert_eq!(rows[1].report_id, "2");
+
+        let capped = s.recent_comments("wp", 2).unwrap();
+        assert_eq!(capped.len(), 2);
+        assert_eq!(capped[0].id, "c2");
+    }
+
+    #[test]
+    fn recent_comments_skip_hackbot_pre_submission_notices() {
+        let s = store();
+        let one = summary("1", "One", "new", None);
+        s.upsert_summaries("wp", std::slice::from_ref(&one))
+            .unwrap();
+        s.upsert_detail(&detail_with_activities(
+            &one,
+            vec![
+                bot_comment(
+                    "b1",
+                    "2024-03-05T00:00:00.000Z",
+                    "A [pre-submission trigger](/x) was activated",
+                ),
+                // hackbot's other comments are ordinary discussion and stay.
+                bot_comment("b2", "2024-03-04T00:00:00.000Z", "Ran a scan for you"),
+                comment("c1", "2024-03-01T00:00:00.000Z", "human comment", false),
+            ],
+        ))
+        .unwrap();
+
+        let ids: Vec<String> = s
+            .recent_comments("wp", 100)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(ids, ["b2", "c1"]);
+    }
+
+    fn bot_comment(id: &str, created_at: &str, message: &str) -> Activity {
+        Activity::Comment {
+            id: id.to_string(),
+            created_at: created_at.to_string(),
+            message: message.to_string(),
+            internal: true,
+            actor: Some(UserRef {
+                id: "u3".into(),
+                username: "hackbot".into(),
+                name: None,
+                profile_picture_url: None,
+            }),
+            attachments: vec![],
+        }
+    }
+
+    fn comment(id: &str, created_at: &str, message: &str, internal: bool) -> Activity {
+        Activity::Comment {
+            id: id.to_string(),
+            created_at: created_at.to_string(),
+            message: message.to_string(),
+            internal,
+            actor: Some(UserRef {
+                id: "u2".into(),
+                username: "carol".into(),
+                name: None,
+                profile_picture_url: None,
+            }),
+            attachments: vec![],
+        }
     }
 
     fn event(id: &str, kind: &str) -> Activity {
