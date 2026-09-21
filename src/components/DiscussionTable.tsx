@@ -98,11 +98,7 @@ export function DiscussionTable() {
 										<Avatar user={c.actor} />
 										<span class="comment-author">{c.actor?.username ?? "system"}</span>
 										{c.internal ? (
-											<span
-												class="icon-padlock"
-												role="img"
-												aria-label="Internal"
-											/>
+											<span class="icon-padlock" role="img" aria-label="Internal" />
 										) : null}
 										<span class="comment-time">
 											<RelativeTime iso={c.created_at} />
@@ -129,10 +125,7 @@ export function DiscussionTable() {
 								: `${items.length} ${items.length === 1 ? "comment" : "comments"}`}
 						</span>
 					) : null}
-					<div
-						class="sync-indicator"
-						role="status"
-					>
+					<div class="sync-indicator" role="status">
 						<span>List refresh paused</span>
 					</div>
 				</div>
