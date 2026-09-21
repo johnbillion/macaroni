@@ -443,6 +443,7 @@ function ReportTab() {
 								a.id === latestInboxUpdateId ? inboxNames : null,
 								a.id === latestCveUpdateId ? r.cve_ids : null,
 								programCurrency,
+								r.issue_tracker_reference_url,
 							),
 						)}
 						<div class="thread-end">— END —</div>

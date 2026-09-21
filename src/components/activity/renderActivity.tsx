@@ -1,3 +1,4 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { JSX } from "preact";
 import type { Activity, UserRef } from "../../state/store";
 import { formatMoney } from "../../utils/money";
@@ -63,6 +64,7 @@ export function describeEvent(
 	currentInboxNames: string[] | null,
 	currentCveIds: string[] | null,
 	programCurrency: string | null,
+	referenceUrl: string | null = null,
 ): JSX.Element | null {
 	switch (activity.kind) {
 		case "bounty-suggested":
@@ -125,14 +127,27 @@ export function describeEvent(
 					assigned this report to <b>{activity.assigned_user.username}</b>
 				</>
 			);
-		case "reference-id-added":
-			return activity.reference ? (
-				<>
-					added reference id <b>{activity.reference}</b>
-				</>
+		case "reference-id-added": {
+			if (!activity.reference) {
+				return <>added a reference id</>;
+			}
+			const reference = referenceUrl ? (
+				<a
+					href={referenceUrl}
+					target="_blank"
+					rel="noopener noreferrer"
+					onClick={(e) => {
+						e.preventDefault();
+						openUrl(referenceUrl);
+					}}
+				>
+					{activity.reference}
+				</a>
 			) : (
-				<>added a reference id</>
+				<b>{activity.reference}</b>
 			);
+			return <>added reference id {reference}</>;
+		}
 		case "group-assigned-to-bug":
 			return activity.group_name ? (
 				<>
@@ -238,6 +253,8 @@ export function renderActivity(
 	// HackerOne doesn't put a currency on a suggested-bounty activity, so the caller
 	// passes the program's payout currency (inferred from awarded bounties) for display.
 	programCurrency: string | null = null,
+	// The report's current issue-tracker URL; the activity itself only carries the id.
+	referenceUrl: string | null = null,
 ) {
 	const isComment = activity.type === "comment";
 	const message = isComment ? activity.message : (activity.message ?? "");
@@ -257,7 +274,13 @@ export function renderActivity(
 
 	// Non-state-change events with no message body collapse to a one-line tick.
 	if (activity.type === "event" && !newState && !hasMessage) {
-		const description = describeEvent(activity, currentInboxNames, currentCveIds, programCurrency);
+		const description = describeEvent(
+			activity,
+			currentInboxNames,
+			currentCveIds,
+			programCurrency,
+			referenceUrl,
+		);
 		const tickClasses = ["event-tick", activity.internal ? "internal" : ""]
 			.filter(Boolean)
 			.join(" ");
