@@ -23,6 +23,14 @@ export function isHackerOneStaff(user: UserRef | null): boolean {
 	return !!user && user.username.startsWith("h1_");
 }
 
+/**
+ * Automation accounts (`auto-*`, created by HackerOne workflow automations) sit in the
+ * program member list, so the membership check alone would label them program staff.
+ */
+export function isBot(user: UserRef | null): boolean {
+	return user?.user_type === "automation";
+}
+
 export function humanizeKind(kind: string): string {
 	return kind.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -227,6 +235,7 @@ function bugStateFromKind(kind: string): string | null {
  *   - The reporter is always on the reporter side, even if they are also program staff
  *     (e.g. a team member who filed a report against their own program) — otherwise the
  *     two sides of the conversation would collapse.
+ *   - HackerOne staff and automation bots act for the program, so they are program-side.
  *   - Otherwise the actor's program-team membership decides it: program staff are
  *     program-side, everyone else (external participants, hackbot, etc.) is reporter-side.
  */
@@ -239,7 +248,7 @@ export function isProgramSide(
 	const actorId = activity.actor?.id;
 	if (!actorId) return false;
 	if (actorId === reporterId) return false;
-	if (isHackerOneStaff(activity.actor)) return true;
+	if (isHackerOneStaff(activity.actor) || isBot(activity.actor)) return true;
 	return teamMemberIds.has(actorId);
 }
 
@@ -264,9 +273,12 @@ export function renderActivity(
 	const referencedIds = referencedAttachmentIds(message);
 	const extraAttachments = (messageAttachments ?? []).filter((a) => !referencedIds.has(a.id));
 	const newState = !isComment ? bugStateFromKind(activity.kind) : null;
+	const actorIsBot = isBot(activity.actor);
 	const actorIsHackerOneStaff = isHackerOneStaff(activity.actor);
 	const isStaff = !!activity.actor && teamMemberIds.has(activity.actor.id);
-	const staffFlag = actorIsHackerOneStaff ? (
+	const staffFlag = actorIsBot ? (
+		<span class="msg-staff-flag bot">BOT</span>
+	) : actorIsHackerOneStaff ? (
 		<span class="msg-staff-flag hackerone">HACKERONE STAFF</span>
 	) : isStaff && programHandle ? (
 		<span class="msg-staff-flag">{programHandle.toUpperCase()} STAFF</span>
