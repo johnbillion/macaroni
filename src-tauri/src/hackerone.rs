@@ -57,7 +57,6 @@ pub struct ReportSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BountyTotal {
     pub amount: f64,
-    pub currency: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -170,7 +169,6 @@ pub enum Activity {
         new_title: Option<String>,
         /// `bounty_amount` / `bonus_amount` on `activity-bounty-suggested` (the suggested
         /// award and report-quality bonus) and `activity-bounty-awarded` (the actual award).
-        /// The activity carries no currency code.
         bounty_amount: Option<f64>,
         bonus_amount: Option<f64>,
         /// `assigned_user` on `activity-user-assigned-to-bug` — the user the report was
@@ -627,21 +625,14 @@ fn parse_bounty(rel: Option<&serde_json::Value>) -> Option<BountyTotal> {
         return None;
     }
     let mut amount = 0.0;
-    let mut currency = None;
     for item in arr {
         let Some(attrs) = item.get("attributes") else {
             continue;
         };
         amount += parse_money(attrs.get("awarded_amount"));
         amount += parse_money(attrs.get("awarded_bonus_amount"));
-        if currency.is_none() {
-            currency = attrs
-                .get("awarded_currency")
-                .and_then(|v| v.as_str())
-                .map(String::from);
-        }
     }
-    Some(BountyTotal { amount, currency })
+    Some(BountyTotal { amount })
 }
 
 fn parse_asset_ref(rel: &serde_json::Value) -> Option<AssetRef> {

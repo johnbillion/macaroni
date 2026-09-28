@@ -91,7 +91,7 @@ export type WeaknessRef = { id: string; name: string; external_id: string | null
 export type AssetRef = { id: string; asset_identifier: string; asset_type: string | null };
 export type InboxRef = { id: string; name: string; kind: string | null };
 // Total awarded bounty (base + bonus) summed across all awards on a report.
-export type BountyTotal = { amount: number; currency: string | null };
+export type BountyTotal = { amount: number };
 
 export type Attachment = {
 	id: string;

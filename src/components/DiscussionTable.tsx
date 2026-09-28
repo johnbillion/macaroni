@@ -2,7 +2,6 @@ import { useEffect } from "preact/hooks";
 import { useShortcut } from "../shortcuts";
 import { useAppState, useDispatch } from "../state/context";
 import { DISCUSSION_LIMIT, loadDiscussion } from "../state/effects";
-import { programCurrencyOf } from "../state/selectors";
 import { Avatar } from "./Avatar";
 import { describeEventAction } from "./activity/renderActivity";
 import { AttachmentGallery, Markdown, referencedAttachmentIds } from "./Markdown";
@@ -29,7 +28,6 @@ export function DiscussionTable() {
 	const state = useAppState();
 	const dispatch = useDispatch();
 	const handle = state.filters.programHandle;
-	const programCurrency = programCurrencyOf(state);
 
 	const items = state.discussion.status === "ready" ? state.discussion.data.items : [];
 
@@ -111,7 +109,7 @@ export function DiscussionTable() {
 									<div class="comment-meta">
 										<Avatar user={a.actor} />
 										<span class="comment-author">{a.actor?.username ?? "system"}</span>
-										{a.type === "event" ? describeEventAction(a, programCurrency) : null}
+										{a.type === "event" ? describeEventAction(a) : null}
 										{a.internal ? (
 											<span class="icon-padlock" role="img" aria-label="Internal" />
 										) : null}

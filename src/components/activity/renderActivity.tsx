@@ -71,7 +71,6 @@ export function describeEvent(
 	activity: EventActivity,
 	currentInboxNames: string[] | null,
 	currentCveIds: string[] | null,
-	programCurrency: string | null,
 	referenceUrl: string | null = null,
 ): JSX.Element | null {
 	switch (activity.kind) {
@@ -80,11 +79,11 @@ export function describeEvent(
 			return activity.bounty_amount !== null ? (
 				<>
 					{activity.kind === "bounty-awarded" ? "awarded" : "suggested"} a bounty of{" "}
-					<b>{formatMoney(activity.bounty_amount, programCurrency)}</b>
+					<b>{formatMoney(activity.bounty_amount)}</b>
 					{activity.bonus_amount ? (
 						<>
 							{" "}
-							+ <b>{formatMoney(activity.bonus_amount, programCurrency)}</b> bonus
+							+ <b>{formatMoney(activity.bonus_amount)}</b> bonus
 						</>
 					) : null}
 				</>
@@ -242,7 +241,6 @@ function bugStateFromKind(kind: string): string | null {
  */
 export function describeEventAction(
 	event: EventActivity,
-	programCurrency: string | null,
 	currentInboxNames: string[] | null = null,
 	currentCveIds: string[] | null = null,
 	referenceUrl: string | null = null,
@@ -263,13 +261,7 @@ export function describeEventAction(
 			</>
 		);
 	}
-	const description = describeEvent(
-		event,
-		currentInboxNames,
-		currentCveIds,
-		programCurrency,
-		referenceUrl,
-	);
+	const description = describeEvent(event, currentInboxNames, currentCveIds, referenceUrl);
 	return description ? (
 		<span class="msg-event-action">{description}</span>
 	) : (
@@ -310,9 +302,6 @@ export function renderActivity(
 	programHandle: string | null,
 	currentInboxNames: string[] | null = null,
 	currentCveIds: string[] | null = null,
-	// HackerOne doesn't put a currency on a suggested-bounty activity, so the caller
-	// passes the program's payout currency (inferred from awarded bounties) for display.
-	programCurrency: string | null = null,
 	// The report's current issue-tracker URL; the activity itself only carries the id.
 	referenceUrl: string | null = null,
 ) {
@@ -337,13 +326,7 @@ export function renderActivity(
 
 	// Non-state-change events with no message body collapse to a one-line tick.
 	if (activity.type === "event" && !newState && !hasMessage) {
-		const description = describeEvent(
-			activity,
-			currentInboxNames,
-			currentCveIds,
-			programCurrency,
-			referenceUrl,
-		);
+		const description = describeEvent(activity, currentInboxNames, currentCveIds, referenceUrl);
 		const tickClasses = ["event-tick", activity.internal ? "internal" : ""]
 			.filter(Boolean)
 			.join(" ");
@@ -382,15 +365,7 @@ export function renderActivity(
 				<span class="msg-author">{author}</span>
 				{staffFlag}
 				{isReporter && <span class="msg-reporter-flag">REPORTER</span>}
-				{event
-					? describeEventAction(
-							event,
-							programCurrency,
-							currentInboxNames,
-							currentCveIds,
-							referenceUrl,
-						)
-					: null}
+				{event ? describeEventAction(event, currentInboxNames, currentCveIds, referenceUrl) : null}
 				<span class="msg-time">
 					{activity.internal && (
 						<span class="icon-padlock" role="img" title="Internal" aria-label="Internal" />

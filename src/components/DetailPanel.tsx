@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { api } from "../api/client";
 import { useShortcut } from "../shortcuts";
 import { useAppState, useDispatch } from "../state/context";
-import { programCurrencyOf } from "../state/selectors";
 import type { Activity, DetailToast } from "../state/store";
 import { pillFor } from "../utils/pill";
 import { formatClock } from "../utils/time";
@@ -128,12 +127,9 @@ function scrollToActivity(activityId: string): boolean {
 // with the actor, for toasts that describe a single event activity. Returns null for
 // comments, state changes, and event kinds describeEvent doesn't phrase — those fall back
 // to the toast's plain `message`, which already reads well for them.
-function toastDescription(
-	activity: DetailToast["activity"],
-	programCurrency: string | null,
-): JSX.Element | null {
+function toastDescription(activity: DetailToast["activity"]): JSX.Element | null {
 	if (!activity || activity.type !== "event") return null;
-	const phrase = describeEvent(activity, null, null, programCurrency);
+	const phrase = describeEvent(activity, null, null);
 	if (!phrase) return null;
 	const actor = activity.actor?.username ?? "system";
 	return (
@@ -145,8 +141,6 @@ function toastDescription(
 
 function ToastStack({ toasts }: { toasts: DetailToast[] }) {
 	const dispatch = useDispatch();
-	const state = useAppState();
-	const programCurrency = programCurrencyOf(state);
 	useEffect(() => {
 		if (toasts.length === 0) return;
 		const timers = toasts.map((t) =>
@@ -189,9 +183,7 @@ function ToastStack({ toasts }: { toasts: DetailToast[] }) {
 								: undefined
 						}
 					>
-						<span class="detail-toast-msg">
-							{toastDescription(t.activity, programCurrency) ?? t.message}
-						</span>
+						<span class="detail-toast-msg">{toastDescription(t.activity) ?? t.message}</span>
 						<button
 							type="button"
 							class="detail-toast-close"
@@ -292,7 +284,6 @@ function ReportTab() {
 	const latestCveUpdateId = cveUpdateEvents[cveUpdateEvents.length - 1]?.id ?? null;
 
 	const handle = state.filters.programHandle ?? null;
-	const programCurrency = programCurrencyOf(state);
 	const members = handle ? state.teamMembersByProgram[handle] : undefined;
 	const teamMemberIds: Set<string> =
 		members?.status === "ready" ? new Set(members.data.map((m) => m.id)) : new Set();
@@ -435,7 +426,6 @@ function ReportTab() {
 								handle,
 								a.id === latestInboxUpdateId ? inboxNames : null,
 								a.id === latestCveUpdateId ? r.cve_ids : null,
-								programCurrency,
 								r.issue_tracker_reference_url,
 							),
 						)}
