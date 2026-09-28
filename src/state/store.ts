@@ -55,19 +55,19 @@ export type UserRef = {
 	username: string;
 	name: string | null;
 	profile_picture_url: string | null;
+	// "hacker", "company", or "automation" for bot accounts; null for hackbot and for
+	// activities mirrored before this field was captured.
+	user_type: string | null;
 };
 
-// One row of the discussion view: a single comment, with just enough of its report to identify it.
-// Derived on read from the activities in each report's mirrored detail — see `recent_comments`.
-// `id` is the activity id, which is also what the detail pane's thread scrolls to.
-export type CommentSummary = {
-	id: string;
+// One row of the discussion view: a comment or a notable event (triage, closure, bounty,
+// disclosure, …), with just enough of its report to identify it. Derived on read from the
+// activities in each report's mirrored detail — see `recent_discussion`. The activity's id is
+// also what the detail pane's thread scrolls to.
+export type DiscussionItem = {
 	report_id: string;
 	report_title: string;
-	created_at: string;
-	message: string;
-	internal: boolean;
-	actor: UserRef | null;
+	activity: Activity;
 };
 export type AssigneeRef = {
 	type: "user" | "group" | string;
@@ -138,6 +138,8 @@ export type Activity =
 
 export type ReportDetail = {
 	id: string;
+	// Null when the mirrored detail predates this field.
+	program_handle: string | null;
 	title: string;
 	state: string;
 	main_state: string;
@@ -337,7 +339,7 @@ export type AppState = {
 	view: AppView;
 	// The discussion feed: the newest comments across every synced report, newest first, capped at
 	// DISCUSSION_LIMIT. Loaded only while the discussion view is active.
-	comments: AsyncState<{ items: CommentSummary[] }>;
+	discussion: AsyncState<{ items: DiscussionItem[] }>;
 	// The activity the detail pane should scroll to once it has rendered, set when a comment row is
 	// clicked. It also marks which comment row is the active one, so it lives until another report
 	// is selected (every REPORT_SELECTED without one clears it).
@@ -415,9 +417,9 @@ export type Action =
 	| { type: "REPORTS_SUCCEEDED"; items: ReportSummary[]; replace: boolean }
 	| { type: "REPORTS_FAILED"; error: AppError }
 	| { type: "VIEW_SET"; view: AppView }
-	| { type: "COMMENTS_REQUESTED" }
-	| { type: "COMMENTS_SUCCEEDED"; items: CommentSummary[] }
-	| { type: "COMMENTS_FAILED"; error: AppError }
+	| { type: "DISCUSSION_REQUESTED" }
+	| { type: "DISCUSSION_SUCCEEDED"; items: DiscussionItem[] }
+	| { type: "DISCUSSION_FAILED"; error: AppError }
 	| { type: "SYNC_STATUS"; status: SyncStatus }
 	| { type: "SYNCED_COUNT_SET"; count: number }
 	// `focusActivityId` asks the detail pane to scroll to one of the report's activities once it's
@@ -534,7 +536,7 @@ export const initialState: AppState = {
 	reports: { status: "idle" },
 	reportsReplaceCount: 0,
 	view: loadView(),
-	comments: { status: "idle" },
+	discussion: { status: "idle" },
 	focusActivityId: null,
 	sync: { phase: "idle", done: 0, total: 0, running: false },
 	syncedReportCount: null,
@@ -862,15 +864,15 @@ export function reducer(state: AppState, action: Action): AppState {
 				selectedReportIds: action.view === "inbox" ? state.selectedReportIds : new Set(),
 				duplicateCheck: action.view === "inbox" ? state.duplicateCheck : { status: "idle" },
 			};
-		case "COMMENTS_REQUESTED":
+		case "DISCUSSION_REQUESTED":
 			return {
 				...state,
-				comments: state.comments.status === "ready" ? state.comments : { status: "loading" },
+				discussion: state.discussion.status === "ready" ? state.discussion : { status: "loading" },
 			};
-		case "COMMENTS_SUCCEEDED":
-			return { ...state, comments: { status: "ready", data: { items: action.items } } };
-		case "COMMENTS_FAILED":
-			return { ...state, comments: { status: "error", error: action.error } };
+		case "DISCUSSION_SUCCEEDED":
+			return { ...state, discussion: { status: "ready", data: { items: action.items } } };
+		case "DISCUSSION_FAILED":
+			return { ...state, discussion: { status: "error", error: action.error } };
 		case "SYNC_STATUS":
 			return { ...state, sync: action.status };
 		case "SYNCED_COUNT_SET":
@@ -1163,6 +1165,7 @@ function sameInboxes(a: InboxRef[], b: InboxRef[]): boolean {
 function summaryToPartialDetail(s: ReportSummary): ReportDetail {
 	return {
 		id: s.id,
+		program_handle: null,
 		title: s.title,
 		state: s.state,
 		main_state: s.state,

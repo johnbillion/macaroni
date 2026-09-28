@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { api } from "../api/client";
 import { useShortcut } from "../shortcuts";
 import { useAppState, useDispatch } from "../state/context";
+import { programCurrencyOf } from "../state/selectors";
 import type { Activity, DetailToast } from "../state/store";
 import { pillFor } from "../utils/pill";
 import { formatClock } from "../utils/time";
@@ -145,10 +146,7 @@ function toastDescription(
 function ToastStack({ toasts }: { toasts: DetailToast[] }) {
 	const dispatch = useDispatch();
 	const state = useAppState();
-	const programCurrency =
-		state.reports.status === "ready"
-			? (state.reports.data.items.find((it) => it.bounty?.currency)?.bounty?.currency ?? null)
-			: null;
+	const programCurrency = programCurrencyOf(state);
 	useEffect(() => {
 		if (toasts.length === 0) return;
 		const timers = toasts.map((t) =>
@@ -294,12 +292,7 @@ function ReportTab() {
 	const latestCveUpdateId = cveUpdateEvents[cveUpdateEvents.length - 1]?.id ?? null;
 
 	const handle = state.filters.programHandle ?? null;
-	// Suggested-bounty activities carry no currency; a program pays in a single
-	// currency, so borrow it from the first awarded bounty in the loaded inbox list.
-	const programCurrency =
-		state.reports.status === "ready"
-			? (state.reports.data.items.find((it) => it.bounty?.currency)?.bounty?.currency ?? null)
-			: null;
+	const programCurrency = programCurrencyOf(state);
 	const members = handle ? state.teamMembersByProgram[handle] : undefined;
 	const teamMemberIds: Set<string> =
 		members?.status === "ready" ? new Set(members.data.map((m) => m.id)) : new Set();

@@ -9,6 +9,9 @@ const STATE_TO_PILL: Record<string, { className: string; label: string }> = {
 	"not-applicable": { className: "na", label: "N/A" },
 	resolved: { className: "resolved", label: "Resolved" },
 	spam: { className: "spam", label: "Spam" },
+	// Only ever seen as a `bug-inactive` activity (a needs-more-info report that timed out); the
+	// report itself ends up in one of the closed states above.
+	inactive: { className: "inactive", label: "Inactive" },
 };
 
 export function pillFor(state: string): { className: string; label: string } {

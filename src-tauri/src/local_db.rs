@@ -1,6 +1,6 @@
 use crate::db_key::DbKey;
 use crate::error::{AppError, AppResult};
-use crate::hackerone::{Activity, Attachment, InboxRef, ReportDetail, ReportSummary, UserRef};
+use crate::hackerone::{Activity, Attachment, InboxRef, ReportDetail, ReportSummary};
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -70,19 +70,37 @@ pub struct ReportListItem {
     pub bounty_ineligible: bool,
 }
 
-// A row of the discussion feed: one comment, with just enough of its report to identify it. Every
-// field is read out of data the mirror already holds — the comment out of the report's detail blob,
-// the title out of its summary blob — so nothing is fetched or stored for this view.
-#[derive(Debug, Clone, Serialize)]
-pub struct CommentListItem {
-    // The activity id, which is also the scroll target in the detail pane's thread.
-    pub id: String,
+// The event kinds the discussion feed surfaces alongside comments: the moments in a report's life
+// that someone following the whole program wants to see, whether or not a message came with them.
+// Everything else (assignment, scope, severity, inbox changes, …) stays in the report's own log.
+pub const DISCUSSION_EVENT_KINDS: &[&str] = &[
+    "bug-triaged",
+    // Closed, for whatever reason.
+    "bug-resolved",
+    "bug-informative",
+    "bug-not-applicable",
+    "bug-duplicate",
+    "bug-spam",
+    "bug-inactive",
+    // Locked.
+    "comments-closed",
+    "hacker-requested-mediation",
+    "bounty-suggested",
+    "bounty-awarded",
+    "not-eligible-for-bounty",
+    // Disclosed.
+    "report-became-public",
+    "manually-disclosed",
+];
+
+// One row of the discussion view: a comment or one of the `DISCUSSION_EVENT_KINDS` events, with
+// just enough of its report to identify it. The activity is returned whole so the frontend renders
+// it with the same code as the report's own activity log.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscussionItem {
     pub report_id: String,
     pub report_title: String,
-    pub created_at: String,
-    pub message: String,
-    pub internal: bool,
-    pub actor: Option<UserRef>,
+    pub activity: Activity,
 }
 
 pub trait ReportStore: Send + Sync {
@@ -98,7 +116,8 @@ pub trait ReportStore: Send + Sync {
     // The newest `limit` comments across every report stored for a program, regardless of report
     // state. Derived on read by expanding the activities in each report's detail blob — comments
     // are neither stored nor indexed separately.
-    fn recent_comments(&self, program_handle: &str, limit: i64) -> AppResult<Vec<CommentListItem>>;
+    fn recent_discussion(&self, program_handle: &str, limit: i64)
+    -> AppResult<Vec<DiscussionItem>>;
     // Distinct inboxes across every report stored for a program, sorted by name. Drives the
     // sidebar inbox filter — HackerOne has no endpoint to enumerate a program's inboxes, so the
     // set is derived from the inboxes seen on synced reports.
@@ -421,7 +440,40 @@ fn like_pattern(term: &str) -> String {
     format!("%{escaped}%")
 }
 
+// The report number a search asks for, when the whole search is one: digits only, with the `#`
+// HackerOne prefixes report numbers with allowed. Anything else is a keyword search.
+pub fn report_id_term(keyword: &str) -> Option<&str> {
+    let term = keyword.trim().trim_start_matches('#');
+    (!term.is_empty() && term.chars().all(|c| c.is_ascii_digit())).then_some(term)
+}
+
 impl SqliteStore {
+    // Run a finished list query and build the rows the inbox shows.
+    fn query_rows(
+        &self,
+        conn: &Connection,
+        sql: &str,
+        binds: &[String],
+    ) -> AppResult<Vec<ReportListItem>> {
+        let mut stmt = conn.prepare(sql).map_err(AppError::other)?;
+        let rows = stmt
+            .query_map(params_from_iter(binds.iter()), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?))
+            })
+            .map_err(AppError::other)?;
+        let mut out = Vec::new();
+        for r in rows {
+            let (json, bounty_ineligible) = r.map_err(AppError::other)?;
+            if let Some(summary) = summary_from_row(&json) {
+                out.push(ReportListItem {
+                    summary,
+                    bounty_ineligible,
+                });
+            }
+        }
+        Ok(out)
+    }
+
     // Writing a report is just storing the blob (plus the program handle it belongs to). Every
     // queryable column derives from `summary_json`, so there's nothing else to write.
     fn upsert_one_summary(
@@ -518,6 +570,15 @@ impl ReportStore for SqliteStore {
         );
         let mut binds: Vec<String> = vec![q.program_handle.clone()];
 
+        // A search that is nothing but a report number is a lookup of that one report, not a
+        // filter: every other facet is ignored so it's found whatever state, severity, assignee,
+        // or inbox it has.
+        if let Some(id) = q.keyword.as_deref().and_then(report_id_term) {
+            sql.push_str(" AND id = ?2");
+            binds.push(id.to_string());
+            return self.query_rows(&c, &sql, &binds);
+        }
+
         if !q.states.is_empty() {
             let ph = placeholders(binds.len(), q.states.len());
             sql.push_str(&format!(" AND state IN ({ph})"));
@@ -593,75 +654,68 @@ impl ReportStore for SqliteStore {
             }
         }
         sql.push_str(" ORDER BY created_at DESC");
-
-        let mut stmt = c.prepare(&sql).map_err(AppError::other)?;
-        let rows = stmt
-            .query_map(params_from_iter(binds.iter()), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?))
-            })
-            .map_err(AppError::other)?;
-        let mut out = Vec::new();
-        for r in rows {
-            let (json, bounty_ineligible) = r.map_err(AppError::other)?;
-            if let Some(summary) = summary_from_row(&json) {
-                out.push(ReportListItem {
-                    summary,
-                    bounty_ineligible,
-                });
-            }
-        }
-        Ok(out)
+        self.query_rows(&c, &sql, &binds)
     }
 
-    fn recent_comments(&self, program_handle: &str, limit: i64) -> AppResult<Vec<CommentListItem>> {
+    fn recent_discussion(
+        &self,
+        program_handle: &str,
+        limit: i64,
+    ) -> AppResult<Vec<DiscussionItem>> {
         let c = self.conn.lock().unwrap();
+        // The kinds are compile-time constants, so they're spliced into the SQL rather than bound.
+        let kinds = DISCUSSION_EVENT_KINDS
+            .iter()
+            .map(|k| format!("'{k}'"))
+            .collect::<Vec<_>>()
+            .join(",");
         // json_each expands each report's activities into rows, so the whole feed is one join over
         // the blobs we already store. `created_at` is ISO-8601 UTC throughout, which sorts
         // chronologically as text. Reports with no detail synced yet contribute nothing.
         let mut stmt = c
-            .prepare(
+            .prepare(&format!(
                 "SELECT r.id,
                         json_extract(r.summary_json, '$.title'),
-                        json_extract(a.value, '$.id'),
-                        json_extract(a.value, '$.created_at'),
-                        json_extract(a.value, '$.message'),
-                        json_extract(a.value, '$.internal'),
-                        json_extract(a.value, '$.actor')
+                        a.value
                  FROM reports r, json_each(r.detail_json, '$.activities') a
                  WHERE r.program_handle = ?1
                    AND r.detail_json IS NOT NULL
-                   AND json_extract(a.value, '$.type') = 'comment'
-                   -- hackbot's pre-submission trigger notices aren't discussion, and the detail
-                   -- pane already hides them (see isHackbotPreSubmissionTrigger). They're a
-                   -- sizeable share of all comments, so they'd otherwise swamp the feed.
-                   AND NOT (
-                       lower(coalesce(json_extract(a.value, '$.actor.username'), '')) = 'hackbot'
-                       AND json_extract(a.value, '$.message') LIKE '%pre-submission%trigger%'
+                   AND (
+                       (
+                           json_extract(a.value, '$.type') = 'comment'
+                           -- hackbot's pre-submission trigger notices aren't discussion, and the
+                           -- detail pane already hides them (see isHackbotPreSubmissionTrigger).
+                           -- They're a sizeable share of all comments, so they'd otherwise swamp
+                           -- the feed.
+                           AND NOT (
+                               lower(coalesce(json_extract(a.value, '$.actor.username'), '')) = 'hackbot'
+                               AND json_extract(a.value, '$.message') LIKE '%pre-submission%trigger%'
+                           )
+                       )
+                       OR json_extract(a.value, '$.kind') IN ({kinds})
                    )
                  ORDER BY json_extract(a.value, '$.created_at') DESC
-                 LIMIT ?2",
-            )
+                 LIMIT ?2"
+            ))
             .map_err(AppError::other)?;
         let rows = stmt
             .query_map(params![program_handle, limit], |row| {
-                Ok(CommentListItem {
+                let json: String = row.get(2)?;
+                let activity = serde_json::from_str::<Activity>(&json).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        2,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?;
+                Ok(DiscussionItem {
                     report_id: row.get(0)?,
                     report_title: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                    id: row.get(2)?,
-                    created_at: row.get(3)?,
-                    message: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-                    internal: row.get::<_, Option<bool>>(5)?.unwrap_or(false),
-                    actor: row
-                        .get::<_, Option<String>>(6)?
-                        .and_then(|j| serde_json::from_str(&j).ok()),
+                    activity,
                 })
             })
             .map_err(AppError::other)?;
-        let mut out = Vec::new();
-        for r in rows {
-            out.push(r.map_err(AppError::other)?);
-        }
-        Ok(out)
+        rows.collect::<Result<Vec<_>, _>>().map_err(AppError::other)
     }
 
     fn distinct_inboxes(&self, program_handle: &str) -> AppResult<Vec<InboxRef>> {
@@ -723,15 +777,21 @@ impl ReportStore for SqliteStore {
         let c = self.conn.lock().unwrap();
         // Reconstruct the full detail by merging the summary blob (shared fields) with the
         // detail-only extra blob. Returns None until the detail has actually been fetched.
-        let row: Option<(String, Option<String>)> = c
+        let row: Option<(String, String, Option<String>)> = c
             .query_row(
-                "SELECT summary_json, detail_json FROM reports WHERE id = ?1",
+                "SELECT program_handle, summary_json, detail_json FROM reports WHERE id = ?1",
                 params![id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
             )
             .optional()
             .map_err(AppError::other)?;
-        let Some((summary_json, Some(extra_json))) = row else {
+        let Some((program_handle, summary_json, Some(extra_json))) = row else {
             return Ok(None);
         };
         let (Some(summary), Ok(extra)) = (
@@ -740,7 +800,11 @@ impl ReportStore for SqliteStore {
         ) else {
             return Ok(None);
         };
-        Ok(Some(report_detail_from(&summary, &extra)))
+        Ok(Some(report_detail_from(
+            Some(program_handle),
+            &summary,
+            &extra,
+        )))
     }
 
     fn ids_missing_detail(&self, program_handle: &str) -> AppResult<Vec<String>> {
@@ -955,9 +1019,14 @@ struct ReportDetailExtra {
 
 // Reconstruct a full `ReportDetail` from the summary blob (shared fields) plus the detail-only
 // extra blob. The inverse of the split done in `upsert_detail`.
-fn report_detail_from(s: &ReportSummary, extra: &ReportDetailExtra) -> ReportDetail {
+fn report_detail_from(
+    program_handle: Option<String>,
+    s: &ReportSummary,
+    extra: &ReportDetailExtra,
+) -> ReportDetail {
     ReportDetail {
         id: s.id.clone(),
+        program_handle,
         title: s.title.clone(),
         state: s.state.clone(),
         main_state: extra.main_state.clone(),
@@ -979,7 +1048,7 @@ fn report_detail_from(s: &ReportSummary, extra: &ReportDetailExtra) -> ReportDet
 // Build a list-level summary from a full detail, for the rare case we cache detail for a report
 // we've never seen at list level. The detail endpoint carries no assignee/bounty/last_activity,
 // so those are left empty until a summary upsert supplies them.
-fn summary_from_detail(d: &ReportDetail) -> ReportSummary {
+pub(crate) fn summary_from_detail(d: &ReportDetail) -> ReportSummary {
     ReportSummary {
         id: d.id.clone(),
         title: d.title.clone(),
@@ -1044,6 +1113,7 @@ mod tests {
                 username: "alice".into(),
                 name: None,
                 profile_picture_url: None,
+                user_type: None,
             },
             assignee: None,
             inboxes: vec![],
@@ -1330,6 +1400,67 @@ mod tests {
     }
 
     #[test]
+    fn report_number_search_ignores_other_facets() {
+        let s = store();
+        s.upsert_summaries(
+            "wp",
+            &[
+                summary("31337", "SQL injection in login", "resolved", Some("high")),
+                summary("42", "Reflected XSS 31337", "new", Some("low")),
+            ],
+        )
+        .unwrap();
+
+        // Facets that exclude the report don't stop a number lookup finding it, and a title that
+        // merely contains the number isn't matched.
+        let hits = s
+            .query(&LocalQuery {
+                program_handle: "wp".into(),
+                states: vec!["new".into()],
+                severities: vec!["low".into()],
+                keyword: Some(" #31337 ".into()),
+                whole_words: true,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].summary.id, "31337");
+
+        // With more than one term it's an ordinary keyword search again, facets included.
+        let hits = s
+            .query(&LocalQuery {
+                program_handle: "wp".into(),
+                states: vec!["new".into()],
+                keyword: Some("31337 xss".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].summary.id, "42");
+
+        // Another program's report isn't this inbox's.
+        assert!(
+            s.query(&LocalQuery {
+                program_handle: "other".into(),
+                keyword: Some("31337".into()),
+                ..Default::default()
+            })
+            .unwrap()
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn report_id_term_accepts_only_a_lone_number() {
+        assert_eq!(report_id_term("31337"), Some("31337"));
+        assert_eq!(report_id_term(" #31337\n"), Some("31337"));
+        assert_eq!(report_id_term("#"), None);
+        assert_eq!(report_id_term(""), None);
+        assert_eq!(report_id_term("31337 xss"), None);
+        assert_eq!(report_id_term("CVE-2024"), None);
+    }
+
+    #[test]
     fn assignee_token_generated_from_blob() {
         let s = store();
         let mut user_report = summary("1", "assigned to user", "new", Some("high"));
@@ -1510,6 +1641,7 @@ mod tests {
 
         let detail = ReportDetail {
             id: "1".into(),
+            program_handle: None,
             title: "SQL injection".into(),
             state: "triaged".into(),
             main_state: "open".into(),
@@ -1523,6 +1655,7 @@ mod tests {
                 username: "alice".into(),
                 name: None,
                 profile_picture_url: None,
+                user_type: None,
             },
             weakness: None,
             asset: None,
@@ -1610,7 +1743,7 @@ mod tests {
     }
 
     #[test]
-    fn recent_comments_span_reports_newest_first_and_respect_the_limit() {
+    fn recent_discussion_spans_reports_newest_first_and_respects_the_limit() {
         let s = store();
         let one = summary("1", "One", "new", None);
         let two = summary("2", "Two", "resolved", None);
@@ -1622,7 +1755,8 @@ mod tests {
             &one,
             vec![
                 comment("c1", "2024-03-01T00:00:00.000Z", "oldest", false),
-                event("e1", "bug-triaged"),
+                // Not one of the surfaced kinds, so it never appears.
+                event("e1", "changed-scope"),
                 comment("c2", "2024-03-03T00:00:00.000Z", "newest", true),
             ],
         ))
@@ -1645,24 +1779,33 @@ mod tests {
         ))
         .unwrap();
 
-        let rows = s.recent_comments("wp", 100).unwrap();
-        let ids: Vec<&str> = rows.iter().map(|c| c.id.as_str()).collect();
+        let rows = s.recent_discussion("wp", 100).unwrap();
+        let ids: Vec<&str> = rows.iter().map(|c| activity_id(&c.activity)).collect();
         assert_eq!(ids, ["c2", "c3", "c1"]);
         assert_eq!(rows[0].report_id, "1");
         assert_eq!(rows[0].report_title, "One");
-        assert_eq!(rows[0].message, "newest");
-        assert!(rows[0].internal);
-        assert_eq!(rows[0].actor.as_ref().unwrap().username, "carol");
-        assert!(!rows[1].internal);
+        match &rows[0].activity {
+            Activity::Comment {
+                message,
+                internal,
+                actor,
+                ..
+            } => {
+                assert_eq!(message, "newest");
+                assert!(*internal);
+                assert_eq!(actor.as_ref().unwrap().username, "carol");
+            }
+            other => panic!("expected a comment, got {other:?}"),
+        }
         assert_eq!(rows[1].report_id, "2");
 
-        let capped = s.recent_comments("wp", 2).unwrap();
+        let capped = s.recent_discussion("wp", 2).unwrap();
         assert_eq!(capped.len(), 2);
-        assert_eq!(capped[0].id, "c2");
+        assert_eq!(activity_id(&capped[0].activity), "c2");
     }
 
     #[test]
-    fn recent_comments_skip_hackbot_pre_submission_notices() {
+    fn recent_discussion_skips_hackbot_pre_submission_notices() {
         let s = store();
         let one = summary("1", "One", "new", None);
         s.upsert_summaries("wp", std::slice::from_ref(&one))
@@ -1683,12 +1826,94 @@ mod tests {
         .unwrap();
 
         let ids: Vec<String> = s
-            .recent_comments("wp", 100)
+            .recent_discussion("wp", 100)
             .unwrap()
             .into_iter()
-            .map(|c| c.id)
+            .map(|c| activity_id(&c.activity).to_string())
             .collect();
         assert_eq!(ids, ["b2", "c1"]);
+    }
+
+    #[test]
+    fn recent_discussion_surfaces_notable_events_and_skips_the_rest() {
+        let s = store();
+        let one = summary("1", "One", "resolved", None);
+        s.upsert_summaries("wp", std::slice::from_ref(&one))
+            .unwrap();
+        s.upsert_detail(&detail_with_activities(
+            &one,
+            vec![
+                event_at("triaged", "bug-triaged", "2024-03-01T00:00:00.000Z"),
+                event_at("new", "bug-new", "2024-03-02T00:00:00.000Z"),
+                event_at("closed", "bug-not-applicable", "2024-03-03T00:00:00.000Z"),
+                event_at("scope", "changed-scope", "2024-03-04T00:00:00.000Z"),
+                event_at("locked", "comments-closed", "2024-03-05T00:00:00.000Z"),
+                event_at(
+                    "mediation",
+                    "hacker-requested-mediation",
+                    "2024-03-06T00:00:00.000Z",
+                ),
+                event_at(
+                    "severity",
+                    "report-severity-updated",
+                    "2024-03-07T00:00:00.000Z",
+                ),
+                event_at("suggested", "bounty-suggested", "2024-03-08T00:00:00.000Z"),
+                event_at("awarded", "bounty-awarded", "2024-03-09T00:00:00.000Z"),
+                event_at(
+                    "assigned",
+                    "user-assigned-to-bug",
+                    "2024-03-10T00:00:00.000Z",
+                ),
+                event_at(
+                    "ineligible",
+                    "not-eligible-for-bounty",
+                    "2024-03-11T00:00:00.000Z",
+                ),
+                event_at(
+                    "disclosed",
+                    "report-became-public",
+                    "2024-03-12T00:00:00.000Z",
+                ),
+                comment("comment", "2024-03-13T00:00:00.000Z", "hello", false),
+            ],
+        ))
+        .unwrap();
+
+        let ids: Vec<String> = s
+            .recent_discussion("wp", 100)
+            .unwrap()
+            .into_iter()
+            .map(|c| activity_id(&c.activity).to_string())
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                "comment",
+                "disclosed",
+                "ineligible",
+                "awarded",
+                "suggested",
+                "mediation",
+                "locked",
+                "closed",
+                "triaged",
+            ]
+        );
+    }
+
+    fn activity_id(a: &Activity) -> &str {
+        match a {
+            Activity::Comment { id, .. } | Activity::Event { id, .. } => id,
+        }
+    }
+
+    fn event_at(id: &str, kind: &str, at: &str) -> Activity {
+        let mut a = event(id, kind);
+        if let Activity::Event { created_at, .. } = &mut a {
+            *created_at = at.to_string();
+        }
+        a
     }
 
     fn bot_comment(id: &str, created_at: &str, message: &str) -> Activity {
@@ -1702,6 +1927,7 @@ mod tests {
                 username: "hackbot".into(),
                 name: None,
                 profile_picture_url: None,
+                user_type: None,
             }),
             attachments: vec![],
         }
@@ -1718,6 +1944,7 @@ mod tests {
                 username: "carol".into(),
                 name: None,
                 profile_picture_url: None,
+                user_type: None,
             }),
             attachments: vec![],
         }
@@ -1751,6 +1978,7 @@ mod tests {
 
     fn detail_with_activities(s: &ReportSummary, activities: Vec<Activity>) -> ReportDetail {
         report_detail_from(
+            None,
             s,
             &ReportDetailExtra {
                 main_state: "closed".into(),

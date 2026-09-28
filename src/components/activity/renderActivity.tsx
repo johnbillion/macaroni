@@ -91,6 +91,15 @@ export function describeEvent(
 			) : null;
 		case "bounty-cancelled":
 			return <>cancelled the bounty</>;
+		case "not-eligible-for-bounty":
+			return <>marked this report as ineligible for a bounty</>;
+		case "comments-closed":
+			return <>locked this report</>;
+		case "hacker-requested-mediation":
+			return <>requested mediation</>;
+		case "report-became-public":
+		case "manually-disclosed":
+			return <>disclosed this report</>;
 		case "external-user-invited":
 			return activity.invitee ? (
 				<>
@@ -227,6 +236,48 @@ function bugStateFromKind(kind: string): string | null {
 }
 
 /**
+ * The action an event took, as shown beside the actor in a message header: a state change as
+ * "changed status to <pill>", anything else as describeEvent's phrase, falling back to the
+ * humanized kind. Shared by the detail pane's thread and the discussion feed.
+ */
+export function describeEventAction(
+	event: EventActivity,
+	programCurrency: string | null,
+	currentInboxNames: string[] | null = null,
+	currentCveIds: string[] | null = null,
+	referenceUrl: string | null = null,
+): JSX.Element {
+	const newState = bugStateFromKind(event.kind);
+	if (newState) {
+		const pill = pillFor(newState);
+		return (
+			<>
+				<span class="msg-event-action">changed status to</span>
+				{event.original_report_id ? (
+					<span class={`pill ${pill.className}`}>
+						{pill.label} of <ReportLink id={event.original_report_id} />
+					</span>
+				) : (
+					<span class={`pill ${pill.className}`}>{pill.label}</span>
+				)}
+			</>
+		);
+	}
+	const description = describeEvent(
+		event,
+		currentInboxNames,
+		currentCveIds,
+		programCurrency,
+		referenceUrl,
+	);
+	return description ? (
+		<span class="msg-event-action">{description}</span>
+	) : (
+		<span class="msg-event-kind">{humanizeKind(event.kind)}</span>
+	);
+}
+
+/**
  * Decide whether an activity should be rendered on the program/team side
  * (right-aligned, "out") or the reporter side (left-aligned, "in").
  *
@@ -322,7 +373,6 @@ export function renderActivity(
 	const isReporter = activity.actor?.id === reporterId;
 	const side = isProgramSide(activity, reporterId, teamMemberIds) ? "out" : "in";
 	const classes = ["msg", side, activity.internal ? "internal" : ""].filter(Boolean).join(" ");
-	const pill = newState ? pillFor(newState) : null;
 	const event = activity.type === "event" ? activity : null;
 
 	return (
@@ -332,62 +382,15 @@ export function renderActivity(
 				<span class="msg-author">{author}</span>
 				{staffFlag}
 				{isReporter && <span class="msg-reporter-flag">REPORTER</span>}
-				{pill ? (
-					<>
-						<span class="msg-event-action">changed status to</span>
-						{event?.original_report_id ? (
-							<span class={`pill ${pill.className}`}>
-								{pill.label} of <ReportLink id={event.original_report_id} />
-							</span>
-						) : (
-							<span class={`pill ${pill.className}`}>{pill.label}</span>
-						)}
-					</>
-				) : event?.kind === "report-severity-updated" && event.new_severity ? (
-					event.old_severity ? (
-						<>
-							<span class="msg-event-action">
-								{severityChangeVerb(event.old_severity, event.new_severity)} severity from
-							</span>
-							<SeverityMeter rating={event.old_severity} showLabel />
-							<span class="msg-event-action">to</span>
-							<SeverityMeter rating={event.new_severity} showLabel />
-						</>
-					) : (
-						<>
-							<span class="msg-event-action">changed severity to</span>
-							<SeverityMeter rating={event.new_severity} showLabel />
-						</>
-					)
-				) : event?.kind === "bounty-suggested" && event.bounty_amount !== null ? (
-					<span class="msg-event-action">
-						suggested a bounty of <b>{formatMoney(event.bounty_amount, programCurrency)}</b>
-						{event.bonus_amount ? (
-							<>
-								{" "}
-								+ <b>{formatMoney(event.bonus_amount, programCurrency)}</b> bonus
-							</>
-						) : null}
-					</span>
-				) : event?.kind === "bounty-awarded" && event.bounty_amount !== null ? (
-					<span class="msg-event-action">
-						awarded a bounty of <b>{formatMoney(event.bounty_amount, programCurrency)}</b>
-						{event.bonus_amount ? (
-							<>
-								{" "}
-								+ <b>{formatMoney(event.bonus_amount, programCurrency)}</b> bonus
-							</>
-						) : null}
-					</span>
-				) : event?.kind === "user-assigned-to-bug" && event.assigned_user ? (
-					<span class="msg-event-action">
-						assigned to <b>{event.assigned_user.username}</b>
-					</span>
-				) : event?.kind === "bounty-cancelled" ? (
-					<span class="msg-event-action">cancelled the bounty</span>
-				) : !isComment ? (
-					<span class="msg-event-kind">{humanizeKind(activity.kind)}</span>
-				) : null}
+				{event
+					? describeEventAction(
+							event,
+							programCurrency,
+							currentInboxNames,
+							currentCveIds,
+							referenceUrl,
+						)
+					: null}
 				<span class="msg-time">
 					{activity.internal && (
 						<span class="icon-padlock" role="img" title="Internal" aria-label="Internal" />

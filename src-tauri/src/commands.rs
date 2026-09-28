@@ -1,7 +1,10 @@
 use crate::credentials::{CredentialStore, Credentials};
 use crate::error::{AppError, AppResult};
 use crate::hackerone::{HackerOneApi, InboxRef, Organization, Program, ReportDetail, TeamMember};
-use crate::local_db::{CommentListItem, LocalQuery, ReportListItem, ReportStore, TriageRecord};
+use crate::local_db::{
+    DiscussionItem, LocalQuery, ReportListItem, ReportStore, TriageRecord, report_id_term,
+    summary_from_detail,
+};
 use crate::settings::{DEFAULT_TRIAGE_PROMPT, Settings, SettingsStore};
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -130,19 +133,58 @@ pub async fn query_reports(
     ctx: State<'_, AppContext>,
     query: LocalQuery,
 ) -> AppResult<Vec<ReportListItem>> {
-    ctx.reports.query(&query)
+    let hits = ctx.reports.query(&query)?;
+    let Some(id) = query.keyword.as_deref().and_then(report_id_term) else {
+        return Ok(hits);
+    };
+    if !hits.is_empty() {
+        return Ok(hits);
+    }
+    fetch_unmirrored_report(&*ctx.api, &*ctx.reports, &query.program_handle, id).await
 }
 
-// The newest comments across a program's synced reports, for the discussion view. Fully derived
-// from the activities already mirrored in each report's detail blob — nothing is fetched from
-// HackerOne or stored for it. Capped by `limit`: it's a recent-activity feed, not an archive.
+// A report-number search that misses the mirror asks HackerOne for the report: the backfill may
+// not have reached it yet. A hit is written through under the program and re-read so its row is
+// built the same way as any other. A report filed to a different program isn't this inbox's,
+// so it's neither stored nor shown; a 404 is an ordinary empty result rather than an error.
+async fn fetch_unmirrored_report(
+    api: &dyn HackerOneApi,
+    store: &dyn ReportStore,
+    program_handle: &str,
+    id: &str,
+) -> AppResult<Vec<ReportListItem>> {
+    let detail = match api.get_report(id).await {
+        Ok(detail) => detail,
+        Err(AppError::NotFound { .. }) => return Ok(vec![]),
+        Err(e) => return Err(e),
+    };
+    if detail
+        .program_handle
+        .as_deref()
+        .is_some_and(|h| h != program_handle)
+    {
+        return Ok(vec![]);
+    }
+    store.upsert_summaries(program_handle, &[summary_from_detail(&detail)])?;
+    store.upsert_detail(&detail)?;
+    store.query(&LocalQuery {
+        program_handle: program_handle.to_string(),
+        keyword: Some(id.to_string()),
+        ..Default::default()
+    })
+}
+
+// The newest comments and notable events (triage, closure, bounties, disclosure, …) across a
+// program's synced reports, for the discussion view. Fully derived from the activities already
+// mirrored in each report's detail blob — nothing is fetched from HackerOne or stored for it.
+// Capped by `limit`: it's a recent-activity feed, not an archive.
 #[tauri::command]
-pub async fn query_comments(
+pub async fn query_discussion(
     ctx: State<'_, AppContext>,
     program_handle: String,
     limit: i64,
-) -> AppResult<Vec<CommentListItem>> {
-    ctx.reports.recent_comments(&program_handle, limit)
+) -> AppResult<Vec<DiscussionItem>> {
+    ctx.reports.recent_discussion(&program_handle, limit)
 }
 
 // Distinct inboxes seen across all reports synced for a program, for the sidebar inbox filter.
@@ -786,7 +828,14 @@ pub async fn run_duplicates(
     let prompt = assemble_duplicates_prompt(&reports);
 
     let mut child = tokio::process::Command::new(claude_binary()?)
-        .args(["-p", "--output-format", "stream-json", "--verbose"])
+        .args([
+            "-p",
+            "--model",
+            "opus",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+        ])
         .current_dir(std::env::temp_dir())
         .env("PATH", claude_search_path())
         .stdin(Stdio::piped())
@@ -1052,4 +1101,112 @@ pub async fn save_zip_file(
 
     std::fs::write(&path, cursor.into_inner()).map_err(AppError::other)?;
     Ok(true)
+}
+
+#[cfg(test)]
+mod report_lookup_tests {
+    use super::*;
+    use crate::hackerone::{ReportPage, ReportQuery, UserRef};
+    use crate::local_db::SqliteStore;
+
+    // Serves one report by id; everything else is a 404.
+    struct OneReportApi(ReportDetail);
+
+    #[async_trait::async_trait]
+    impl HackerOneApi for OneReportApi {
+        async fn validate(&self) -> AppResult<()> {
+            Ok(())
+        }
+        async fn list_organizations(&self) -> AppResult<Vec<Organization>> {
+            Ok(vec![])
+        }
+        async fn list_programs(&self, _org_id: &str) -> AppResult<Vec<Program>> {
+            Ok(vec![])
+        }
+        async fn list_program_members(&self, _program_id: &str) -> AppResult<Vec<TeamMember>> {
+            Ok(vec![])
+        }
+        async fn list_reports(&self, _query: ReportQuery) -> AppResult<ReportPage> {
+            Ok(ReportPage {
+                items: vec![],
+                next_cursor: None,
+            })
+        }
+        async fn get_report(&self, report_id: &str) -> AppResult<ReportDetail> {
+            if report_id == self.0.id {
+                Ok(self.0.clone())
+            } else {
+                Err(AppError::NotFound {
+                    message: report_id.into(),
+                })
+            }
+        }
+    }
+
+    fn detail(id: &str, program_handle: Option<&str>) -> ReportDetail {
+        ReportDetail {
+            id: id.into(),
+            program_handle: program_handle.map(String::from),
+            title: "Stored XSS".into(),
+            state: "new".into(),
+            main_state: "open".into(),
+            severity_rating: Some("high".into()),
+            created_at: "2024-01-01T00:00:00.000Z".into(),
+            vulnerability_information: "body".into(),
+            issue_tracker_reference_id: None,
+            issue_tracker_reference_url: None,
+            reporter: UserRef {
+                id: "u1".into(),
+                username: "alice".into(),
+                name: None,
+                profile_picture_url: None,
+                user_type: None,
+            },
+            weakness: None,
+            asset: None,
+            inboxes: vec![],
+            cve_ids: None,
+            activities: vec![],
+            attachments: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_report_is_fetched_and_mirrored() {
+        let store = SqliteStore::in_memory();
+        let api = OneReportApi(detail("31337", Some("wp")));
+
+        let hits = fetch_unmirrored_report(&api, &store, "wp", "31337")
+            .await
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].summary.title, "Stored XSS");
+        assert!(store.get_detail("31337").unwrap().is_some());
+        assert_eq!(store.count_reports("wp").unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn unknown_report_is_an_empty_result() {
+        let store = SqliteStore::in_memory();
+        let api = OneReportApi(detail("31337", Some("wp")));
+
+        let hits = fetch_unmirrored_report(&api, &store, "wp", "999")
+            .await
+            .unwrap();
+        assert!(hits.is_empty());
+        assert_eq!(store.count_reports("wp").unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn another_programs_report_is_not_filed_here() {
+        let store = SqliteStore::in_memory();
+        let api = OneReportApi(detail("31337", Some("elsewhere")));
+
+        let hits = fetch_unmirrored_report(&api, &store, "wp", "31337")
+            .await
+            .unwrap();
+        assert!(hits.is_empty());
+        assert_eq!(store.count_reports("wp").unwrap(), 0);
+        assert!(store.get_detail("31337").unwrap().is_none());
+    }
 }

@@ -457,6 +457,7 @@ mod tests {
                 })?;
             Ok(ReportDetail {
                 id: s.id.clone(),
+                program_handle: None,
                 title: s.title.clone(),
                 state: s.state.clone(),
                 main_state: "open".into(),
@@ -507,6 +508,7 @@ mod tests {
                 username: "alice".into(),
                 name: None,
                 profile_picture_url: None,
+                user_type: None,
             },
             assignee: None,
             inboxes: vec![],

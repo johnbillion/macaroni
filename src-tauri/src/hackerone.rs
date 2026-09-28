@@ -72,6 +72,10 @@ pub struct UserRef {
     pub username: String,
     pub name: Option<String>,
     pub profile_picture_url: Option<String>,
+    /// HackerOne's `user_type`: `hacker`, `company`, or `automation` for bot accounts. Absent on
+    /// rows mirrored before the field was captured, and null for hackbot.
+    #[serde(default)]
+    pub user_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,6 +185,10 @@ pub enum Activity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReportDetail {
     pub id: String,
+    /// Handle of the program the report was filed to. `None` when the source didn't say (an older
+    /// mirrored row, or a response without the program relationship).
+    #[serde(default)]
+    pub program_handle: Option<String>,
     pub title: String,
     pub state: String,
     pub main_state: String,
@@ -522,6 +530,10 @@ fn parse_user_ref(rel: &serde_json::Value) -> Option<UserRef> {
             }
         }),
         profile_picture_url,
+        user_type: attrs
+            .get("user_type")
+            .and_then(|v| v.as_str())
+            .map(String::from),
     })
 }
 
@@ -861,6 +873,13 @@ fn parse_report_detail(body: &serde_json::Value) -> Option<ReportDetail> {
 
     Some(ReportDetail {
         id: data.get("id")?.as_str()?.to_string(),
+        program_handle: rel
+            .and_then(|r| r.get("program"))
+            .and_then(|p| p.get("data"))
+            .and_then(|d| d.get("attributes"))
+            .and_then(|a| a.get("handle"))
+            .and_then(|v| v.as_str())
+            .map(String::from),
         title: attrs.get("title")?.as_str()?.to_string(),
         state: attrs
             .get("state")

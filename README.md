@@ -41,7 +41,7 @@ Reports can be filtered and searched from the sidebar. There are no pagination c
 
 ### Discussion view
 
-The tabs at the top left switch the main pane between the inbox and the discussion view, which lists the recent comments across every report regardless of its state, newest first.
+The tabs at the top left switch the main pane between the inbox and the discussion view, which lists recent activity across every report regardless of its state.
 
 ### AI-powered triage
 

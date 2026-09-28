@@ -361,13 +361,13 @@ export const DISCUSSION_LIMIT = 100;
 
 // Load the discussion feed for a program. Fully derived from the local mirror: no HackerOne call,
 // nothing stored. Called when the view is opened and on its manual refresh.
-export async function loadComments(dispatch: Dispatch, programHandle: string) {
-	dispatch({ type: "COMMENTS_REQUESTED" });
+export async function loadDiscussion(dispatch: Dispatch, programHandle: string) {
+	dispatch({ type: "DISCUSSION_REQUESTED" });
 	try {
-		const items = await api.queryComments(programHandle, DISCUSSION_LIMIT);
-		dispatch({ type: "COMMENTS_SUCCEEDED", items });
+		const items = await api.queryDiscussion(programHandle, DISCUSSION_LIMIT);
+		dispatch({ type: "DISCUSSION_SUCCEEDED", items });
 	} catch (e) {
-		dispatch({ type: "COMMENTS_FAILED", error: asError(e) });
+		dispatch({ type: "DISCUSSION_FAILED", error: asError(e) });
 	}
 }
 
