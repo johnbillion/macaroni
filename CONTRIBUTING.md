@@ -45,6 +45,17 @@ Inbox filtering is the one facet not backed by a generated column: a report carr
 
 Two behaviours to know about: local keyword search (`LIKE` over title + description) does **not** exactly match the API's opaque `filter[keyword]`; and because the DB can filter locally, the sidebar's `unrated` severity facet (null `severity_rating`) now actually works, unlike against the API.
 
+### Querying the HackerOne API manually
+
+The API credentials live in the same keychain item as the database key, under `.credentials`. To call the API from the shell:
+
+```sh
+CREDS="$(security find-generic-password -s com.johnbillion.macaroni -a default -w | jq -r '.credentials | "\(.username):\(.token)"')"
+curl -s -u "$CREDS" -H 'Accept: application/json' 'https://api.hackerone.com/v1/reports/2793672' | jq .
+```
+
+Program-scoped endpoints take the program's numeric id, not its handle (`/programs/wordpress/...` returns `null` data). Look it up with `GET /me/programs`; the WordPress program is `55`.
+
 When the official docs are ambiguous or contradicted by 4xx responses, cross-reference working third-party clients:
 
 - [nu11pointer/hackerone-cli](https://github.com/nu11pointer/hackerone-cli) — Go CLI; good for exact endpoint paths and request bodies.
