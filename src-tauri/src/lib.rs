@@ -7,6 +7,7 @@ mod hackerone;
 mod local_db;
 mod settings;
 mod sync;
+mod unlock;
 
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
@@ -19,6 +20,20 @@ use local_db::SqliteStore;
 use settings::FileSettingsStore;
 use tauri::Manager;
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
+
+// Show a native error dialog and quit. For the startup failures the app can't run without;
+// a panic here would abort with nothing on screen.
+// The dialog plugin's blocking dialogs deadlock on the main thread, so this goes to rfd
+// directly, which runs its own modal loop.
+fn fatal(title: &str, error: &dyn std::fmt::Display) -> ! {
+    log::error!("{title}: {error}");
+    rfd::MessageDialog::new()
+        .set_level(rfd::MessageLevel::Error)
+        .set_title(title)
+        .set_description(error.to_string())
+        .show();
+    std::process::exit(1)
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -96,6 +111,13 @@ pub fn run() {
             let data_dir = app.path().app_data_dir().expect("app data dir");
             std::fs::create_dir_all(&data_dir).expect("create app data dir");
 
+            // Gate the keychain read behind Touch ID. A refusal is the user's choice, so
+            // leave quietly rather than run without the credentials.
+            if let Err(reason) = unlock::require_device_owner() {
+                log::error!("unlock refused: {reason}");
+                std::process::exit(0);
+            }
+
             let creds = Arc::new(KeyringStore::new());
             let api = Arc::new(
                 ReqwestClient::new(creds.clone()).expect("failed to build HackerOne HTTP client"),
@@ -103,8 +125,11 @@ pub fn run() {
             let db_path = data_dir.join("macaroni.db");
             let db_key = creds
                 .load_or_create_db_key()
-                .expect("load or create database key");
-            let reports = Arc::new(SqliteStore::open(&db_path, &db_key).expect("open local db"));
+                .unwrap_or_else(|e| fatal("Couldn't read the keychain", &e));
+            let reports = Arc::new(
+                SqliteStore::open(&db_path, &db_key)
+                    .unwrap_or_else(|e| fatal("Couldn't open the local database", &e)),
+            );
             local_db::exclude_from_backups(&db_path);
             let settings = Arc::new(FileSettingsStore::new(data_dir.join("settings.json")));
 

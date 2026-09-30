@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tauri build",
+    "build": "set -a; [ -f .env ] && . ./.env; set +a; tauri build",
     "build:web": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",

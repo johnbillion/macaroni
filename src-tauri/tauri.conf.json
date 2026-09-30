@@ -27,7 +27,8 @@
     "active": true,
     "targets": ["app"],
     "macOS": {
-      "minimumSystemVersion": "15.0"
+      "minimumSystemVersion": "15.0",
+      "signingIdentity": "Developer ID Application: John Blackbourn (BULJM2WQ7M)"
     },
     "icon": [
       "icons/32x32.png",

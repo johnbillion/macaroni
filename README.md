@@ -23,7 +23,9 @@ The local database is encrypted at rest with SQLCipher using a random key held i
 
 Download the `.zip` from the [latest release](https://github.com/johnbillion/macaroni/releases), unzip it, and move `Macaroni.app` to your Applications folder.
 
-The app is not currently signed but will be soon. If you don't trust the binary you can build it yourself via `npm install && npm run build`.
+The app is signed and notarised. If you don't trust the binary you can build it yourself via `npm install && npm run build`.
+
+On launch the app asks for Touch ID (or your password) before it reads your credentials from the keychain.
 
 ## Usage
 

@@ -17,6 +17,22 @@ After you've completed a task, such as fixing a bug or building a new feature, r
 - `cargo clippy --all-targets --fix` — Rust lint, applies fixes in place
 - `cargo test` — Unit tests
 
+## Building and signing
+
+`npm run build` signs the bundle with the Developer ID identity named in `src-tauri/tauri.conf.json`. A stable signature is what lets the keychain's "Always Allow" stick, so a signed build reads the credentials without prompting. If that identity isn't in your keychain, override it for the build with `APPLE_SIGNING_IDENTITY="-"` to sign ad hoc; the keychain will then prompt on every rebuild.
+
+The build script exports a gitignored `.env` from the repo root before running Tauri. Notarisation happens during the build when it holds Apple ID credentials, and is skipped with a warning otherwise:
+
+```sh
+APPLE_ID=you@example.com
+APPLE_PASSWORD=xxxx-xxxx-xxxx-xxxx   # an app-specific password, not the account password
+APPLE_TEAM_ID=BULJM2WQ7M
+```
+
+A notarised build opens straight from a GitHub download; an unnotarised one has to be allowed under System Settings → Privacy & Security first.
+
+Launch is gated behind Touch ID via LocalAuthentication (`src-tauri/src/unlock.rs`). This is a gate on the app, not on the keychain item: binding the item itself to Touch ID needs the data-protection keychain, whose `keychain-access-groups` entitlement is restricted and needs a Developer ID provisioning profile embedded in the bundle. A binary that claims the entitlement without one is killed at launch.
+
 ## HackerOne API
 
 The app calls the [HackerOne v1 API](https://api.hackerone.com/customer-resources/) from the Rust side using HTTP Basic auth (API username + token, entered via Settings, stored in the OS keychain). Base URL: `https://api.hackerone.com/v1`.
