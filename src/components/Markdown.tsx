@@ -40,22 +40,32 @@ function CodeCopyButton({ text }: { text: string }) {
 	);
 }
 
-// Code blocks longer than this many lines become scrollable, capped at SCROLL_LINES tall.
-// Shorter blocks always render in full.
-const SCROLL_THRESHOLD = 30;
-const SCROLL_LINES = 20;
+// Code blocks longer than this many lines start collapsed to this height, with a toggle.
+const COLLAPSE_LINES = 20;
 
 function CodeBlock({ children }: { children?: ComponentChildren }) {
 	const text = extractText(children);
 	const lineCount = text.replace(/\n$/, "").split("\n").length;
-	const scrollable = lineCount > SCROLL_THRESHOLD;
+	const collapsible = lineCount > COLLAPSE_LINES;
+	const [expanded, setExpanded] = useState(false);
+	const collapsed = collapsible && !expanded;
 	return (
 		<pre
-			class={scrollable ? "code-block-scroll" : undefined}
-			style={scrollable ? { maxHeight: `calc(${SCROLL_LINES} * 1lh + 20px)` } : undefined}
+			class={collapsible ? "code-block-collapsible" : undefined}
+			style={collapsed ? { maxHeight: `calc(${COLLAPSE_LINES} * 1lh + 20px)` } : undefined}
 		>
 			<CodeCopyButton text={text} />
 			{children}
+			{collapsible && (
+				<button
+					type="button"
+					class="code-toggle"
+					aria-expanded={expanded}
+					onClick={() => setExpanded((v) => !v)}
+				>
+					{expanded ? "Collapse" : `Show all ${lineCount} lines`}
+				</button>
+			)}
 		</pre>
 	);
 }
