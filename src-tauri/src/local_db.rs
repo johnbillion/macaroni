@@ -70,18 +70,12 @@ pub struct ReportListItem {
     pub bounty_ineligible: bool,
 }
 
-// The event kinds the discussion feed surfaces alongside comments: the moments in a report's life
-// that someone following the whole program wants to see, whether or not a message came with them.
+// The event kinds the discussion feed surfaces alongside comments and state changes: the moments
+// in a report's life that someone following the whole program wants to see, whether or not a
+// message came with them. Every state change (`bug-<state>`: new, needs more info, triaged,
+// closure for any reason, …) is matched by prefix in `recent_discussion` rather than listed here.
 // Everything else (assignment, scope, severity, inbox changes, …) stays in the report's own log.
 pub const DISCUSSION_EVENT_KINDS: &[&str] = &[
-    "bug-triaged",
-    // Closed, for whatever reason.
-    "bug-resolved",
-    "bug-informative",
-    "bug-not-applicable",
-    "bug-duplicate",
-    "bug-spam",
-    "bug-inactive",
     // Locked.
     "comments-closed",
     "hacker-requested-mediation",
@@ -93,7 +87,8 @@ pub const DISCUSSION_EVENT_KINDS: &[&str] = &[
     "manually-disclosed",
 ];
 
-// One row of the discussion view: a comment or one of the `DISCUSSION_EVENT_KINDS` events, with
+// One row of the discussion view: a comment, a state change, or one of the `DISCUSSION_EVENT_KINDS`
+// events, with
 // just enough of its report to identify it. The activity is returned whole so the frontend renders
 // it with the same code as the report's own activity log.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -692,6 +687,7 @@ impl ReportStore for SqliteStore {
                                AND json_extract(a.value, '$.message') LIKE '%pre-submission%trigger%'
                            )
                        )
+                       OR json_extract(a.value, '$.kind') LIKE 'bug-%'
                        OR json_extract(a.value, '$.kind') IN ({kinds})
                    )
                  ORDER BY json_extract(a.value, '$.created_at') DESC
@@ -1844,8 +1840,10 @@ mod tests {
             &one,
             vec![
                 event_at("triaged", "bug-triaged", "2024-03-01T00:00:00.000Z"),
-                event_at("new", "bug-new", "2024-03-02T00:00:00.000Z"),
+                event_at("info", "bug-needs-more-info", "2024-03-02T00:00:00.000Z"),
+                event_at("new", "bug-new", "2024-03-02T12:00:00.000Z"),
                 event_at("closed", "bug-not-applicable", "2024-03-03T00:00:00.000Z"),
+                event_at("reopened", "bug-reopened", "2024-03-03T12:00:00.000Z"),
                 event_at("scope", "changed-scope", "2024-03-04T00:00:00.000Z"),
                 event_at("locked", "comments-closed", "2024-03-05T00:00:00.000Z"),
                 event_at(
@@ -1896,7 +1894,10 @@ mod tests {
                 "suggested",
                 "mediation",
                 "locked",
+                "reopened",
                 "closed",
+                "new",
+                "info",
                 "triaged",
             ]
         );

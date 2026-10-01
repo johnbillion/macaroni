@@ -755,6 +755,12 @@ input[type="radio"] {
 .comment-body.markdown > * + * {
 	margin-top: 4px;
 }
+/* WebKit's line-clamp silently gives up (rendering the whole body) when the clamped lines
+   contain an inline-block, which the atomic inline-code spans are. Plain inline is fine in a
+   three-line preview. */
+.comment-body.markdown code {
+	display: inline;
+}
 .comment-body + .comment-attachments {
 	margin-top: 4px;
 }
@@ -1941,6 +1947,19 @@ a[target="_blank"]::after {
 	background: var(--accent);
 	border-color: var(--accent);
 	color: var(--on-accent);
+}
+.retry-btn:disabled {
+	cursor: default;
+	opacity: 0.6;
+}
+.retry-btn:disabled:hover {
+	background: var(--bg);
+	border-color: var(--border-2);
+	color: var(--text-2);
+}
+.load-more {
+	padding: 1rem;
+	text-align: center;
 }
 .msg-bubble.markdown {
 	white-space: normal;

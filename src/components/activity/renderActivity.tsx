@@ -116,6 +116,16 @@ export function describeEvent(
 			) : (
 				<>joined this report as a participant</>
 			);
+		case "report-collaborator-invited":
+			return activity.invitee ? (
+				<>
+					invited <b>{activity.invitee}</b> as a collaborator
+				</>
+			) : (
+				<>invited a user as a collaborator</>
+			);
+		case "report-collaborator-joined":
+			return <>joined this report as a collaborator</>;
 		case "changed-scope":
 			return activity.new_scope ? (
 				<>

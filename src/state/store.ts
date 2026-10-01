@@ -338,8 +338,10 @@ export type AppState = {
 	// Which list the main pane shows. Persisted so a relaunch lands where the user left off.
 	view: AppView;
 	// The discussion feed: the newest comments across every synced report, newest first, capped at
-	// DISCUSSION_LIMIT. Loaded only while the discussion view is active.
-	discussion: AsyncState<{ items: DiscussionItem[] }>;
+	// `limit` (a multiple of DISCUSSION_PAGE_SIZE, grown by "load more"). `pending` is set while a
+	// re-query is in flight over an already-loaded list. Loaded only while the discussion view is
+	// active.
+	discussion: AsyncState<{ items: DiscussionItem[]; limit: number; pending: boolean }>;
 	// The activity the detail pane should scroll to once it has rendered, set when a comment row is
 	// clicked. It also marks which comment row is the active one, so it lives until another report
 	// is selected (every REPORT_SELECTED without one clears it).
@@ -417,8 +419,8 @@ export type Action =
 	| { type: "REPORTS_SUCCEEDED"; items: ReportSummary[]; replace: boolean }
 	| { type: "REPORTS_FAILED"; error: AppError }
 	| { type: "VIEW_SET"; view: AppView }
-	| { type: "DISCUSSION_REQUESTED" }
-	| { type: "DISCUSSION_SUCCEEDED"; items: DiscussionItem[] }
+	| { type: "DISCUSSION_REQUESTED"; limit: number }
+	| { type: "DISCUSSION_SUCCEEDED"; items: DiscussionItem[]; limit: number }
 	| { type: "DISCUSSION_FAILED"; error: AppError }
 	| { type: "SYNC_STATUS"; status: SyncStatus }
 	| { type: "SYNCED_COUNT_SET"; count: number }
@@ -867,10 +869,19 @@ export function reducer(state: AppState, action: Action): AppState {
 		case "DISCUSSION_REQUESTED":
 			return {
 				...state,
-				discussion: state.discussion.status === "ready" ? state.discussion : { status: "loading" },
+				discussion:
+					state.discussion.status === "ready"
+						? { status: "ready", data: { ...state.discussion.data, pending: true } }
+						: { status: "loading" },
 			};
 		case "DISCUSSION_SUCCEEDED":
-			return { ...state, discussion: { status: "ready", data: { items: action.items } } };
+			return {
+				...state,
+				discussion: {
+					status: "ready",
+					data: { items: action.items, limit: action.limit, pending: false },
+				},
+			};
 		case "DISCUSSION_FAILED":
 			return { ...state, discussion: { status: "error", error: action.error } };
 		case "SYNC_STATUS":

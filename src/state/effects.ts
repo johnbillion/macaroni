@@ -354,18 +354,26 @@ export async function loadReports(
 	}
 }
 
-// How many comments the discussion view holds. Unlike the inbox — where a filtered query is
-// bounded by the filters themselves — this feed spans every report in every state, so it's capped
-// at the newest slice rather than returning tens of thousands of rows.
-export const DISCUSSION_LIMIT = 100;
+// How many items the discussion view loads at a time. Unlike the inbox — where a filtered query
+// is bounded by the filters themselves — this feed spans every report in every state, so it's
+// capped at the newest slice rather than returning tens of thousands of rows, and "load more"
+// deepens it a page at a time.
+export const DISCUSSION_PAGE_SIZE = 100;
 
 // Load the discussion feed for a program. Fully derived from the local mirror: no HackerOne call,
-// nothing stored. Called when the view is opened and on its manual refresh.
-export async function loadDiscussion(dispatch: Dispatch, programHandle: string) {
-	dispatch({ type: "DISCUSSION_REQUESTED" });
+// nothing stored. Called when the view is opened, on its manual refresh, and from "load more".
+// Deepening re-queries the whole feed at the larger limit rather than fetching an offset page:
+// the query is a cheap local scan, and replacing the list wholesale means the selected report's
+// poll writing new activity into the mirror can't duplicate or skip rows across a page boundary.
+export async function loadDiscussion(
+	dispatch: Dispatch,
+	programHandle: string,
+	limit = DISCUSSION_PAGE_SIZE,
+) {
+	dispatch({ type: "DISCUSSION_REQUESTED", limit });
 	try {
-		const items = await api.queryDiscussion(programHandle, DISCUSSION_LIMIT);
-		dispatch({ type: "DISCUSSION_SUCCEEDED", items });
+		const items = await api.queryDiscussion(programHandle, limit);
+		dispatch({ type: "DISCUSSION_SUCCEEDED", items, limit });
 	} catch (e) {
 		dispatch({ type: "DISCUSSION_FAILED", error: asError(e) });
 	}

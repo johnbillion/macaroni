@@ -146,7 +146,8 @@ pub enum Activity {
         message: Option<String>,
         internal: bool,
         actor: Option<UserRef>,
-        /// `email` attr on `activity-external-user-invited` — actually a username string.
+        /// `email` attr on `activity-external-user-invited` and
+        /// `activity-report-collaborator-invited` — actually a username string.
         invitee: Option<String>,
         /// `duplicate_report_id` attr on `activity-external-user-joined` when the user
         /// joined as a result of filing a duplicate report.
@@ -707,7 +708,10 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
         })
     } else {
         let kind_short = kind.strip_prefix("activity-").unwrap_or(&kind).to_string();
-        let invitee = if kind_short == "external-user-invited" {
+        let invitee = if matches!(
+            kind_short.as_str(),
+            "external-user-invited" | "report-collaborator-invited"
+        ) {
             attrs
                 .get("email")
                 .and_then(|v| v.as_str())
@@ -925,6 +929,47 @@ fn parse_report_detail(body: &serde_json::Value) -> Option<ReportDetail> {
         activities,
         attachments: parse_attachments(rel),
     })
+}
+
+#[cfg(test)]
+mod parse_activity_tests {
+    use super::*;
+
+    fn invite(kind: &str) -> Option<Activity> {
+        parse_activity(&serde_json::json!({
+            "type": kind,
+            "id": "1",
+            "attributes": {
+                "created_at": "2026-09-30T19:09:42.188Z",
+                "internal": false,
+                "email": "mr4bugs"
+            },
+            "relationships": {}
+        }))
+    }
+
+    #[test]
+    fn invitee_is_read_for_both_invite_kinds() {
+        for kind in [
+            "activity-external-user-invited",
+            "activity-report-collaborator-invited",
+        ] {
+            match invite(kind) {
+                Some(Activity::Event { invitee, .. }) => {
+                    assert_eq!(invitee.as_deref(), Some("mr4bugs"), "{kind}");
+                }
+                other => panic!("{kind}: unexpected {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn invitee_is_ignored_on_other_kinds() {
+        match invite("activity-report-collaborator-joined") {
+            Some(Activity::Event { invitee, .. }) => assert_eq!(invitee, None),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
 }
 
 #[cfg(test)]
