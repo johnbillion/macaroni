@@ -172,6 +172,13 @@ pub enum Activity {
         /// award and report-quality bonus) and `activity-bounty-awarded` (the actual award).
         bounty_amount: Option<f64>,
         bonus_amount: Option<f64>,
+        /// Who received the award on `activity-bounty-awarded`. The activity itself names no
+        /// recipient, so this is matched from the report's `bounties` relationship (see
+        /// `attach_bounty_recipients`); `None` when the detail predates this field or no bounty
+        /// record lines up. Matters when an award is split between collaborators, which
+        /// produces one activity per recipient with the same actor and message.
+        #[serde(default)]
+        awarded_user: Option<UserRef>,
         /// `assigned_user` on `activity-user-assigned-to-bug` — the user the report was
         /// assigned to (distinct from `actor`, who performed the assignment).
         assigned_user: Option<UserRef>,
@@ -848,9 +855,61 @@ fn parse_activity(item: &serde_json::Value) -> Option<Activity> {
             new_title,
             bounty_amount,
             bonus_amount,
+            awarded_user: None,
             assigned_user,
             reference,
         })
+    }
+}
+
+// The `activity-bounty-awarded` event carries the amount but not the recipient; the report's
+// `bounties` relationship carries both. HackerOne creates the bounty records and then the
+// activities in the same order, so the nth award activity is the nth bounty. The amounts are
+// checked as a guard against the two lists drifting apart (a cancelled bounty, say).
+fn attach_bounty_recipients(activities: &mut [Activity], rel: Option<&serde_json::Value>) {
+    let Some(arr) = rel
+        .and_then(|r| r.get("bounties"))
+        .and_then(|b| b.get("data"))
+        .and_then(|d| d.as_array())
+    else {
+        return;
+    };
+    let mut bounties: Vec<(&str, f64, f64, Option<UserRef>)> = arr
+        .iter()
+        .filter_map(|item| {
+            let attrs = item.get("attributes")?;
+            Some((
+                attrs
+                    .get("created_at")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(""),
+                parse_money(attrs.get("awarded_amount")),
+                parse_money(attrs.get("awarded_bonus_amount")),
+                item.get("relationships")
+                    .and_then(|r| r.get("awarded_user"))
+                    .and_then(parse_user_ref),
+            ))
+        })
+        .collect();
+    bounties.sort_by(|a, b| a.0.cmp(b.0));
+
+    let awards = activities
+        .iter_mut()
+        .filter(|a| matches!(a, Activity::Event { kind, .. } if kind == "bounty-awarded"));
+    for (activity, (_, amount, bonus, user)) in awards.zip(bounties) {
+        let Activity::Event {
+            bounty_amount,
+            bonus_amount,
+            awarded_user,
+            ..
+        } = activity
+        else {
+            continue;
+        };
+        let same = |a: Option<f64>, b: f64| (a.unwrap_or(0.0) - b).abs() < 0.005;
+        if same(*bounty_amount, amount) && same(*bonus_amount, bonus) {
+            *awarded_user = user;
+        }
     }
 }
 
@@ -859,12 +918,13 @@ fn parse_report_detail(body: &serde_json::Value) -> Option<ReportDetail> {
     let attrs = data.get("attributes")?;
     let rel = data.get("relationships");
 
-    let activities = rel
+    let mut activities: Vec<Activity> = rel
         .and_then(|r| r.get("activities"))
         .and_then(|a| a.get("data"))
         .and_then(|d| d.as_array())
         .map(|arr| arr.iter().filter_map(parse_activity).collect())
         .unwrap_or_default();
+    attach_bounty_recipients(&mut activities, rel);
 
     Some(ReportDetail {
         id: data.get("id")?.as_str()?.to_string(),
@@ -969,6 +1029,99 @@ mod parse_activity_tests {
             Some(Activity::Event { invitee, .. }) => assert_eq!(invitee, None),
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    fn award(id: &str, amount: &str) -> serde_json::Value {
+        serde_json::json!({
+            "type": "activity-bounty-awarded",
+            "id": id,
+            "attributes": {
+                "created_at": "2026-10-01T11:36:08.073Z",
+                "internal": false,
+                "bounty_amount": amount,
+                "bonus_amount": "0.00"
+            },
+            "relationships": {}
+        })
+    }
+
+    fn bounty(created_at: &str, amount: &str, username: &str) -> serde_json::Value {
+        serde_json::json!({
+            "type": "bounty",
+            "id": username,
+            "attributes": {
+                "awarded_amount": amount,
+                "awarded_bonus_amount": "0.00",
+                "created_at": created_at
+            },
+            "relationships": {
+                "awarded_user": {
+                    "data": { "id": username, "type": "user", "attributes": { "username": username } }
+                }
+            }
+        })
+    }
+
+    fn recipients(activities: &[Activity]) -> Vec<Option<String>> {
+        activities
+            .iter()
+            .filter_map(|a| match a {
+                Activity::Event { awarded_user, .. } => {
+                    Some(awarded_user.as_ref().map(|u| u.username.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn split_award_names_each_recipient_in_order() {
+        let mut activities: Vec<Activity> = [award("1", "50.00"), award("2", "50.00")]
+            .iter()
+            .filter_map(parse_activity)
+            .collect();
+        // Listed newest-first to check the pairing sorts by creation time rather than trusting
+        // the order the API happens to return.
+        let rel = serde_json::json!({
+            "bounties": { "data": [
+                bounty("2026-10-01T11:36:04.998Z", "50.00", "ari-gato"),
+                bounty("2026-10-01T11:36:01.527Z", "50.00", "mappymappy123"),
+            ] }
+        });
+        attach_bounty_recipients(&mut activities, Some(&rel));
+        assert_eq!(
+            recipients(&activities),
+            vec![Some("mappymappy123".into()), Some("ari-gato".into())]
+        );
+    }
+
+    #[test]
+    fn mismatched_amount_leaves_recipient_unset() {
+        let mut activities: Vec<Activity> = [award("1", "100.00"), award("2", "50.00")]
+            .iter()
+            .filter_map(parse_activity)
+            .collect();
+        let rel = serde_json::json!({
+            "bounties": { "data": [
+                bounty("2026-10-01T11:36:01.527Z", "100.00", "mappymappy123"),
+                bounty("2026-10-01T11:36:04.998Z", "25.00", "ari-gato"),
+            ] }
+        });
+        attach_bounty_recipients(&mut activities, Some(&rel));
+        assert_eq!(
+            recipients(&activities),
+            vec![Some("mappymappy123".into()), None]
+        );
+    }
+
+    #[test]
+    fn no_bounties_relationship_is_a_no_op() {
+        let mut activities: Vec<Activity> = [award("1", "50.00")]
+            .iter()
+            .filter_map(parse_activity)
+            .collect();
+        attach_bounty_recipients(&mut activities, None);
+        assert_eq!(recipients(&activities), vec![None]);
     }
 }
 

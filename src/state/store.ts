@@ -132,6 +132,10 @@ export type Activity =
 			new_title: string | null;
 			bounty_amount: number | null;
 			bonus_amount: number | null;
+			// Recipient of a bounty-awarded event, matched from the report's bounties on the Rust
+			// side. Null when unknown (older mirrored detail). A split award yields one event per
+			// collaborator, so this is what tells them apart.
+			awarded_user: UserRef | null;
 			assigned_user: UserRef | null;
 			reference: string | null;
 	  };

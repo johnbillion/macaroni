@@ -1972,6 +1972,7 @@ mod tests {
             new_title: None,
             bounty_amount: None,
             bonus_amount: None,
+            awarded_user: None,
             assigned_user: None,
             reference: None,
         }

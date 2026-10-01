@@ -78,8 +78,14 @@ export function describeEvent(
 		case "bounty-awarded":
 			return activity.bounty_amount !== null ? (
 				<>
-					{activity.kind === "bounty-awarded" ? "awarded" : "suggested"} a bounty of{" "}
-					<b>{formatMoney(activity.bounty_amount)}</b>
+					{activity.kind === "bounty-awarded" ? "awarded" : "suggested"}
+					{activity.kind === "bounty-awarded" && activity.awarded_user ? (
+						<>
+							{" "}
+							<b>{activity.awarded_user.username}</b>
+						</>
+					) : null}{" "}
+					a bounty of <b>{formatMoney(activity.bounty_amount)}</b>
 					{activity.bonus_amount ? (
 						<>
 							{" "}
