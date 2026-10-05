@@ -113,15 +113,18 @@ export function referencedAttachmentIds(source: string): Set<string> {
 export function AttachmentGallery({
 	attachments,
 	class: className,
+	media = true,
 }: {
 	attachments: Attachment[];
 	class?: string;
+	/** When false, image attachments are listed as file links rather than embedded. */
+	media?: boolean;
 }) {
 	if (attachments.length === 0) return null;
 	return (
 		<div class={`attachment-gallery${className ? ` ${className}` : ""}`}>
 			{attachments.map((a) => {
-				const isImage = (a.content_type ?? "").startsWith("image/");
+				const isImage = media && (a.content_type ?? "").startsWith("image/");
 				if (isImage) {
 					return <ImageWithControls key={a.id} src={a.expiring_url} alt={a.file_name} />;
 				}
@@ -151,13 +154,17 @@ function escapeForMarkdownText(text: string): string {
 	return text.replace(/[\\`*_{}[\]()#+\-.!|<>]/g, (m) => `\\${m}`);
 }
 
-function substituteAttachmentTokens(source: string, attachments: Attachment[]): string {
+function substituteAttachmentTokens(
+	source: string,
+	attachments: Attachment[],
+	media: boolean,
+): string {
 	if (attachments.length === 0) return source;
 	const byId = new Map(attachments.map((a) => [a.id, a]));
 	return source.replace(/\{F(\d+)\}/g, (match, id: string) => {
 		const a = byId.get(id);
 		if (!a) return match;
-		const isImage = (a.content_type ?? "").startsWith("image/");
+		const isImage = media && (a.content_type ?? "").startsWith("image/");
 		const text = escapeForMarkdownText(a.file_name);
 		return isImage ? `![${text}](${a.expiring_url})` : `[${text}](${a.expiring_url})`;
 	});
@@ -195,6 +202,23 @@ function remarkReportRefs() {
 			{ ignore: ["link", "linkReference"] },
 		);
 	};
+}
+
+// Drops images written as markdown (`![alt](url)`, including the ones substituteAttachmentTokens
+// would have produced) from the tree, along with any paragraph that held nothing else, so
+// a comment that was only a screenshot leaves no blank line behind. Working on the tree
+// rather than the source text keeps image syntax inside code blocks intact.
+function remarkStripImages() {
+	const strip = (node: { children?: unknown[] }) => {
+		if (!Array.isArray(node.children)) return;
+		node.children = node.children.filter((child) => {
+			const c = child as { type: string; children?: unknown[] };
+			if (c.type === "image" || c.type === "imageReference") return false;
+			strip(c);
+			return !(c.type === "paragraph" && c.children?.length === 0);
+		});
+	};
+	return (tree: Root) => strip(tree);
 }
 
 // Returns the absolute http(s) URL to link to, or null if the href should be stripped.
@@ -241,21 +265,28 @@ export function Markdown({
 	source,
 	attachments,
 	class: className,
+	media = true,
 }: {
 	source: string;
 	attachments?: Attachment[];
 	class?: string;
+	/** When false, embedded images are stripped and image attachments become plain links. */
+	media?: boolean;
 }) {
 	const rendered = useMemo(
-		() => substituteAttachmentTokens(source, attachments ?? []),
-		[source, attachments],
+		() => substituteAttachmentTokens(source, attachments ?? [], media),
+		[source, attachments, media],
+	);
+	const remarkPlugins = useMemo(
+		() =>
+			media
+				? [remarkGfm, remarkBreaks, remarkReportRefs]
+				: [remarkGfm, remarkBreaks, remarkReportRefs, remarkStripImages],
+		[media],
 	);
 	return (
 		<div class={`markdown${className ? ` ${className}` : ""}`}>
-			<ReactMarkdown
-				remarkPlugins={[remarkGfm, remarkBreaks, remarkReportRefs]}
-				components={components}
-			>
+			<ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
 				{rendered}
 			</ReactMarkdown>
 		</div>

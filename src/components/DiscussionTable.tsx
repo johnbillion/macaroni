@@ -125,9 +125,18 @@ export function DiscussionTable() {
 											</span>
 										</div>
 										{hasMessage ? (
-											<Markdown source={message} attachments={attachments} class="comment-body" />
+											<Markdown
+												source={message}
+												attachments={attachments}
+												class="comment-body"
+												media={false}
+											/>
 										) : null}
-										<AttachmentGallery attachments={extraAttachments} class="comment-attachments" />
+										<AttachmentGallery
+											attachments={extraAttachments}
+											class="comment-attachments"
+											media={false}
+										/>
 									</td>
 								</tr>
 							);
