@@ -2,7 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { JSX } from "preact";
 import type { Activity, UserRef } from "../../state/store";
 import { formatMoney } from "../../utils/money";
-import { pillFor } from "../../utils/pill";
+import { pillFor, stateFromBugKind } from "../../utils/pill";
 import { formatTitle } from "../../utils/title";
 import { Avatar } from "../Avatar";
 import { AttachmentGallery, Markdown, referencedAttachmentIds } from "../Markdown";
@@ -239,18 +239,6 @@ export function describeEvent(
 }
 
 /**
- * If the event represents a state change, return the new state name (matching
- * the H1 state vocabulary used by pillFor). Otherwise null.
- *
- * H1 uses `activity-bug-<state>` types for every state transition, so once we
- * strip the `bug-` prefix what remains lines up with our pill keys.
- */
-function bugStateFromKind(kind: string): string | null {
-	if (!kind.startsWith("bug-")) return null;
-	return kind.slice("bug-".length);
-}
-
-/**
  * The action an event took, as shown beside the actor in a message header: a state change as
  * "changed status to <pill>", anything else as describeEvent's phrase, falling back to the
  * humanized kind. Shared by the detail pane's thread and the discussion feed.
@@ -261,12 +249,14 @@ export function describeEventAction(
 	currentCveIds: string[] | null = null,
 	referenceUrl: string | null = null,
 ): JSX.Element {
-	const newState = bugStateFromKind(event.kind);
+	const newState = stateFromBugKind(event.kind);
 	if (newState) {
 		const pill = pillFor(newState);
 		return (
 			<>
-				<span class="msg-event-action">changed status to</span>
+				<span class="msg-event-action">
+					{event.kind === "bug-reopened" ? "reopened this report as" : "changed status to"}
+				</span>
 				{event.original_report_id ? (
 					<span class={`pill ${pill.className}`}>
 						{pill.label} of <ReportLink id={event.original_report_id} />
@@ -328,7 +318,7 @@ export function renderActivity(
 	// Attachments not embedded in the body via {F<id>} are shown below the message.
 	const referencedIds = referencedAttachmentIds(message);
 	const extraAttachments = (messageAttachments ?? []).filter((a) => !referencedIds.has(a.id));
-	const newState = !isComment ? bugStateFromKind(activity.kind) : null;
+	const newState = !isComment ? stateFromBugKind(activity.kind) : null;
 	const actorIsBot = isBot(activity.actor);
 	const actorIsHackerOneStaff = isHackerOneStaff(activity.actor);
 	const isStaff = !!activity.actor && teamMemberIds.has(activity.actor.id);

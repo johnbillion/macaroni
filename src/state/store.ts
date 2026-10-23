@@ -1,4 +1,4 @@
-import { pillFor } from "../utils/pill";
+import { pillFor, stateFromBugKind } from "../utils/pill";
 import { DEFAULT_SEVERITY_KEYS, DEFAULT_STATE_KEYS } from "./filters";
 
 export type AppError =
@@ -1303,9 +1303,11 @@ function describeNewActivity(activity: Activity): string {
 	if (activity.type === "comment") {
 		return `New comment by ${actor}`;
 	}
-	if (activity.kind.startsWith("bug-")) {
-		const newState = activity.kind.slice("bug-".length);
-		return `Report changed to ${pillFor(newState).label} by ${actor}`;
+	const newState = stateFromBugKind(activity.kind);
+	if (newState) {
+		return activity.kind === "bug-reopened"
+			? `Report reopened by ${actor}`
+			: `Report changed to ${pillFor(newState).label} by ${actor}`;
 	}
 	const kindLabel = activity.kind.replace(/-/g, " ");
 	return `${actor} ${kindLabel}`;

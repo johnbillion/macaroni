@@ -17,3 +17,13 @@ const STATE_TO_PILL: Record<string, { className: string; label: string }> = {
 export function pillFor(state: string): { className: string; label: string } {
 	return STATE_TO_PILL[state] ?? { className: "", label: state };
 }
+
+/**
+ * The state a `bug-<state>` activity moved the report to, or null for any other kind.
+ * HackerOne has no "reopened" state: `bug-reopened` puts the report back to new.
+ */
+export function stateFromBugKind(kind: string): string | null {
+	if (!kind.startsWith("bug-")) return null;
+	const state = kind.slice("bug-".length);
+	return state === "reopened" ? "new" : state;
+}
