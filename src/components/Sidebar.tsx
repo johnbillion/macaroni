@@ -3,7 +3,7 @@ import { useShortcut } from "../shortcuts";
 import { useAppState, useDispatch } from "../state/context";
 import { buildReportsQuery, cancelPendingReportsLoad, loadReports } from "../state/effects";
 import { CLOSED_STATES, OPEN_STATES, SEVERITY_FACETS, type StateFacet } from "../state/filters";
-import type { AssigneeOption, AsyncState, InboxRef, TeamMember } from "../state/store";
+import type { AssetRef, AssigneeOption, AsyncState, InboxRef, TeamMember } from "../state/store";
 import { AssetIdentifier } from "./AssetIdentifier";
 import { SeverityMeter } from "./SeverityMeter";
 
@@ -11,7 +11,7 @@ export function Sidebar() {
 	const state = useAppState();
 	const dispatch = useDispatch();
 	const handle = state.filters.programHandle;
-	const assets: AsyncState<string[]> | undefined = handle
+	const assets: AsyncState<AssetRef[]> | undefined = handle
 		? state.assetsByProgram[handle]
 		: undefined;
 	const seenAssignees = handle ? (state.assigneeOptionsByProgram[handle] ?? []) : [];
@@ -201,7 +201,7 @@ function SeveritySection() {
 	);
 }
 
-function AssetSection({ state }: { state: AsyncState<string[]> | undefined }) {
+function AssetSection({ state }: { state: AsyncState<AssetRef[]> | undefined }) {
 	if (!state || state.status !== "ready") {
 		return (
 			<div class="side-section">
@@ -219,7 +219,11 @@ function AssetSection({ state }: { state: AsyncState<string[]> | undefined }) {
 			</div>
 		);
 	}
-	const visible = state.data.slice().sort((a, b) => assetSortKey(a).localeCompare(assetSortKey(b)));
+	const visible = state.data
+		.slice()
+		.sort((a, b) =>
+			assetSortKey(a.asset_identifier).localeCompare(assetSortKey(b.asset_identifier)),
+		);
 	return <AssetSectionReady assets={visible} />;
 }
 
@@ -380,24 +384,20 @@ function InboxSectionReady({ inboxes }: { inboxes: InboxRef[] }) {
 	);
 }
 
-// Assets are identified by their identifier throughout — it's what reports carry and what the
-// query filters on, so there's no id to key the checkboxes on.
-function AssetSectionReady({ assets }: { assets: string[] }) {
+function AssetSectionReady({ assets }: { assets: AssetRef[] }) {
 	const state = useAppState();
 	const dispatch = useDispatch();
 	const selected = state.filters.assets;
 	const checked = new Set<string>(selected);
-	const allChecked = assets.length > 0 && assets.every((k) => checked.has(k));
-	const someChecked = assets.some((k) => checked.has(k));
+	const allChecked = assets.length > 0 && assets.every((a) => checked.has(a.id));
+	const someChecked = assets.some((a) => checked.has(a.id));
 	const parentRef = useIndeterminate(allChecked, someChecked);
 
 	const toggleAll = () => {
-		dispatch({ type: "ASSETS_SET", assets: someChecked ? [] : assets });
+		dispatch({ type: "ASSETS_SET", assets: someChecked ? [] : assets.map((a) => a.id) });
 	};
-	const toggleOne = (identifier: string) => {
-		const next = checked.has(identifier)
-			? selected.filter((k) => k !== identifier)
-			: [...selected, identifier];
+	const toggleOne = (id: string) => {
+		const next = checked.has(id) ? selected.filter((k) => k !== id) : [...selected, id];
 		dispatch({ type: "ASSETS_SET", assets: next });
 	};
 
@@ -420,15 +420,15 @@ function AssetSectionReady({ assets }: { assets: string[] }) {
 				<div class="facet facet-muted">No assets</div>
 			) : (
 				assets.map((asset) => (
-					<label key={asset} class="facet facet-asset">
+					<label key={asset.id} class="facet facet-asset">
 						<input
 							type="checkbox"
 							class="cb"
-							checked={checked.has(asset)}
-							onChange={() => toggleOne(asset)}
+							checked={checked.has(asset.id)}
+							onChange={() => toggleOne(asset.id)}
 						/>
 						<span>
-							<AssetIdentifier identifier={asset} />
+							<AssetIdentifier identifier={asset.asset_identifier} />
 						</span>
 					</label>
 				))

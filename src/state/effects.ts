@@ -141,11 +141,10 @@ export async function adoptLocalProgram(dispatch: Dispatch) {
 	}
 }
 
-// Load the asset identifiers seen across a program's synced reports (the sidebar asset filter).
-// Derived from the local mirror rather than the organization's assets endpoint: the query filters
-// on the identifier, which every report carries, so the API list added a round trip and a
-// numeric-id translation without adding anything to filter by. Also called as a background refresh
-// when the sync lands more reports.
+// Load the assets a program's synced reports are filed against (the sidebar asset filter). Derived
+// from the local mirror rather than the organization's assets endpoint, whose ids don't match the
+// structured scope ids reports carry. Also called as a background refresh when the sync lands more
+// reports.
 export async function loadAssets(dispatch: Dispatch, programHandle: string) {
 	dispatch({ type: "ASSET_OPTIONS_REQUESTED", programHandle });
 	try {
@@ -254,8 +253,7 @@ export type ReportsQuery = {
 	programHandle: string;
 	states: string[];
 	severities: string[];
-	// Asset *identifiers* (e.g. "bbPress Core") — what reports carry and the sidebar selects by.
-	assetIdentifiers: string[];
+	assetIds: string[];
 	assignees: string[];
 	// Selected inbox ids (see InboxRef.id). Filtered entirely in SQL — there's no HackerOne API
 	// to filter reports by inbox.
@@ -286,7 +284,7 @@ function reportsQueryKey(query: ReportsQuery): string {
 		h: query.programHandle,
 		s: [...query.states].sort(),
 		v: [...query.severities].sort(),
-		a: [...query.assetIdentifiers].sort(),
+		a: [...query.assetIds].sort(),
 		n: [...query.assignees].sort(),
 		i: [...query.inboxIds].sort(),
 		k: query.keyword,
@@ -335,7 +333,7 @@ export async function loadReports(
 			program_handle: query.programHandle,
 			states: query.states,
 			severities: query.severities,
-			asset_identifiers: query.assetIdentifiers,
+			asset_ids: query.assetIds,
 			assignees: query.assignees,
 			inbox_ids: query.inboxIds,
 			keyword: query.keyword || undefined,
@@ -418,10 +416,10 @@ export function buildReportsQuery(state: AppState): ReportsQuery | null {
 	const severities =
 		state.filters.severities.length === ALL_SEVERITY_KEYS.length ? [] : state.filters.severities;
 
-	// Asset selection is by identifier; "all available selected" means no filter.
+	// "All available selected" means no filter.
 	const assetOptions = state.assetsByProgram[handle];
 	const availableAssets = assetOptions?.status === "ready" ? assetOptions.data : [];
-	const assetIdentifiers =
+	const assetIds =
 		availableAssets.length > 0 && state.filters.assets.length === availableAssets.length
 			? []
 			: state.filters.assets;
@@ -440,7 +438,7 @@ export function buildReportsQuery(state: AppState): ReportsQuery | null {
 		programHandle: handle,
 		states,
 		severities,
-		assetIdentifiers,
+		assetIds,
 		assignees: state.filters.assignees,
 		inboxIds,
 		keyword,

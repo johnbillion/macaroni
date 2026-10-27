@@ -59,6 +59,8 @@ The discussion view (the second tab in the top bar) is a second read of the same
 
 Inbox filtering is the one facet not backed by a generated column: a report carries a *list* of inboxes (`$.inboxes` in `summary_json`), so `query` matches it with an `EXISTS (SELECT 1 FROM json_each(summary_json, '$.inboxes') WHERE … IN (…))` subquery over the selected inbox ids. The sidebar's inbox options come from `list_inboxes` (`distinct_inboxes`), which `SELECT DISTINCT`s over the same `json_each` expansion across all of a program's synced reports — HackerOne exposes no endpoint to enumerate or filter reports by inbox, so both the option list and the filter are derived and applied locally.
 
+A report's asset is stored once, in the `assets` table keyed on the structured scope id. The report's `summary_json` holds only `asset_id`, and reads join the name back in, so a renamed asset shows its new name on every report as soon as any one of them is re-fetched. The sidebar's asset options (`distinct_assets`) and the asset filter both work on that id.
+
 Two behaviours to know about: local keyword search (`LIKE` over title + description) does **not** exactly match the API's opaque `filter[keyword]`; and because the DB can filter locally, the sidebar's `unrated` severity facet (null `severity_rating`) now actually works, unlike against the API.
 
 ### Querying the HackerOne API manually

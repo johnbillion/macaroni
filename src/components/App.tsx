@@ -140,7 +140,8 @@ export function App() {
 	const handle = state.filters.programHandle;
 	const view = state.view;
 	const currentAssets = handle ? state.assetsByProgram[handle] : undefined;
-	const availableAssetKey = currentAssets?.status === "ready" ? currentAssets.data.join(",") : "";
+	const availableAssetKey =
+		currentAssets?.status === "ready" ? currentAssets.data.map((a) => a.id).join(",") : "";
 
 	const currentInboxes = handle ? state.inboxesByProgram[handle] : undefined;
 	const availableInboxKey =

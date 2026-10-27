@@ -305,10 +305,10 @@ export type AppState = {
 	aiNoticeAcknowledged: boolean;
 	bootstrap: AsyncState<{ orgs: Organization[] }>;
 	programsByOrg: Record<string, AsyncState<Program[]>>;
-	// Asset filter options per program handle: the identifiers seen on synced reports, which is what
-	// the query filters on. Derived locally like the inbox options, and refreshed alongside them as
-	// the sync lands reports carrying assets not seen before.
-	assetsByProgram: Record<string, AsyncState<string[]>>;
+	// Asset filter options per program handle: the assets synced reports are filed against.
+	// Derived locally like the inbox options, and refreshed alongside them as the sync lands
+	// reports carrying assets not seen before.
+	assetsByProgram: Record<string, AsyncState<AssetRef[]>>;
 	teamMembersByProgram: Record<string, AsyncState<TeamMember[]>>;
 	// Inbox filter options per program handle, derived from the inboxes seen on synced reports
 	// (HackerOne has no endpoint to enumerate a program's inboxes). Refreshed as the sync lands
@@ -323,7 +323,7 @@ export type AppState = {
 		programHandle?: string;
 		states: string[];
 		severities: string[];
-		// Selected asset identifiers (e.g. "bbPress Core").
+		// Selected asset ids (see AssetRef.id).
 		assets: string[];
 		// Selected assignee filter tokens (usernames and group names) — see AssigneeOption.value.
 		assignees: string[];
@@ -398,7 +398,7 @@ export type Action =
 	| { type: "PROGRAMS_SUCCEEDED"; orgId: string; programs: Program[] }
 	| { type: "PROGRAMS_FAILED"; orgId: string; error: AppError }
 	| { type: "ASSET_OPTIONS_REQUESTED"; programHandle: string }
-	| { type: "ASSET_OPTIONS_SUCCEEDED"; programHandle: string; assets: string[] }
+	| { type: "ASSET_OPTIONS_SUCCEEDED"; programHandle: string; assets: AssetRef[] }
 	| { type: "ASSET_OPTIONS_FAILED"; programHandle: string; error: AppError }
 	| { type: "TEAM_MEMBERS_REQUESTED"; programHandle: string }
 	| { type: "TEAM_MEMBERS_SUCCEEDED"; programHandle: string; members: TeamMember[] }
@@ -660,9 +660,9 @@ export function reducer(state: AppState, action: Action): AppState {
 				},
 			};
 		case "ASSET_OPTIONS_SUCCEEDED": {
-			// Drop selected identifiers the fresh options no longer contain, so a stale selection
-			// can't keep filtering on an asset no synced report references.
-			const validAssets = new Set(action.assets);
+			// Drop selected ids the fresh options no longer contain, so a stale selection can't keep
+			// filtering on an asset no synced report references.
+			const validAssets = new Set(action.assets.map((a) => a.id));
 			const prunedAssets = state.filters.assets.filter((id) => validAssets.has(id));
 			const assetsChanged = prunedAssets.length !== state.filters.assets.length;
 			return {

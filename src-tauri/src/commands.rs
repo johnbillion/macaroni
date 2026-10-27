@@ -1,6 +1,8 @@
 use crate::credentials::{CredentialStore, Credentials};
 use crate::error::{AppError, AppResult};
-use crate::hackerone::{HackerOneApi, InboxRef, Organization, Program, ReportDetail, TeamMember};
+use crate::hackerone::{
+    AssetRef, HackerOneApi, InboxRef, Organization, Program, ReportDetail, TeamMember,
+};
 use crate::local_db::{
     DiscussionItem, LocalQuery, ReportListItem, ReportStore, TriageRecord, report_id_term,
     summary_from_detail,

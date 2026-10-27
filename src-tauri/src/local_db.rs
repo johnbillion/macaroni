@@ -1,6 +1,6 @@
 use crate::db_key::DbKey;
 use crate::error::{AppError, AppResult};
-use crate::hackerone::{Activity, Attachment, InboxRef, ReportDetail, ReportSummary};
+use crate::hackerone::{Activity, AssetRef, Attachment, InboxRef, ReportDetail, ReportSummary};
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -39,10 +39,9 @@ pub struct LocalQuery {
     pub states: Vec<String>,
     #[serde(default)]
     pub severities: Vec<String>,
-    // Asset *identifiers* (e.g. "bbPress Core"), not the sidebar's numeric asset ids — see the
-    // asset_identifier generated column for why.
+    // Asset (structured scope) ids.
     #[serde(default)]
-    pub asset_identifiers: Vec<String>,
+    pub asset_ids: Vec<String>,
     #[serde(default)]
     pub assignees: Vec<String>,
     // Inbox *ids*. A report matches when any of its inboxes has one of these ids. There's no
@@ -120,10 +119,10 @@ pub trait ReportStore: Send + Sync {
     // Handles of every program with reports mirrored locally, sorted. Lets the frontend pick the
     // program at launch without waiting for the HackerOne programs endpoint.
     fn distinct_program_handles(&self) -> AppResult<Vec<String>>;
-    // Distinct asset identifiers across a program's synced reports, sorted. Drives the sidebar
-    // asset filter, which matches on the identifier anyway — see the asset_identifier column.
-    // Assets with only a single report are omitted: filtering to one report isn't worth a facet.
-    fn distinct_asset_identifiers(&self, program_handle: &str) -> AppResult<Vec<String>>;
+    // The assets a program's synced reports are filed against, sorted by name. Drives the sidebar
+    // asset filter. Assets with only a single report are omitted: filtering to one report isn't
+    // worth a facet.
+    fn distinct_assets(&self, program_handle: &str) -> AppResult<Vec<AssetRef>>;
     // The cached full detail for a report, if we've fetched it before.
     fn get_detail(&self, id: &str) -> AppResult<Option<ReportDetail>>;
     // Ids of reports for this program that have no cached detail yet (drives detail backfill).
@@ -162,7 +161,9 @@ pub struct SqliteStore {
 }
 
 // The report's data lives in exactly one place per record: the `summary_json` blob (list-level
-// fields) and the `detail_json` blob (activities/attachments). Everything the app filters or
+// fields) and the `detail_json` blob (activities/attachments). The report's asset is the
+// exception: `summary_json` holds only its `asset_id`, and the asset's name lives in the `assets`
+// table, so a renamed asset is renamed for every report the moment any one of them is re-fetched. Everything the app filters or
 // sorts on is a VIRTUAL generated column derived from `summary_json` via json_extract — computed
 // on read, never stored, so no field value is duplicated. Only the indexes over those generated
 // columns hold copies, which is what an index is. The non-blob real columns are the primary key,
@@ -184,10 +185,7 @@ CREATE TABLE IF NOT EXISTS reports (
     severity_rating  TEXT GENERATED ALWAYS AS (json_extract(summary_json, '$.severity_rating')) VIRTUAL,
     created_at       TEXT GENERATED ALWAYS AS (json_extract(summary_json, '$.created_at')) VIRTUAL,
     last_activity_at TEXT GENERATED ALWAYS AS (json_extract(summary_json, '$.last_activity_at')) VIRTUAL,
-    -- The report's structured_scope carries the asset *identifier* (e.g. \"bbPress Core\"), which
-    -- is what the assets endpoint keys on too — the numeric structured_scope id does NOT match the
-    -- asset id the sidebar filters by, so we match on the identifier.
-    asset_identifier TEXT GENERATED ALWAYS AS (json_extract(summary_json, '$.asset.asset_identifier')) VIRTUAL,
+    asset_id         TEXT GENERATED ALWAYS AS (json_extract(summary_json, '$.asset_id')) VIRTUAL,
     assignee_token   TEXT GENERATED ALWAYS AS (
         CASE WHEN json_extract(summary_json, '$.assignee.type') = 'group'
              THEN json_extract(summary_json, '$.assignee.name')
@@ -198,6 +196,13 @@ CREATE INDEX IF NOT EXISTS reports_state ON reports(state);
 CREATE INDEX IF NOT EXISTS reports_created ON reports(created_at);
 CREATE INDEX IF NOT EXISTS reports_last_activity ON reports(last_activity_at);
 CREATE INDEX IF NOT EXISTS reports_assignee ON reports(assignee_token);
+
+-- Keyed on the report's structured_scope id, which stays the same when the asset is renamed.
+CREATE TABLE IF NOT EXISTS assets (
+    id               TEXT PRIMARY KEY,
+    asset_identifier TEXT NOT NULL,
+    asset_type       TEXT
+);
 
 CREATE TABLE IF NOT EXISTS sync_state (
     id                          INTEGER PRIMARY KEY CHECK (id = 1),
@@ -233,18 +238,9 @@ impl SqliteStore {
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(AppError::other)?;
         conn.execute_batch(SCHEMA).map_err(AppError::other)?;
-        // Idempotent migration: databases created before `asset_identifier` existed get the
-        // VIRTUAL generated column added in place (no row rewrite). Errors when it already
-        // exists, which we ignore. Its index is created afterwards, once the column is present.
-        let _ = conn.execute(
-            "ALTER TABLE reports ADD COLUMN asset_identifier TEXT
-             GENERATED ALWAYS AS (json_extract(summary_json, '$.asset.asset_identifier')) VIRTUAL",
-            [],
-        );
-        conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS reports_asset ON reports(asset_identifier);",
-        )
-        .map_err(AppError::other)?;
+        migrate_assets(&conn)?;
+        conn.execute_batch("CREATE INDEX IF NOT EXISTS reports_asset_id ON reports(asset_id);")
+            .map_err(AppError::other)?;
         // Same idempotent-migration trick for the triage session id, added after the triage
         // columns shipped. Existing rows keep a NULL — those runs' sessions aren't recoverable.
         let _ = conn.execute("ALTER TABLE reports ADD COLUMN triage_session_id TEXT", []);
@@ -265,6 +261,54 @@ impl SqliteStore {
         }
     }
 }
+
+// Databases from before the `assets` table embed the whole asset in each report's summary blob,
+// behind an `asset_identifier` generated column. Moves each asset into the table, taking its name
+// from the most recently fetched report (older rows can carry a name from before a rename), and
+// leaves only `asset_id` in the blob. Idempotent: does nothing once no blob carries `$.asset`.
+fn migrate_assets(conn: &Connection) -> AppResult<()> {
+    let _ = conn.execute(
+        "ALTER TABLE reports ADD COLUMN asset_id TEXT
+         GENERATED ALWAYS AS (json_extract(summary_json, '$.asset_id')) VIRTUAL",
+        [],
+    );
+    let _ = conn.execute_batch(
+        "DROP INDEX IF EXISTS reports_asset;
+         ALTER TABLE reports DROP COLUMN asset_identifier;",
+    );
+    conn.execute_batch(
+        "BEGIN;
+         INSERT OR REPLACE INTO assets (id, asset_identifier, asset_type)
+         SELECT id, asset_identifier, asset_type FROM (
+             SELECT json_extract(summary_json, '$.asset.id') AS id,
+                    json_extract(summary_json, '$.asset.asset_identifier') AS asset_identifier,
+                    json_extract(summary_json, '$.asset.asset_type') AS asset_type,
+                    row_number() OVER (
+                        PARTITION BY json_extract(summary_json, '$.asset.id')
+                        ORDER BY detail_fetched_at DESC NULLS LAST
+                    ) AS rn
+             FROM reports
+             WHERE json_type(summary_json, '$.asset') = 'object'
+         )
+         WHERE rn = 1 AND id IS NOT NULL AND asset_identifier IS NOT NULL;
+         UPDATE reports
+         SET summary_json = json_set(
+             json_remove(summary_json, '$.asset'),
+             '$.asset_id', json_extract(summary_json, '$.asset.id')
+         )
+         WHERE json_type(summary_json, '$.asset') IS NOT NULL;
+         COMMIT;",
+    )
+    .map_err(AppError::other)
+}
+
+// The stored summary blob with the asset joined back in from the `assets` table, ready to
+// deserialize as a `ReportSummary`. The subquery's unqualified columns resolve to `assets`, and
+// the outer ones to `reports`.
+const SUMMARY_WITH_ASSET: &str = "json_set(summary_json, '$.asset', (
+    SELECT json_object('id', id, 'asset_identifier', asset_identifier, 'asset_type', asset_type)
+    FROM assets WHERE assets.id = reports.asset_id
+))";
 
 fn apply_key(conn: &Connection, key: &DbKey) -> AppResult<()> {
     let mut keyspec = key.keyspec();
@@ -469,14 +513,34 @@ impl SqliteStore {
         Ok(out)
     }
 
-    // Writing a report is just storing the blob (plus the program handle it belongs to). Every
-    // queryable column derives from `summary_json`, so there's nothing else to write.
+    // Writing a report stores the blob (plus the program handle it belongs to) and its asset.
+    // Every queryable column derives from `summary_json`. The blob keeps only the asset's id;
+    // the asset row is overwritten on every write because the data always comes straight from
+    // the API, so the latest write carries the asset's current name.
     fn upsert_one_summary(
         conn: &Connection,
         program_handle: &str,
         s: &ReportSummary,
     ) -> AppResult<()> {
-        let summary_json = serde_json::to_string(s).map_err(AppError::other)?;
+        if let Some(a) = &s.asset {
+            conn.execute(
+                "INSERT INTO assets (id, asset_identifier, asset_type) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(id) DO UPDATE SET
+                    asset_identifier = excluded.asset_identifier,
+                    asset_type = excluded.asset_type",
+                params![a.id, a.asset_identifier, a.asset_type],
+            )
+            .map_err(AppError::other)?;
+        }
+        let mut blob = serde_json::to_value(s).map_err(AppError::other)?;
+        if let Some(obj) = blob.as_object_mut() {
+            obj.remove("asset");
+            obj.insert(
+                "asset_id".into(),
+                s.asset.as_ref().map(|a| a.id.clone()).into(),
+            );
+        }
+        let summary_json = serde_json::to_string(&blob).map_err(AppError::other)?;
         conn.execute(
             "INSERT INTO reports (id, program_handle, summary_json) VALUES (?1, ?2, ?3)
              ON CONFLICT(id) DO UPDATE SET
@@ -520,7 +584,7 @@ impl ReportStore for SqliteStore {
         // detail if we've somehow never seen this report at list level.
         let existing: Option<(String, String)> = c
             .query_row(
-                "SELECT program_handle, summary_json FROM reports WHERE id = ?1",
+                &format!("SELECT program_handle, {SUMMARY_WITH_ASSET} FROM reports WHERE id = ?1"),
                 params![detail.id],
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
             )
@@ -557,8 +621,8 @@ impl ReportStore for SqliteStore {
 
     fn query(&self, q: &LocalQuery) -> AppResult<Vec<ReportListItem>> {
         let c = self.conn.lock().unwrap();
-        let mut sql = String::from(
-            "SELECT summary_json,
+        let mut sql = format!(
+            "SELECT {SUMMARY_WITH_ASSET},
                     EXISTS (SELECT 1 FROM json_each(detail_json, '$.activities')
                             WHERE json_extract(value, '$.kind') = 'not-eligible-for-bounty')
              FROM reports WHERE program_handle = ?1",
@@ -595,10 +659,10 @@ impl ReportStore for SqliteStore {
                 sql.push_str(&format!(" AND ({})", clauses.join(" OR ")));
             }
         }
-        if !q.asset_identifiers.is_empty() {
-            let ph = placeholders(binds.len(), q.asset_identifiers.len());
-            sql.push_str(&format!(" AND asset_identifier IN ({ph})"));
-            binds.extend(q.asset_identifiers.iter().cloned());
+        if !q.asset_ids.is_empty() {
+            let ph = placeholders(binds.len(), q.asset_ids.len());
+            sql.push_str(&format!(" AND asset_id IN ({ph})"));
+            binds.extend(q.asset_ids.iter().cloned());
         }
         if !q.assignees.is_empty() {
             let ph = placeholders(binds.len(), q.assignees.len());
@@ -752,15 +816,28 @@ impl ReportStore for SqliteStore {
         rows.collect::<Result<Vec<_>, _>>().map_err(AppError::other)
     }
 
-    fn distinct_asset_identifiers(&self, program_handle: &str) -> AppResult<Vec<String>> {
+    fn distinct_assets(&self, program_handle: &str) -> AppResult<Vec<AssetRef>> {
         let c = self.conn.lock().unwrap();
         let mut stmt = c
             .prepare(
-                "SELECT asset_identifier FROM reports
-                 WHERE program_handle = ?1 AND asset_identifier IS NOT NULL
-                 GROUP BY asset_identifier
+                "SELECT a.id, a.asset_identifier, a.asset_type
+                 FROM assets a JOIN reports r ON r.asset_id = a.id
+                 WHERE r.program_handle = ?1
+                 GROUP BY a.id
                  HAVING count(*) > 1
-                 ORDER BY asset_identifier COLLATE NOCASE",
+                 ORDER BY a.asset_identifier COLLATE NOCASE",
+            )
+            .map_err(AppError::other)?;
+        let rows = stmt
+            .query_map(params![program_handle], |row| {
+                Ok(AssetRef {
+                    id: row.get(0)?,
+                    asset_identifier: row.get(1)?,
+                    asset_type: row.get(2)?,
+                })
+            })
+            .map_err(AppError::other)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(AppError::other)
             )
             .map_err(AppError::other)?;
         let rows = stmt
@@ -775,7 +852,9 @@ impl ReportStore for SqliteStore {
         // detail-only extra blob. Returns None until the detail has actually been fetched.
         let row: Option<(String, String, Option<String>)> = c
             .query_row(
-                "SELECT program_handle, summary_json, detail_json FROM reports WHERE id = ?1",
+                &format!(
+                    "SELECT program_handle, {SUMMARY_WITH_ASSET}, detail_json FROM reports WHERE id = ?1"
+                ),
                 params![id],
                 |row| {
                     Ok((
@@ -857,7 +936,7 @@ impl ReportStore for SqliteStore {
 
     fn wipe(&self) -> AppResult<()> {
         let c = self.conn.lock().unwrap();
-        c.execute_batch("DELETE FROM reports; DELETE FROM sync_state;")
+        c.execute_batch("DELETE FROM reports; DELETE FROM assets; DELETE FROM sync_state;")
             .map_err(AppError::other)?;
         // Deleting rows only marks their pages free — the report text stays in the file (and its
         // WAL) until something reuses them. VACUUM rewrites the database from live content only.
@@ -1148,7 +1227,7 @@ mod tests {
     }
 
     #[test]
-    fn distinct_asset_identifiers_are_scoped_to_the_program() {
+    fn distinct_assets_are_scoped_to_the_program() {
         let s = store();
         let asset = |id: &str, ident: &str| {
             Some(AssetRef {
@@ -1170,18 +1249,19 @@ mod tests {
         s.upsert_summaries("wp", &[r1, r2, r3]).unwrap();
         s.upsert_summaries("other", &[r4, r5]).unwrap();
 
-        assert_eq!(
-            s.distinct_asset_identifiers("wp").unwrap(),
-            vec!["bbPress Core".to_string()]
-        );
-        assert_eq!(
-            s.distinct_asset_identifiers("other").unwrap(),
-            vec!["WordPress Core".to_string()]
-        );
+        let names = |handle: &str| -> Vec<String> {
+            s.distinct_assets(handle)
+                .unwrap()
+                .into_iter()
+                .map(|a| a.asset_identifier)
+                .collect()
+        };
+        assert_eq!(names("wp"), vec!["bbPress Core".to_string()]);
+        assert_eq!(names("other"), vec!["WordPress Core".to_string()]);
     }
 
     #[test]
-    fn distinct_asset_identifiers_skips_assets_with_a_single_report() {
+    fn distinct_assets_skips_assets_with_a_single_report() {
         let s = store();
         let asset = |id: &str, ident: &str| {
             Some(AssetRef {
@@ -1199,10 +1279,9 @@ mod tests {
         r3.asset = asset("2750", "WordPress Core");
         s.upsert_summaries("wp", &[r1, r2, r3]).unwrap();
 
-        assert_eq!(
-            s.distinct_asset_identifiers("wp").unwrap(),
-            vec!["bbPress Core".to_string()]
-        );
+        let assets = s.distinct_assets("wp").unwrap();
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].id, "2752");
     }
 
     #[test]
@@ -1501,7 +1580,7 @@ mod tests {
     }
 
     #[test]
-    fn asset_filter_matches_on_identifier() {
+    fn asset_filter_matches_on_id() {
         let s = store();
         let asset = |id: &str, ident: &str| {
             Some(AssetRef {
@@ -1516,17 +1595,101 @@ mod tests {
         r2.asset = asset("2751", "BuddyPress Core");
         s.upsert_summaries("wp", &[r1, r2]).unwrap();
 
-        // Filter by the asset *identifier* (the sidebar's numeric id 2100930 wouldn't match the
-        // report's structured_scope id 2752 — that mismatch was the bug).
         let hits = s
             .query(&LocalQuery {
                 program_handle: "wp".into(),
-                asset_identifiers: vec!["bbPress Core".into()],
+                asset_ids: vec!["2752".into()],
                 ..Default::default()
             })
             .unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].summary.id, "1");
+    }
+
+    #[test]
+    fn renaming_an_asset_renames_it_for_every_report() {
+        let s = store();
+        let asset = |ident: &str| {
+            Some(AssetRef {
+                id: "2752".into(),
+                asset_identifier: ident.to_string(),
+                asset_type: Some("SOURCE_CODE".into()),
+            })
+        };
+        let mut r1 = summary("1", "One", "new", None);
+        r1.asset = asset("old name");
+        let mut r2 = summary("2", "Two", "new", None);
+        r2.asset = asset("old name");
+        s.upsert_summaries("wp", &[r1, r2.clone()]).unwrap();
+
+        r2.asset = asset("new name");
+        s.upsert_summaries("wp", &[r2]).unwrap();
+
+        let hits = s
+            .query(&LocalQuery {
+                program_handle: "wp".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(hits.len(), 2);
+        for hit in &hits {
+            assert_eq!(
+                hit.summary.asset.as_ref().unwrap().asset_identifier,
+                "new name"
+            );
+        }
+        let assets = s.distinct_assets("wp").unwrap();
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].asset_identifier, "new name");
+    }
+
+    #[test]
+    fn migrate_assets_moves_embedded_assets_into_the_table() {
+        let s = store();
+        {
+            let c = s.conn.lock().unwrap();
+            let blob = |id: &str, ident: &str| {
+                let mut v = serde_json::to_value(summary(id, "t", "new", None)).unwrap();
+                v["asset"] = serde_json::json!({
+                    "id": "2752", "asset_identifier": ident, "asset_type": "SOURCE_CODE"
+                });
+                v.as_object_mut().unwrap().remove("asset_id");
+                v.to_string()
+            };
+            // The newer fetch has the current name.
+            c.execute(
+                "INSERT INTO reports (id, program_handle, summary_json, detail_fetched_at)
+                 VALUES ('1', 'wp', ?1, '@100'), ('2', 'wp', ?2, '@200'), ('3', 'wp', ?3, NULL)",
+                params![
+                    blob("1", "old name"),
+                    blob("2", "new name"),
+                    blob("3", "old name")
+                ],
+            )
+            .unwrap();
+            migrate_assets(&c).unwrap();
+            migrate_assets(&c).unwrap();
+            let embedded: i64 = c
+                .query_row(
+                    "SELECT count(*) FROM reports WHERE json_type(summary_json, '$.asset') IS NOT NULL",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(embedded, 0);
+        }
+        let assets = s.distinct_assets("wp").unwrap();
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].id, "2752");
+        assert_eq!(assets[0].asset_identifier, "new name");
+        let hits = s
+            .query(&LocalQuery {
+                program_handle: "wp".into(),
+                asset_ids: vec!["2752".into()],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(hits.len(), 3);
     }
 
     #[test]

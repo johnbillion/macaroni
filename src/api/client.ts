@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
 	AppError,
+	AssetRef,
 	DiscussionItem,
 	DuplicateInput,
 	DuplicateResult,
@@ -38,7 +39,7 @@ export const api = {
 		program_handle: string;
 		states: string[];
 		severities: string[];
-		asset_identifiers: string[];
+		asset_ids: string[];
 		assignees: string[];
 		inbox_ids: string[];
 		keyword?: string;
@@ -53,7 +54,7 @@ export const api = {
 	listInboxes: (programHandle: string) => call<InboxRef[]>("list_inboxes", { programHandle }),
 	// Distinct asset identifiers across a program's synced reports, for the sidebar asset filter.
 	listLocalAssets: (programHandle: string) =>
-		call<string[]>("list_local_assets", { programHandle }),
+		call<AssetRef[]>("list_local_assets", { programHandle }),
 	// Handles of the programs already mirrored locally, for selecting one at launch without
 	// waiting on the HackerOne API.
 	listLocalPrograms: () => call<string[]>("list_local_programs"),
