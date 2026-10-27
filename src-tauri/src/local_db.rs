@@ -164,9 +164,10 @@ pub struct SqliteStore {
 }
 
 // The report's data lives in exactly one place per record: the `summary_json` blob (list-level
-// fields) and the `detail_json` blob (activities/attachments). The report's asset is the
-// exception: `summary_json` holds only its `asset_id`, and the asset's name lives in the `assets`
-// table, so a renamed asset is renamed for every report the moment any one of them is re-fetched. Everything the app filters or
+// fields) and the `detail_json` blob (activities/attachments). The report's asset and inboxes are
+// the exception: `summary_json` holds only `asset_id` and `inbox_ids`, and their names live in
+// the `assets` and `inboxes` tables, so a renamed asset or inbox is renamed for every report the
+// moment any one of them is re-fetched. Everything the app filters or
 // sorts on is a VIRTUAL generated column derived from `summary_json` via json_extract — computed
 // on read, never stored, so no field value is duplicated. Only the indexes over those generated
 // columns hold copies, which is what an index is. The non-blob real columns are the primary key,
@@ -207,6 +208,12 @@ CREATE TABLE IF NOT EXISTS assets (
     asset_type       TEXT
 );
 
+CREATE TABLE IF NOT EXISTS inboxes (
+    id   TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    kind TEXT
+);
+
 CREATE TABLE IF NOT EXISTS sync_state (
     id                          INTEGER PRIMARY KEY CHECK (id = 1),
     program_handle              TEXT,
@@ -242,6 +249,7 @@ impl SqliteStore {
             .map_err(AppError::other)?;
         conn.execute_batch(SCHEMA).map_err(AppError::other)?;
         migrate_assets(&conn)?;
+        migrate_inboxes(&conn)?;
         conn.execute_batch("CREATE INDEX IF NOT EXISTS reports_asset_id ON reports(asset_id);")
             .map_err(AppError::other)?;
         // Same idempotent-migration trick for the triage session id, added after the triage
@@ -305,13 +313,53 @@ fn migrate_assets(conn: &Connection) -> AppResult<()> {
     .map_err(AppError::other)
 }
 
-// The stored summary blob with the asset joined back in from the `assets` table, ready to
-// deserialize as a `ReportSummary`. The subquery's unqualified columns resolve to `assets`, and
-// the outer ones to `reports`.
-const SUMMARY_WITH_ASSET: &str = "json_set(summary_json, '$.asset', (
-    SELECT json_object('id', id, 'asset_identifier', asset_identifier, 'asset_type', asset_type)
-    FROM assets WHERE assets.id = reports.asset_id
-))";
+// Databases from before the `inboxes` table embed each inbox's id, name, and kind in the report's
+// `$.inboxes` array. Moves them into the table the same way `migrate_assets` does, leaving only
+// `inbox_ids` in the blob. Idempotent: does nothing once no blob carries `$.inboxes`.
+fn migrate_inboxes(conn: &Connection) -> AppResult<()> {
+    conn.execute_batch(
+        "BEGIN;
+         INSERT OR REPLACE INTO inboxes (id, name, kind)
+         SELECT id, name, kind FROM (
+             SELECT json_extract(i.value, '$.id') AS id,
+                    json_extract(i.value, '$.name') AS name,
+                    json_extract(i.value, '$.kind') AS kind,
+                    row_number() OVER (
+                        PARTITION BY json_extract(i.value, '$.id')
+                        ORDER BY r.detail_fetched_at DESC NULLS LAST
+                    ) AS rn
+             FROM reports r, json_each(r.summary_json, '$.inboxes') i
+         )
+         WHERE rn = 1 AND id IS NOT NULL AND name IS NOT NULL;
+         UPDATE reports
+         SET summary_json = json_set(
+             json_remove(summary_json, '$.inboxes'),
+             '$.inbox_ids', json((
+                 SELECT json_group_array(json_extract(value, '$.id'))
+                 FROM json_each(reports.summary_json, '$.inboxes')
+             ))
+         )
+         WHERE json_type(summary_json, '$.inboxes') IS NOT NULL;
+         COMMIT;",
+    )
+    .map_err(AppError::other)
+}
+
+// The stored summary blob with the asset and inboxes joined back in from their tables, ready to
+// deserialize as a `ReportSummary`. Each subquery's unqualified columns resolve to its own table,
+// and the outer ones to `reports`. `json()` keeps each subquery's result as JSON rather than a
+// string, and the inboxes keep the order of `inbox_ids`.
+const SUMMARY_JOINED: &str = "json_set(summary_json,
+    '$.asset', json((
+        SELECT json_object('id', id, 'asset_identifier', asset_identifier, 'asset_type', asset_type)
+        FROM assets WHERE assets.id = reports.asset_id
+    )),
+    '$.inboxes', json((
+        SELECT json_group_array(json_object('id', i.id, 'name', i.name, 'kind', i.kind))
+        FROM json_each(reports.summary_json, '$.inbox_ids') j
+        JOIN inboxes i ON i.id = j.value
+    ))
+)";
 
 fn apply_key(conn: &Connection, key: &DbKey) -> AppResult<()> {
     let mut keyspec = key.keyspec();
@@ -516,10 +564,10 @@ impl SqliteStore {
         Ok(out)
     }
 
-    // Writing a report stores the blob (plus the program handle it belongs to) and its asset.
-    // Every queryable column derives from `summary_json`. The blob keeps only the asset's id;
-    // the asset row is overwritten on every write because the data always comes straight from
-    // the API, so the latest write carries the asset's current name.
+    // Writing a report stores the blob (plus the program handle it belongs to), its asset, and
+    // its inboxes. Every queryable column derives from `summary_json`. The blob keeps only the
+    // asset and inbox ids; their rows are overwritten on every write because the data always
+    // comes straight from the API, so the latest write carries the current names.
     fn upsert_one_summary(
         conn: &Connection,
         program_handle: &str,
@@ -535,12 +583,29 @@ impl SqliteStore {
             )
             .map_err(AppError::other)?;
         }
+        for i in &s.inboxes {
+            conn.execute(
+                "INSERT INTO inboxes (id, name, kind) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(id) DO UPDATE SET name = excluded.name, kind = excluded.kind",
+                params![i.id, i.name, i.kind],
+            )
+            .map_err(AppError::other)?;
+        }
         let mut blob = serde_json::to_value(s).map_err(AppError::other)?;
         if let Some(obj) = blob.as_object_mut() {
             obj.remove("asset");
             obj.insert(
                 "asset_id".into(),
                 s.asset.as_ref().map(|a| a.id.clone()).into(),
+            );
+            obj.remove("inboxes");
+            obj.insert(
+                "inbox_ids".into(),
+                s.inboxes
+                    .iter()
+                    .map(|i| i.id.clone())
+                    .collect::<Vec<_>>()
+                    .into(),
             );
         }
         let summary_json = serde_json::to_string(&blob).map_err(AppError::other)?;
@@ -587,7 +652,7 @@ impl ReportStore for SqliteStore {
         // detail if we've somehow never seen this report at list level.
         let existing: Option<(String, String)> = c
             .query_row(
-                &format!("SELECT program_handle, {SUMMARY_WITH_ASSET} FROM reports WHERE id = ?1"),
+                &format!("SELECT program_handle, {SUMMARY_JOINED} FROM reports WHERE id = ?1"),
                 params![detail.id],
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
             )
@@ -625,7 +690,7 @@ impl ReportStore for SqliteStore {
     fn query(&self, q: &LocalQuery) -> AppResult<Vec<ReportListItem>> {
         let c = self.conn.lock().unwrap();
         let mut sql = format!(
-            "SELECT {SUMMARY_WITH_ASSET},
+            "SELECT {SUMMARY_JOINED},
                     EXISTS (SELECT 1 FROM json_each(detail_json, '$.activities')
                             WHERE json_extract(value, '$.kind') = 'not-eligible-for-bounty')
              FROM reports WHERE program_handle = ?1",
@@ -672,13 +737,13 @@ impl ReportStore for SqliteStore {
             sql.push_str(&format!(" AND assignee_token IN ({ph})"));
             binds.extend(q.assignees.iter().cloned());
         }
-        // A report matches when any of its inboxes (a JSON array in the summary blob) has one of
+        // A report matches when any of its inbox ids (a JSON array in the summary blob) is one of
         // the selected ids. json_each expands the array so a plain IN over the ids does the job.
         if !q.inbox_ids.is_empty() {
             let ph = placeholders(binds.len(), q.inbox_ids.len());
             sql.push_str(&format!(
-                " AND EXISTS (SELECT 1 FROM json_each(summary_json, '$.inboxes')
-                              WHERE json_extract(value, '$.id') IN ({ph}))"
+                " AND EXISTS (SELECT 1 FROM json_each(summary_json, '$.inbox_ids')
+                              WHERE value IN ({ph}))"
             ));
             binds.extend(q.inbox_ids.iter().cloned());
         }
@@ -785,12 +850,11 @@ impl ReportStore for SqliteStore {
         let c = self.conn.lock().unwrap();
         let mut stmt = c
             .prepare(
-                "SELECT DISTINCT json_extract(value, '$.id')   AS inbox_id,
-                                 json_extract(value, '$.name') AS inbox_name,
-                                 json_extract(value, '$.kind') AS inbox_kind
-                 FROM reports, json_each(reports.summary_json, '$.inboxes')
-                 WHERE reports.program_handle = ?1 AND inbox_id IS NOT NULL
-                 ORDER BY inbox_name COLLATE NOCASE",
+                "SELECT DISTINCT i.id, i.name, i.kind
+                 FROM reports r, json_each(r.summary_json, '$.inbox_ids') j
+                 JOIN inboxes i ON i.id = j.value
+                 WHERE r.program_handle = ?1
+                 ORDER BY i.name COLLATE NOCASE",
             )
             .map_err(AppError::other)?;
         let rows = stmt
@@ -865,7 +929,7 @@ impl ReportStore for SqliteStore {
         let row: Option<(String, String, Option<String>)> = c
             .query_row(
                 &format!(
-                    "SELECT program_handle, {SUMMARY_WITH_ASSET}, detail_json FROM reports WHERE id = ?1"
+                    "SELECT program_handle, {SUMMARY_JOINED}, detail_json FROM reports WHERE id = ?1"
                 ),
                 params![id],
                 |row| {
@@ -948,8 +1012,11 @@ impl ReportStore for SqliteStore {
 
     fn wipe(&self) -> AppResult<()> {
         let c = self.conn.lock().unwrap();
-        c.execute_batch("DELETE FROM reports; DELETE FROM assets; DELETE FROM sync_state;")
-            .map_err(AppError::other)?;
+        c.execute_batch(
+            "DELETE FROM reports; DELETE FROM assets; DELETE FROM inboxes;
+                        DELETE FROM sync_state;",
+        )
+        .map_err(AppError::other)?;
         // Deleting rows only marks their pages free — the report text stays in the file (and its
         // WAL) until something reuses them. VACUUM rewrites the database from live content only.
         c.execute_batch("VACUUM").map_err(AppError::other)
@@ -1721,6 +1788,81 @@ mod tests {
             })
             .unwrap();
         assert_eq!(hits.len(), 3);
+    }
+
+    #[test]
+    fn renaming_an_inbox_renames_it_for_every_report() {
+        let s = store();
+        let inbox = |name: &str| InboxRef {
+            id: "114064".into(),
+            name: name.to_string(),
+            kind: Some("custom".into()),
+        };
+        let default = InboxRef {
+            id: "1".into(),
+            name: "Default".into(),
+            kind: Some("default".into()),
+        };
+        let mut r1 = summary("1", "One", "new", None);
+        r1.inboxes = vec![default.clone(), inbox("Two factor (2fa)")];
+        let mut r2 = summary("2", "Two", "new", None);
+        r2.inboxes = vec![inbox("Two factor (2fa)")];
+        s.upsert_summaries("wp", &[r1, r2.clone()]).unwrap();
+
+        r2.inboxes = vec![inbox("Two Factor (2fa)")];
+        s.upsert_summaries("wp", &[r2]).unwrap();
+
+        let names: Vec<String> = s
+            .distinct_inboxes("wp")
+            .unwrap()
+            .into_iter()
+            .map(|i| i.name)
+            .collect();
+        assert_eq!(names, vec!["Default", "Two Factor (2fa)"]);
+        let hits = s
+            .query(&LocalQuery {
+                program_handle: "wp".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let r1 = hits.iter().find(|h| h.summary.id == "1").unwrap();
+        let r1_names: Vec<&str> = r1.summary.inboxes.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(r1_names, vec!["Default", "Two Factor (2fa)"]);
+    }
+
+    #[test]
+    fn migrate_inboxes_moves_embedded_inboxes_into_the_table() {
+        let s = store();
+        {
+            let c = s.conn.lock().unwrap();
+            let blob = |id: &str, name: &str| {
+                let mut v = serde_json::to_value(summary(id, "t", "new", None)).unwrap();
+                v["inboxes"] =
+                    serde_json::json!([{ "id": "114064", "name": name, "kind": "custom" }]);
+                v.as_object_mut().unwrap().remove("inbox_ids");
+                v.to_string()
+            };
+            c.execute(
+                "INSERT INTO reports (id, program_handle, summary_json, detail_fetched_at)
+                 VALUES ('1', 'wp', ?1, '@100'), ('2', 'wp', ?2, '@200')",
+                params![blob("1", "old name"), blob("2", "new name")],
+            )
+            .unwrap();
+            migrate_inboxes(&c).unwrap();
+            migrate_inboxes(&c).unwrap();
+        }
+        let inboxes = s.distinct_inboxes("wp").unwrap();
+        assert_eq!(inboxes.len(), 1);
+        assert_eq!(inboxes[0].name, "new name");
+        let hits = s
+            .query(&LocalQuery {
+                program_handle: "wp".into(),
+                inbox_ids: vec!["114064".into()],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(hits.len(), 2);
+        assert!(hits.iter().all(|h| h.summary.inboxes[0].name == "new name"));
     }
 
     #[test]
