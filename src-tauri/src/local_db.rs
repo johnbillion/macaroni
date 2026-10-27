@@ -123,6 +123,9 @@ pub trait ReportStore: Send + Sync {
     // asset filter. Assets with only a single report are omitted: filtering to one report isn't
     // worth a facet.
     fn distinct_assets(&self, program_handle: &str) -> AppResult<Vec<AssetRef>>;
+    // The states at least one of a program's synced reports is in. Drives the sidebar state
+    // filter, which hides states no report has (e.g. retesting, for a program without retests).
+    fn distinct_states(&self, program_handle: &str) -> AppResult<Vec<String>>;
     // The cached full detail for a report, if we've fetched it before.
     fn get_detail(&self, id: &str) -> AppResult<Option<ReportDetail>>;
     // Ids of reports for this program that have no cached detail yet (drives detail backfill).
@@ -838,6 +841,15 @@ impl ReportStore for SqliteStore {
             })
             .map_err(AppError::other)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(AppError::other)
+    }
+
+    fn distinct_states(&self, program_handle: &str) -> AppResult<Vec<String>> {
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c
+            .prepare(
+                "SELECT DISTINCT state FROM reports
+                 WHERE program_handle = ?1 AND state IS NOT NULL
+                 ORDER BY state",
             )
             .map_err(AppError::other)?;
         let rows = stmt
@@ -1282,6 +1294,25 @@ mod tests {
         let assets = s.distinct_assets("wp").unwrap();
         assert_eq!(assets.len(), 1);
         assert_eq!(assets[0].id, "2752");
+    }
+
+    #[test]
+    fn distinct_states_are_scoped_to_the_program() {
+        let s = store();
+        s.upsert_summaries(
+            "wp",
+            &[
+                summary("1", "One", "new", None),
+                summary("2", "Two", "new", None),
+                summary("3", "Three", "resolved", None),
+            ],
+        )
+        .unwrap();
+        s.upsert_summaries("other", &[summary("4", "Four", "retesting", None)])
+            .unwrap();
+
+        assert_eq!(s.distinct_states("wp").unwrap(), vec!["new", "resolved"]);
+        assert_eq!(s.distinct_states("other").unwrap(), vec!["retesting"]);
     }
 
     #[test]

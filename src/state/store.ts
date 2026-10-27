@@ -314,6 +314,9 @@ export type AppState = {
 	// (HackerOne has no endpoint to enumerate a program's inboxes). Refreshed as the sync lands
 	// more reports, so newly-seen inboxes appear in the sidebar.
 	inboxesByProgram: Record<string, AsyncState<InboxRef[]>>;
+	// The states at least one synced report per program handle is in. The sidebar hides the
+	// state facets no report has, such as retesting for a program that doesn't buy retests.
+	statesByProgram: Record<string, AsyncState<string[]>>;
 	// Assignee filter options accumulated per program handle from the assignees seen on loaded
 	// reports. Persisted to localStorage so the list stays useful across launches — groups in
 	// particular can't be enumerated via the API, so they're only ever learned from report data.
@@ -406,6 +409,9 @@ export type Action =
 	| { type: "INBOX_OPTIONS_REQUESTED"; programHandle: string }
 	| { type: "INBOX_OPTIONS_SUCCEEDED"; programHandle: string; inboxes: InboxRef[] }
 	| { type: "INBOX_OPTIONS_FAILED"; programHandle: string; error: AppError }
+	| { type: "STATE_OPTIONS_REQUESTED"; programHandle: string }
+	| { type: "STATE_OPTIONS_SUCCEEDED"; programHandle: string; states: string[] }
+	| { type: "STATE_OPTIONS_FAILED"; programHandle: string; error: AppError }
 	| { type: "ORG_SELECTED"; orgId: string }
 	| { type: "PROGRAM_SELECTED"; handle: string }
 	| { type: "LOCAL_PROGRAM_DETECTED"; handle: string }
@@ -529,6 +535,7 @@ export const initialState: AppState = {
 	assetsByProgram: {},
 	teamMembersByProgram: {},
 	inboxesByProgram: {},
+	statesByProgram: {},
 	assigneeOptionsByProgram: loadAssigneeOptions(),
 	filters: {
 		states: [...DEFAULT_STATE_KEYS],
@@ -739,6 +746,33 @@ export function reducer(state: AppState, action: Action): AppState {
 				...state,
 				inboxesByProgram: {
 					...state.inboxesByProgram,
+					[action.programHandle]: { status: "error", error: action.error },
+				},
+			};
+		case "STATE_OPTIONS_REQUESTED":
+			return {
+				...state,
+				statesByProgram: {
+					...state.statesByProgram,
+					[action.programHandle]:
+						state.statesByProgram[action.programHandle]?.status === "ready"
+							? state.statesByProgram[action.programHandle]
+							: { status: "loading" },
+				},
+			};
+		case "STATE_OPTIONS_SUCCEEDED":
+			return {
+				...state,
+				statesByProgram: {
+					...state.statesByProgram,
+					[action.programHandle]: { status: "ready", data: action.states },
+				},
+			};
+		case "STATE_OPTIONS_FAILED":
+			return {
+				...state,
+				statesByProgram: {
+					...state.statesByProgram,
 					[action.programHandle]: { status: "error", error: action.error },
 				},
 			};

@@ -53,6 +53,8 @@ export const api = {
 	// Distinct inboxes across all reports synced for a program, for the sidebar inbox filter.
 	listInboxes: (programHandle: string) => call<InboxRef[]>("list_inboxes", { programHandle }),
 	// Distinct asset identifiers across a program's synced reports, for the sidebar asset filter.
+	listLocalStates: (programHandle: string) =>
+		call<string[]>("list_local_states", { programHandle }),
 	listLocalAssets: (programHandle: string) =>
 		call<AssetRef[]>("list_local_assets", { programHandle }),
 	// Handles of the programs already mirrored locally, for selecting one at launch without

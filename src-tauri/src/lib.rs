@@ -163,6 +163,7 @@ pub fn run() {
             commands::query_discussion,
             commands::list_inboxes,
             commands::list_local_assets,
+            commands::list_local_states,
             commands::list_local_programs,
             commands::synced_report_count,
             commands::start_report_sync,

@@ -21,6 +21,15 @@ export function Sidebar() {
 	const inboxes: AsyncState<InboxRef[]> | undefined = handle
 		? state.inboxesByProgram[handle]
 		: undefined;
+	const stateOptions = handle ? state.statesByProgram[handle] : undefined;
+	// Until the options load, every state is shown rather than none.
+	const presentStates = stateOptions?.status === "ready" ? new Set(stateOptions.data) : null;
+	const openStates = presentStates
+		? OPEN_STATES.filter((f) => presentStates.has(f.key))
+		: OPEN_STATES;
+	const closedStates = presentStates
+		? CLOSED_STATES.filter((f) => presentStates.has(f.key))
+		: CLOSED_STATES;
 	const locked = state.selectedReportIds.size > 0;
 	const searchRef = useSearchShortcut(locked);
 	return (
@@ -68,8 +77,8 @@ export function Sidebar() {
 					<span>State</span>
 				</div>
 
-				<StateFacetGroup heading="Open" facets={OPEN_STATES} />
-				<StateFacetGroup heading="Closed" facets={CLOSED_STATES} />
+				{openStates.length > 0 && <StateFacetGroup heading="Open" facets={openStates} />}
+				{closedStates.length > 0 && <StateFacetGroup heading="Closed" facets={closedStates} />}
 			</div>
 
 			<AssigneeSection key={`assignee-${handle ?? "none"}`} options={assigneeOptions} />

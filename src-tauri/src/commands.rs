@@ -199,15 +199,24 @@ pub async fn list_inboxes(
     ctx.reports.distinct_inboxes(&program_handle)
 }
 
-// Distinct asset identifiers seen across a program's synced reports, for the sidebar asset filter.
-// Derived locally rather than from the organization's assets endpoint: reports carry the asset
-// identifier, which is what the filter matches on, so the API call bought nothing but latency.
+// The states a program's synced reports are in, so the sidebar state filter can hide the rest.
+#[tauri::command]
+pub async fn list_local_states(
+    ctx: State<'_, AppContext>,
+    program_handle: String,
+) -> AppResult<Vec<String>> {
+    ctx.reports.distinct_states(&program_handle)
+}
+
+// The assets a program's synced reports are filed against, for the sidebar asset filter. Derived
+// locally rather than from the organization's assets endpoint, whose asset ids don't match the
+// structured scope ids that reports carry.
 #[tauri::command]
 pub async fn list_local_assets(
     ctx: State<'_, AppContext>,
     program_handle: String,
-) -> AppResult<Vec<String>> {
-    ctx.reports.distinct_asset_identifiers(&program_handle)
+) -> AppResult<Vec<AssetRef>> {
+    ctx.reports.distinct_assets(&program_handle)
 }
 
 // Program handles already mirrored into the local DB. The frontend calls this at launch so it can

@@ -15,6 +15,7 @@ import {
 	loadReportDetail,
 	loadReports,
 	loadSettings,
+	loadStates,
 	loadTeamMembers,
 	loadTriage,
 	refreshReportDetail,
@@ -115,6 +116,13 @@ export function App() {
 		if (state.inboxesByProgram[handle]) return;
 		loadInboxes(dispatch, handle);
 	}, [state.filters.programHandle, state.inboxesByProgram, dispatch]);
+
+	useEffect(() => {
+		const handle = state.filters.programHandle;
+		if (!handle) return;
+		if (state.statesByProgram[handle]) return;
+		loadStates(dispatch, handle);
+	}, [state.filters.programHandle, state.statesByProgram, dispatch]);
 
 	// Team members are per program and only change when the program changes. We need both the
 	// selected handle and the loaded programs list to resolve handle → program id (the API
@@ -331,9 +339,10 @@ export function App() {
 		const h = stateRef.current.filters.programHandle;
 		if (h) {
 			refreshSyncedCount(dispatch, h);
-			// New reports may carry assets or inboxes not yet in the sidebar lists — re-derive.
+			// New reports may carry assets, inboxes, or states not yet in the sidebar lists — re-derive.
 			loadAssets(dispatch, h);
 			loadInboxes(dispatch, h);
+			loadStates(dispatch, h);
 		}
 	};
 	const applySyncChangeRef = useRef(applySyncChange);

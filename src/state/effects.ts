@@ -169,6 +169,18 @@ export async function loadTeamMembers(
 	}
 }
 
+// Load the states a program's synced reports are in (the sidebar hides the other state facets).
+// Refreshed with the asset and inbox options as the sync lands more reports.
+export async function loadStates(dispatch: Dispatch, programHandle: string) {
+	dispatch({ type: "STATE_OPTIONS_REQUESTED", programHandle });
+	try {
+		const states = await api.listLocalStates(programHandle);
+		dispatch({ type: "STATE_OPTIONS_SUCCEEDED", programHandle, states });
+	} catch (e) {
+		dispatch({ type: "STATE_OPTIONS_FAILED", programHandle, error: asError(e) });
+	}
+}
+
 // Load the distinct inboxes seen across a program's synced reports (the sidebar inbox filter).
 // Also called as a background refresh when the sync lands more reports — the reducer keeps the
 // existing ready list visible during the reload, so there's no flicker.
