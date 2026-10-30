@@ -183,6 +183,7 @@ pub fn run() {
             commands::get_triage_prompt,
             commands::get_default_triage_prompt,
             commands::list_triage_validity,
+            commands::list_report_states,
             commands::run_triage,
             commands::stop_triage,
             commands::run_duplicates,

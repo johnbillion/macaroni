@@ -157,6 +157,8 @@ pub trait ReportStore: Send + Sync {
     fn set_triage_new_files(&self, id: &str, new_files: &[String]) -> AppResult<()>;
     // For the subset of `ids` that have a triage saved, return (id, validity).
     fn list_triage_validity(&self, ids: &[&str]) -> AppResult<Vec<(String, Option<String>)>>;
+    // For the subset of `ids` that are mirrored locally, return (id, state).
+    fn list_report_states(&self, ids: &[&str]) -> AppResult<Vec<(String, String)>>;
 }
 
 pub struct SqliteStore {
@@ -1158,6 +1160,24 @@ impl ReportStore for SqliteStore {
             .map_err(AppError::other)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(AppError::other)
     }
+
+    fn list_report_states(&self, ids: &[&str]) -> AppResult<Vec<(String, String)>> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let c = self.conn.lock().unwrap();
+        let placeholders = std::iter::repeat_n("?", ids.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!("SELECT id, state FROM reports WHERE id IN ({placeholders})");
+        let mut stmt = c.prepare(&sql).map_err(AppError::other)?;
+        let rows = stmt
+            .query_map(params_from_iter(ids.iter()), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(AppError::other)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(AppError::other)
+    }
 }
 
 // The detail-only slice of a report: everything a `ReportDetail` carries that a `ReportSummary`
@@ -1403,6 +1423,30 @@ mod tests {
             s.distinct_program_handles().unwrap(),
             vec!["bbpress".to_string(), "wp".to_string()]
         );
+    }
+
+    #[test]
+    fn list_report_states_returns_only_known_ids() {
+        let s = store();
+        s.upsert_summaries(
+            "wp",
+            &[
+                summary("1", "SQL injection", "new", Some("high")),
+                summary("2", "XSS bug", "resolved", Some("low")),
+            ],
+        )
+        .unwrap();
+
+        let mut rows = s.list_report_states(&["1", "2", "999"]).unwrap();
+        rows.sort();
+        assert_eq!(
+            rows,
+            vec![
+                ("1".to_string(), "new".to_string()),
+                ("2".to_string(), "resolved".to_string())
+            ]
+        );
+        assert!(s.list_report_states(&[]).unwrap().is_empty());
     }
 
     #[test]

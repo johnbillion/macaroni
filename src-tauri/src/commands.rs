@@ -310,6 +310,27 @@ pub async fn list_triage_validity(
         .collect())
 }
 
+#[derive(serde::Serialize)]
+pub struct ReportStateEntry {
+    pub id: String,
+    pub state: String,
+}
+
+// The current state of each of `report_ids` that is mirrored locally, for the status pill on
+// inline `#<id>` report references. Unknown ids are simply absent.
+#[tauri::command]
+pub async fn list_report_states(
+    ctx: State<'_, AppContext>,
+    report_ids: Vec<String>,
+) -> AppResult<Vec<ReportStateEntry>> {
+    let refs: Vec<&str> = report_ids.iter().map(String::as_str).collect();
+    let rows = ctx.reports.list_report_states(&refs)?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, state)| ReportStateEntry { id, state })
+        .collect())
+}
+
 // Scan `s` for balanced `{ … }` substrings and return the first one that parses as JSON
 // and contains a `summary` field. Aware of string literals and `\` escapes so a `"}"`
 // inside a JSON string doesn't fool the depth counter.

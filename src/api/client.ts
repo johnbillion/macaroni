@@ -100,4 +100,7 @@ export const api = {
 		call<string[]>("delete_triage_file", { reportId, path }),
 	listTriageValidity: (reportIds: string[]) =>
 		call<{ id: string; validity: string | null }[]>("list_triage_validity", { reportIds }),
+	// The current state of each locally-mirrored report among `reportIds`; unknown ids are absent.
+	listReportStates: (reportIds: string[]) =>
+		call<{ id: string; state: string }[]>("list_report_states", { reportIds }),
 };
