@@ -1095,6 +1095,14 @@ input[type="radio"] {
 .markdown > * + * {
 	margin-top: 10px;
 }
+/* Status pill appended to an inline `#<id>` report reference. */
+.markdown a + .pill {
+	margin-left: 3px;
+	padding: 0 6px;
+	font-size: 0.7em;
+	line-height: 1.6;
+	vertical-align: 2px;
+}
 /* Headings that follow other content get extra room above (and a touch below) so each
    section is clearly set apart. The `* +` guard keeps a leading heading flush to the top. */
 .markdown > * + :is(h1, h2, h3, h4, h5, h6) {

@@ -2,11 +2,14 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Root } from "mdast";
 import { findAndReplace } from "mdast-util-find-and-replace";
 import type { ComponentChildren } from "preact";
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { createContext } from "preact";
+import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import { api } from "../api/client";
 import type { Attachment } from "../state/store";
+import { pillFor } from "../utils/pill";
 
 function extractText(node: unknown): string {
 	if (node == null || typeof node === "boolean") return "";
@@ -180,10 +183,22 @@ const HACKERONE_BASE = "https://hackerone.com";
 // HackerOne report references written inline in comments (`#123456`) are turned into links
 // to the report on hackerone.com. Only "naked" references are matched: a `#` not preceded by
 // a word character, followed by 6–7 digits not followed by a further digit — so `#`s embedded
-// in larger tokens and 8+ digit numbers are left alone. `findAndReplace` only rewrites text
-// nodes, and we ignore link parents, so references inside code, inline code, and existing
-// links are untouched.
+// in larger tokens, short numbers like `#1234`, and 8+ digit numbers are left alone.
+// `findAndReplace` only rewrites text nodes, and we ignore link parents, so references inside
+// code, inline code, and existing links are untouched.
 const REPORT_REF_RE = /(?<![\w#])#(\d{6,7})(?!\d)/g;
+
+// A link straight to a report on hackerone.com, as written explicitly in markdown.
+const REPORT_URL_RE = /^https:\/\/hackerone\.com\/reports\/(\d+)\/?(?:[?#].*)?$/i;
+
+// The ids of every report a pill could be appended to in `source`: naked `#<id>` references
+// that `remarkReportRefs` will link, plus explicit links to a report URL.
+function referencedReportIds(source: string): string[] {
+	const ids = new Set<string>();
+	for (const m of source.matchAll(REPORT_REF_RE)) ids.add(m[1]);
+	for (const m of source.matchAll(/hackerone\.com\/reports\/(\d+)/gi)) ids.add(m[1]);
+	return [...ids];
+}
 
 function remarkReportRefs() {
 	return (tree: Root) => {
@@ -195,6 +210,8 @@ function remarkReportRefs() {
 					(_match: string, id: string) => ({
 						type: "link" as const,
 						url: `${HACKERONE_BASE}/reports/${id}`,
+						// Surfaces as a `data-report-ref` prop on the rendered `<a>`.
+						data: { hProperties: { "data-report-ref": id } },
 						children: [{ type: "text" as const, value: `#${id}` }],
 					}),
 				],
@@ -202,6 +219,37 @@ function remarkReportRefs() {
 			{ ignore: ["link", "linkReference"] },
 		);
 	};
+}
+
+// Report id → current state, for the referenced reports the local mirror knows about.
+const ReportStatesContext = createContext<Record<string, string>>({});
+
+function useReportStates(source: string): Record<string, string> {
+	const ids = useMemo(() => referencedReportIds(source), [source]);
+	const key = ids.join(",");
+	const [states, setStates] = useState<Record<string, string>>({});
+	useEffect(() => {
+		if (ids.length === 0) return;
+		let cancelled = false;
+		api.listReportStates(ids).then(
+			(rows) => {
+				if (cancelled) return;
+				setStates(Object.fromEntries(rows.map((r) => [r.id, r.state])));
+			},
+			() => {},
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, [key]);
+	return states;
+}
+
+function ReportRefPill({ id }: { id: string }) {
+	const state = useContext(ReportStatesContext)[id];
+	if (!state) return null;
+	const pill = pillFor(state);
+	return <span class={`pill ${pill.className}`}>{pill.label}</span>;
 }
 
 // Drops images written as markdown (`![alt](url)`, including the ones substituteAttachmentTokens
@@ -240,22 +288,34 @@ const components = {
 	img: ({ src, alt, title }: { src?: string; alt?: string; title?: string }) => (
 		<ImageWithControls src={src} alt={alt} title={title} />
 	),
-	a: ({ href, children }: { href?: string; children?: ComponentChildren }) => {
+	a: ({
+		href,
+		children,
+		"data-report-ref": reportRef,
+	}: {
+		href?: string;
+		children?: ComponentChildren;
+		"data-report-ref"?: string;
+	}) => {
 		const resolved = href ? resolveHref(href) : null;
 		// Non-http(s) links are stripped: keep the visible text but render it as inert code.
 		if (!resolved) return <code>{children}</code>;
+		const reportId = reportRef ?? resolved.match(REPORT_URL_RE)?.[1];
 		return (
-			<a
-				href={resolved}
-				target="_blank"
-				rel="noopener noreferrer"
-				onClick={(e) => {
-					e.preventDefault();
-					openUrl(resolved);
-				}}
-			>
-				{children}
-			</a>
+			<>
+				<a
+					href={resolved}
+					target="_blank"
+					rel="noopener noreferrer"
+					onClick={(e) => {
+						e.preventDefault();
+						openUrl(resolved);
+					}}
+				>
+					{children}
+				</a>
+				{reportId && <ReportRefPill id={reportId} />}
+			</>
 		);
 	},
 	// biome-ignore lint/suspicious/noExplicitAny: react-markdown components map uses React types
@@ -284,11 +344,14 @@ export function Markdown({
 				: [remarkGfm, remarkBreaks, remarkReportRefs, remarkStripImages],
 		[media],
 	);
+	const reportStates = useReportStates(rendered);
 	return (
-		<div class={`markdown${className ? ` ${className}` : ""}`}>
-			<ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
-				{rendered}
-			</ReactMarkdown>
-		</div>
+		<ReportStatesContext.Provider value={reportStates}>
+			<div class={`markdown${className ? ` ${className}` : ""}`}>
+				<ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
+					{rendered}
+				</ReactMarkdown>
+			</div>
+		</ReportStatesContext.Provider>
 	);
 }
