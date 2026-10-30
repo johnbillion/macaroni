@@ -1,6 +1,6 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { JSX } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { api } from "../api/client";
 import { useShortcut } from "../shortcuts";
 import { useAppState, useDispatch } from "../state/context";
@@ -80,9 +80,20 @@ export function DetailPanel() {
 		// setActiveTab dispatches via context and never changes identity
 	}, [canCheckDuplicates]);
 
+	// A newly selected report starts at the top rather than wherever the last one was scrolled to.
+	// A selection that asks for a specific activity is left alone so the jump to it isn't undone.
+	const scrollRef = useRef<HTMLDivElement>(null);
+	const selectedReportId = state.selectedReportId;
+	const hasFocusActivity = !!state.focusActivityId;
+	useLayoutEffect(() => {
+		if (hasFocusActivity) return;
+		scrollRef.current?.scrollTo(0, 0);
+		// Only a change of report should reset the position
+	}, [selectedReportId]);
+
 	return (
 		<aside class="detail">
-			<div class="detail-scroll">
+			<div class="detail-scroll" ref={scrollRef}>
 				{canCheckDuplicates ? (
 					<div class="detail-tabs" role="tablist">
 						<button
