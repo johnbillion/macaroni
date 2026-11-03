@@ -255,7 +255,13 @@ function buildAssigneeOptions(seen: AssigneeOption[], members: TeamMember[]): As
 	const byValue = new Map<string, AssigneeOption>();
 	for (const option of seen) {
 		if (option.type === "user" && isSystemUser(option.value)) continue;
-		byValue.set(option.value, option);
+		// Seen users are labelled by display name; append the username so the list reads the
+		// same whichever source a person came from.
+		const label =
+			option.type === "user" && option.label !== option.value
+				? `${option.label} (${option.value})`
+				: option.label;
+		byValue.set(option.value, { ...option, label });
 	}
 	for (const member of members) {
 		if (isSystemUser(member.username) || byValue.has(member.username)) continue;
