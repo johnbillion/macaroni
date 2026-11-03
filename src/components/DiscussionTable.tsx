@@ -3,7 +3,7 @@ import { useShortcut } from "../shortcuts";
 import { useAppState, useDispatch } from "../state/context";
 import { DISCUSSION_PAGE_SIZE, loadDiscussion } from "../state/effects";
 import { Avatar } from "./Avatar";
-import { describeEventAction } from "./activity/renderActivity";
+import { activityMessage, describeEventAction } from "./activity/renderActivity";
 import { AttachmentGallery, Markdown, referencedAttachmentIds } from "./Markdown";
 import { RelativeTime } from "./RelativeTime";
 import { ReportLink } from "./ReportLink";
@@ -95,7 +95,7 @@ export function DiscussionTable() {
 						{items.map(({ report_id, activity: a }) => {
 							const selected =
 								state.selectedReportId === report_id && state.focusActivityId === a.id;
-							const message = a.type === "comment" ? a.message : (a.message ?? "");
+							const message = activityMessage(a);
 							const hasMessage = message.trim().length > 0;
 							// Same split as the detail pane's thread: attachments referenced inline via
 							// {F<id>} render inside the body, the rest are listed beneath it.

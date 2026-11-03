@@ -31,6 +31,20 @@ export function isBot(user: UserRef | null): boolean {
 	return user?.user_type === "automation";
 }
 
+/**
+ * The body to show for an activity. HackerOne requires a comment on every severity
+ * change, so a placeholder (".", "^", a bullet) is usually entered just to get past the
+ * form; a single-character body on a severity change is dropped so the event collapses
+ * to its one-line phrase.
+ */
+export function activityMessage(activity: Activity): string {
+	const message = activity.type === "comment" ? activity.message : (activity.message ?? "");
+	if (activity.type === "event" && activity.kind === "report-severity-updated") {
+		return message.trim().length <= 1 ? "" : message;
+	}
+	return message;
+}
+
 export function humanizeKind(kind: string): string {
 	return kind.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -322,7 +336,7 @@ export function renderActivity(
 	referenceUrl: string | null = null,
 ) {
 	const isComment = activity.type === "comment";
-	const message = isComment ? activity.message : (activity.message ?? "");
+	const message = activityMessage(activity);
 	const hasMessage = message.trim().length > 0;
 	const messageAttachments = activity.type === "comment" ? activity.attachments : undefined;
 	// Attachments not embedded in the body via {F<id>} are shown below the message.
