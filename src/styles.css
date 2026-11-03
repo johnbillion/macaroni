@@ -1050,6 +1050,13 @@ input[type="radio"] {
 	font-size: var(--fs-2xs);
 	border: 1px solid rgba(0, 0, 0, 0.3);
 }
+/* A user named mid-sentence in an event phrase: keeps the avatar on the text line. */
+.user-name {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	vertical-align: middle;
+}
 .dh-byline b {
 	color: var(--info);
 	font-weight: 500;

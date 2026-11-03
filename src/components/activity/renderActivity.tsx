@@ -56,6 +56,16 @@ function severityChangeVerb(oldSeverity: string, newSeverity: string): string {
 	return "changed";
 }
 
+// A user mentioned inside an event phrase, shown the same way as the event's actor.
+function UserName({ user }: { user: UserRef }) {
+	return (
+		<span class="user-name">
+			<Avatar user={user} />
+			<b title={user.name ?? undefined}>{user.username}</b>
+		</span>
+	);
+}
+
 /**
  * Render a verb-phrase describing what happened in a non-comment event,
  * pulling in kind-specific fields (invitee, scope names, weakness, etc.).
@@ -82,7 +92,7 @@ export function describeEvent(
 					{activity.kind === "bounty-awarded" && activity.awarded_user ? (
 						<>
 							{" "}
-							<b>{activity.awarded_user.username}</b>
+							<UserName user={activity.awarded_user} />
 						</>
 					) : null}{" "}
 					a bounty of <b>{formatMoney(activity.bounty_amount)}</b>
@@ -156,7 +166,7 @@ export function describeEvent(
 				<>claimed this report</>
 			) : (
 				<>
-					assigned this report to <b>{activity.assigned_user.username}</b>
+					assigned this report to <UserName user={activity.assigned_user} />
 				</>
 			);
 		case "reference-id-added": {
