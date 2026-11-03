@@ -1233,12 +1233,16 @@ a[target="_blank"]::after {
 .markdown img {
 	max-width: 100%;
 }
+/* A sized image also gets an inline width from these limits (see reservedWidth in Markdown.tsx):
+   the max-height alone can't hold the aspect ratio once it clamps a tall image. */
 .markdown .markdown-image,
 .attachment-gallery .markdown-image {
+	--image-max-width: 100%;
+	--image-max-height: 500px;
 	display: block;
-	max-width: 100%;
+	max-width: var(--image-max-width);
 	height: auto;
-	max-height: 500px;
+	max-height: var(--image-max-height);
 	border: 1px solid var(--border);
 	border-radius: var(--radius-md);
 	background: var(--bg-2);
@@ -1296,9 +1300,12 @@ a[target="_blank"]::after {
 	line-height: 1;
 }
 .markdown-image-dialog img {
+	--image-max-width: 95vw;
+	--image-max-height: 95vh;
 	display: block;
-	max-width: 95vw;
-	max-height: 95vh;
+	height: auto;
+	max-width: var(--image-max-width);
+	max-height: var(--image-max-height);
 }
 .markdown hr {
 	border: 0;

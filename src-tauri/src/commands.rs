@@ -169,6 +169,7 @@ async fn fetch_unmirrored_report(
     }
     store.upsert_summaries(program_handle, &[summary_from_detail(&detail)])?;
     store.upsert_detail(&detail)?;
+    crate::attachments::probe_images(store, &detail).await;
     store.query(&LocalQuery {
         program_handle: program_handle.to_string(),
         keyword: Some(id.to_string()),
@@ -259,9 +260,13 @@ pub async fn start_report_sync(
 // selected report.
 #[tauri::command]
 pub async fn get_report(ctx: State<'_, AppContext>, report_id: String) -> AppResult<ReportDetail> {
-    let detail = ctx.api.get_report(&report_id).await?;
+    let mut detail = ctx.api.get_report(&report_id).await?;
     // Best-effort persistence — a DB hiccup shouldn't block showing the freshly fetched report.
     let _ = ctx.reports.upsert_detail(&detail);
+    // Sizes are probed before the detail is returned so a report viewed before the sync reaches
+    // it still renders its images with their boxes reserved.
+    crate::attachments::probe_images(&*ctx.reports, &detail).await;
+    let _ = crate::attachments::apply_dimensions(&*ctx.reports, &mut detail);
     Ok(detail)
 }
 

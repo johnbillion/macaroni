@@ -93,12 +93,17 @@ export type InboxRef = { id: string; name: string; kind: string | null };
 // Total awarded bounty (base + bonus) summed across all awards on a report.
 export type BountyTotal = { amount: number };
 
+export type ImageDimensions = { width: number; height: number };
+
 export type Attachment = {
 	id: string;
 	file_name: string;
 	content_type: string | null;
 	file_size: number | null;
 	expiring_url: string;
+	// Pixel size probed by the sync. Absent until probed, or when the file turned out not to be
+	// a readable image.
+	dimensions?: ImageDimensions;
 };
 
 export type Activity =

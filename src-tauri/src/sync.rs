@@ -355,6 +355,7 @@ async fn backfill_detail(
                     Ok(detail) => {
                         if !cancelled(&cancel) {
                             let _ = store.upsert_detail(&detail);
+                            crate::attachments::probe_images(&*store, &detail).await;
                         }
                         break;
                     }

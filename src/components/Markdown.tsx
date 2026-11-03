@@ -8,8 +8,12 @@ import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { api } from "../api/client";
-import type { Attachment } from "../state/store";
+import type { Attachment, ImageDimensions } from "../state/store";
 import { pillFor } from "../utils/pill";
+
+// The message's attachments keyed on URL, so the `img` renderer can find the pixel size of an
+// image that substituteAttachmentTokens wrote into the markdown as a plain `![alt](url)`.
+const AttachmentsByUrlContext = createContext<Map<string, Attachment>>(new Map());
 
 function extractText(node: unknown): string {
 	if (node == null || typeof node === "boolean") return "";
@@ -73,8 +77,29 @@ function CodeBlock({ children }: { children?: ComponentChildren }) {
 	);
 }
 
-function ImageWithControls({ src }: { src?: string; alt?: string; title?: string }) {
+// The width an image of this size takes within the CSS limits on its box, so the box is reserved
+// before the image loads. The width/height attributes alone can't do it: once the max-height
+// clamps a tall image the attribute width stays put and the image is squashed, so the width is
+// scaled down in ratio here instead. The limits are the `--image-max-*` custom properties the
+// image's own CSS rule sets.
+function reservedWidth({ width, height }: ImageDimensions): string {
+	return `width: min(var(--image-max-width), ${width}px, calc(var(--image-max-height) * ${width} / ${height}))`;
+}
+
+function ImageWithControls({
+	src,
+	dimensions,
+}: {
+	src?: string;
+	alt?: string;
+	title?: string;
+	/** Pixel size, when known; reserves the image's box before it loads. */
+	dimensions?: ImageDimensions;
+}) {
 	const dialogRef = useRef<HTMLDialogElement | null>(null);
+	const sized =
+		dimensions && dimensions.width > 0 && dimensions.height > 0 ? dimensions : undefined;
+	const style = sized ? reservedWidth(sized) : undefined;
 	return (
 		<span class="markdown-image-wrap">
 			{/* biome-ignore lint/a11y/useKeyWithClickEvents: click-to-zoom is a bonus affordance; the dialog's Close button is keyboard-accessible. */}
@@ -83,11 +108,14 @@ function ImageWithControls({ src }: { src?: string; alt?: string; title?: string
 				src={src}
 				alt=""
 				loading="lazy"
+				width={sized?.width}
+				height={sized?.height}
+				style={style}
 				class="markdown-image"
 				onClick={() => dialogRef.current?.showModal()}
 			/>
 			<dialog ref={dialogRef} class="app-dialog markdown-image-dialog">
-				<img src={src} alt="" />
+				<img src={src} alt="" width={sized?.width} height={sized?.height} style={style} />
 				<span class="markdown-image-controls markdown-image-controls-reverse">
 					<button
 						type="button"
@@ -129,7 +157,14 @@ export function AttachmentGallery({
 			{attachments.map((a) => {
 				const isImage = media && (a.content_type ?? "").startsWith("image/");
 				if (isImage) {
-					return <ImageWithControls key={a.id} src={a.expiring_url} alt={a.file_name} />;
+					return (
+						<ImageWithControls
+							key={a.id}
+							src={a.expiring_url}
+							alt={a.file_name}
+							dimensions={a.dimensions}
+						/>
+					);
 				}
 				return (
 					<a
@@ -285,9 +320,11 @@ function resolveHref(href: string): string | null {
 // react-markdown's `Components` type is typed against React; cast through to keep Preact JSX happy.
 const components = {
 	pre: ({ children }: { children?: ComponentChildren }) => <CodeBlock>{children}</CodeBlock>,
-	img: ({ src, alt, title }: { src?: string; alt?: string; title?: string }) => (
-		<ImageWithControls src={src} alt={alt} title={title} />
-	),
+	img: ({ src, alt, title }: { src?: string; alt?: string; title?: string }) => {
+		const byUrl = useContext(AttachmentsByUrlContext);
+		const dimensions = src ? byUrl.get(src)?.dimensions : undefined;
+		return <ImageWithControls src={src} alt={alt} title={title} dimensions={dimensions} />;
+	},
 	a: ({
 		href,
 		children,
@@ -337,6 +374,10 @@ export function Markdown({
 		() => substituteAttachmentTokens(source, attachments ?? [], media),
 		[source, attachments, media],
 	);
+	const byUrl = useMemo(
+		() => new Map((attachments ?? []).map((a) => [a.expiring_url, a])),
+		[attachments],
+	);
 	const remarkPlugins = useMemo(
 		() =>
 			media
@@ -347,11 +388,13 @@ export function Markdown({
 	const reportStates = useReportStates(rendered);
 	return (
 		<ReportStatesContext.Provider value={reportStates}>
-			<div class={`markdown${className ? ` ${className}` : ""}`}>
-				<ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
-					{rendered}
-				</ReactMarkdown>
-			</div>
+			<AttachmentsByUrlContext.Provider value={byUrl}>
+				<div class={`markdown${className ? ` ${className}` : ""}`}>
+					<ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
+						{rendered}
+					</ReactMarkdown>
+				</div>
+			</AttachmentsByUrlContext.Provider>
 		</ReportStatesContext.Provider>
 	);
 }

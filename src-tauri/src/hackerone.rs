@@ -115,6 +115,12 @@ pub struct TeamMember {
     pub username: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageDimensions {
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Attachment {
     pub id: String,
@@ -122,6 +128,11 @@ pub struct Attachment {
     pub content_type: Option<String>,
     pub file_size: Option<u64>,
     pub expiring_url: String,
+    // Not part of the API record: probed from the file itself (see `attachments.rs`) and kept in
+    // the `attachment_dimensions` table, so this is None on anything parsed from the API or read
+    // from the detail blob until the store fills it in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dimensions: Option<ImageDimensions>,
 }
 
 // `Event` carries far more fields than `Comment`, so the variants differ a lot in size. These are
@@ -675,6 +686,7 @@ fn parse_attachment(item: &serde_json::Value) -> Option<Attachment> {
             .get("expiring_url")
             .and_then(|v| v.as_str())?
             .to_string(),
+        dimensions: None,
     })
 }
 

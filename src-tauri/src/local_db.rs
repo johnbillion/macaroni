@@ -1,8 +1,12 @@
+use crate::attachments;
 use crate::db_key::DbKey;
 use crate::error::{AppError, AppResult};
-use crate::hackerone::{Activity, AssetRef, Attachment, InboxRef, ReportDetail, ReportSummary};
+use crate::hackerone::{
+    Activity, AssetRef, Attachment, ImageDimensions, InboxRef, ReportDetail, ReportSummary,
+};
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use zeroize::Zeroize;
@@ -159,6 +163,19 @@ pub trait ReportStore: Send + Sync {
     fn list_triage_validity(&self, ids: &[&str]) -> AppResult<Vec<(String, Option<String>)>>;
     // For the subset of `ids` that are mirrored locally, return (id, state).
     fn list_report_states(&self, ids: &[&str]) -> AppResult<Vec<(String, String)>>;
+
+    // The probe result for each of `ids` that has been probed for its pixel size: `Some` for a
+    // readable image, `None` for one the probe couldn't size. Ids never probed are absent.
+    fn attachment_dimensions(
+        &self,
+        ids: &[&str],
+    ) -> AppResult<HashMap<String, Option<ImageDimensions>>>;
+    // Record a probe's outcome; `None` records a failure so the attachment isn't probed again.
+    fn set_attachment_dimensions(
+        &self,
+        id: &str,
+        dimensions: Option<ImageDimensions>,
+    ) -> AppResult<()>;
 }
 
 pub struct SqliteStore {
@@ -214,6 +231,15 @@ CREATE TABLE IF NOT EXISTS inboxes (
     id   TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     kind TEXT
+);
+
+-- One row per image attachment that has been probed for its pixel size, keyed on the HackerOne
+-- attachment id. NULL width/height records a probe that found no readable image, so the
+-- attachment is never fetched again. Nothing in the detail blob repeats this.
+CREATE TABLE IF NOT EXISTS attachment_dimensions (
+    attachment_id TEXT PRIMARY KEY,
+    width         INTEGER,
+    height        INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS sync_state (
@@ -641,12 +667,17 @@ impl ReportStore for SqliteStore {
         // `detail_json` stores ONLY the fields the summary blob doesn't already have — activities,
         // attachments, and main_state. Everything else is refreshed into `summary_json` (the single
         // source of truth for those fields) so there's no value stored in two places.
-        let extra = ReportDetailExtra {
+        let mut extra = ReportDetailExtra {
             main_state: detail.main_state.clone(),
             cve_ids: detail.cve_ids.clone(),
             activities: detail.activities.clone(),
             attachments: detail.attachments.clone(),
         };
+        // Image sizes live in `attachment_dimensions`, so a detail that came back through
+        // `get_detail` with them filled in mustn't write them into the blob as well.
+        for a in extra_attachments_mut(&mut extra) {
+            a.dimensions = None;
+        }
         let extra_json = serde_json::to_string(&extra).map_err(AppError::other)?;
         let c = self.conn.lock().unwrap();
 
@@ -845,7 +876,15 @@ impl ReportStore for SqliteStore {
                 })
             })
             .map_err(AppError::other)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(AppError::other)
+        let mut items = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::other)?;
+        let attachments = items
+            .iter_mut()
+            .flat_map(|item| attachments::of_activity_mut(&mut item.activity))
+            .collect::<Vec<_>>();
+        apply_dimensions(&c, attachments)?;
+        Ok(items)
     }
 
     fn distinct_inboxes(&self, program_handle: &str) -> AppResult<Vec<InboxRef>> {
@@ -953,11 +992,9 @@ impl ReportStore for SqliteStore {
         ) else {
             return Ok(None);
         };
-        Ok(Some(report_detail_from(
-            Some(program_handle),
-            &summary,
-            &extra,
-        )))
+        let mut detail = report_detail_from(Some(program_handle), &summary, &extra);
+        apply_dimensions(&c, attachments::of_detail_mut(&mut detail))?;
+        Ok(Some(detail))
     }
 
     fn ids_missing_detail(&self, program_handle: &str) -> AppResult<Vec<String>> {
@@ -1016,7 +1053,7 @@ impl ReportStore for SqliteStore {
         let c = self.conn.lock().unwrap();
         c.execute_batch(
             "DELETE FROM reports; DELETE FROM assets; DELETE FROM inboxes;
-                        DELETE FROM sync_state;",
+                        DELETE FROM attachment_dimensions; DELETE FROM sync_state;",
         )
         .map_err(AppError::other)?;
         // Deleting rows only marks their pages free — the report text stays in the file (and its
@@ -1178,6 +1215,78 @@ impl ReportStore for SqliteStore {
             .map_err(AppError::other)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(AppError::other)
     }
+
+    fn attachment_dimensions(
+        &self,
+        ids: &[&str],
+    ) -> AppResult<HashMap<String, Option<ImageDimensions>>> {
+        let c = self.conn.lock().unwrap();
+        load_dimensions(&c, ids)
+    }
+
+    fn set_attachment_dimensions(
+        &self,
+        id: &str,
+        dimensions: Option<ImageDimensions>,
+    ) -> AppResult<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "INSERT OR REPLACE INTO attachment_dimensions (attachment_id, width, height)
+             VALUES (?1, ?2, ?3)",
+            params![
+                id,
+                dimensions.map(|d| d.width),
+                dimensions.map(|d| d.height)
+            ],
+        )
+        .map_err(AppError::other)?;
+        Ok(())
+    }
+}
+
+fn load_dimensions(
+    c: &Connection,
+    ids: &[&str],
+) -> AppResult<HashMap<String, Option<ImageDimensions>>> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let placeholders = std::iter::repeat_n("?", ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT attachment_id, width, height FROM attachment_dimensions
+         WHERE attachment_id IN ({placeholders})"
+    );
+    let mut stmt = c.prepare(&sql).map_err(AppError::other)?;
+    let rows = stmt
+        .query_map(params_from_iter(ids.iter()), |row| {
+            let size = row
+                .get::<_, Option<u32>>(1)?
+                .zip(row.get::<_, Option<u32>>(2)?)
+                .map(|(width, height)| ImageDimensions { width, height });
+            Ok((row.get::<_, String>(0)?, size))
+        })
+        .map_err(AppError::other)?;
+    rows.collect::<Result<HashMap<_, _>, _>>()
+        .map_err(AppError::other)
+}
+
+// Fill in the stored pixel size of each attachment that has one.
+fn apply_dimensions<'a>(
+    c: &Connection,
+    attachments: impl IntoIterator<Item = &'a mut Attachment>,
+) -> AppResult<()> {
+    let attachments = attachments.into_iter().collect::<Vec<_>>();
+    let ids = attachments
+        .iter()
+        .map(|a| a.id.as_str())
+        .collect::<Vec<_>>();
+    let known = load_dimensions(c, &ids)?;
+    for a in attachments {
+        a.dimensions = known.get(&a.id).copied().flatten();
+    }
+    Ok(())
 }
 
 // The detail-only slice of a report: everything a `ReportDetail` carries that a `ReportSummary`
@@ -1189,6 +1298,17 @@ struct ReportDetailExtra {
     cve_ids: Option<Vec<String>>,
     activities: Vec<Activity>,
     attachments: Vec<Attachment>,
+}
+
+fn extra_attachments_mut(extra: &mut ReportDetailExtra) -> Vec<&mut Attachment> {
+    let mut all = extra.attachments.iter_mut().collect::<Vec<_>>();
+    all.extend(
+        extra
+            .activities
+            .iter_mut()
+            .flat_map(attachments::of_activity_mut),
+    );
+    all
 }
 
 // Reconstruct a full `ReportDetail` from the summary blob (shared fields) plus the detail-only
@@ -2078,6 +2198,86 @@ mod tests {
             raw.contains("looking into it"),
             "activity missing from detail_json"
         );
+    }
+
+    #[test]
+    fn image_dimensions_are_stored_once_and_joined_onto_every_read() {
+        let s = store();
+        s.upsert_summaries("wp", &[summary("1", "Screenshot", "new", None)])
+            .unwrap();
+        let attachment = |id: &str| Attachment {
+            id: id.into(),
+            file_name: format!("{id}.png"),
+            content_type: Some("image/png".into()),
+            file_size: None,
+            expiring_url: format!("https://example.com/{id}"),
+            dimensions: None,
+        };
+        let mut activity = comment("a1", "2024-01-02T00:00:00.000Z", "see {F2}", false);
+        if let Activity::Comment { attachments, .. } = &mut activity {
+            attachments.push(attachment("2"));
+            attachments.push(attachment("3"));
+        }
+        let mut detail =
+            detail_with_activities(&summary("1", "Screenshot", "new", None), vec![activity]);
+        detail.attachments.push(attachment("1"));
+
+        // Nothing probed yet: every attachment is unknown.
+        assert!(
+            s.attachment_dimensions(&["1", "2", "3"])
+                .unwrap()
+                .is_empty()
+        );
+
+        let size = ImageDimensions {
+            width: 822,
+            height: 213,
+        };
+        s.set_attachment_dimensions("1", Some(size)).unwrap();
+        s.set_attachment_dimensions("2", None).unwrap();
+        s.upsert_detail(&detail).unwrap();
+
+        // A failed probe is remembered as probed, so it isn't retried; "3" is still unknown.
+        let known = s.attachment_dimensions(&["1", "2", "3"]).unwrap();
+        assert_eq!(known.get("1"), Some(&Some(size)));
+        assert_eq!(known.get("2"), Some(&None));
+        assert!(!known.contains_key("3"));
+
+        let got = s.get_detail("1").unwrap().unwrap();
+        assert_eq!(got.attachments[0].dimensions, Some(size));
+        let Activity::Comment { attachments, .. } = &got.activities[0] else {
+            panic!("expected the comment");
+        };
+        assert_eq!(attachments[0].dimensions, None);
+        assert_eq!(attachments[1].dimensions, None);
+
+        let feed = s.recent_discussion("wp", 10).unwrap();
+        let Activity::Comment { attachments, .. } = &feed[0].activity else {
+            panic!("expected the comment");
+        };
+        assert_eq!(attachments[0].id, "2");
+        assert_eq!(attachments[0].dimensions, None);
+
+        // Writing the joined detail back must not copy the size into the blob.
+        s.set_attachment_dimensions("2", Some(size)).unwrap();
+        let got = s.get_detail("1").unwrap().unwrap();
+        s.upsert_detail(&got).unwrap();
+        let raw: String = {
+            let c = s.conn.lock().unwrap();
+            c.query_row("SELECT detail_json FROM reports WHERE id = '1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap()
+        };
+        assert!(
+            !raw.contains("dimensions"),
+            "image size leaked into detail_json"
+        );
+        let feed = s.recent_discussion("wp", 10).unwrap();
+        let Activity::Comment { attachments, .. } = &feed[0].activity else {
+            panic!("expected the comment");
+        };
+        assert_eq!(attachments[0].dimensions, Some(size));
     }
 
     #[test]

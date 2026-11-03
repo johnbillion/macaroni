@@ -1,4 +1,5 @@
 mod appearance;
+mod attachments;
 mod commands;
 mod credentials;
 mod db_key;
