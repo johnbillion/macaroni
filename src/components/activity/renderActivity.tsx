@@ -31,6 +31,11 @@ export function isBot(user: UserRef | null): boolean {
 	return user?.user_type === "automation";
 }
 
+/** A genuine member of the program's own team: on the member list, but not HackerOne staff or a bot. */
+export function isProgramStaff(user: UserRef | null, teamMemberIds: Set<string>): boolean {
+	return !!user && teamMemberIds.has(user.id) && !isHackerOneStaff(user) && !isBot(user);
+}
+
 /**
  * The body to show for an activity. HackerOne requires a comment on every severity
  * change, so a placeholder (".", "^", a bullet) is usually entered just to get past the
@@ -345,12 +350,11 @@ export function renderActivity(
 	const newState = !isComment ? stateFromBugKind(activity.kind) : null;
 	const actorIsBot = isBot(activity.actor);
 	const actorIsHackerOneStaff = isHackerOneStaff(activity.actor);
-	const isStaff = !!activity.actor && teamMemberIds.has(activity.actor.id);
 	const staffFlag = actorIsBot ? (
 		<span class="msg-staff-flag bot">BOT</span>
 	) : actorIsHackerOneStaff ? (
 		<span class="msg-staff-flag hackerone">HACKERONE STAFF</span>
-	) : isStaff && programHandle ? (
+	) : isProgramStaff(activity.actor, teamMemberIds) && programHandle ? (
 		<span class="msg-staff-flag">{programHandle.toUpperCase()} STAFF</span>
 	) : null;
 

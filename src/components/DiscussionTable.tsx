@@ -1,9 +1,9 @@
-import { useEffect } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 import { useShortcut } from "../shortcuts";
 import { useAppState, useDispatch } from "../state/context";
 import { DISCUSSION_PAGE_SIZE, loadDiscussion } from "../state/effects";
 import { Avatar } from "./Avatar";
-import { activityMessage, describeEventAction } from "./activity/renderActivity";
+import { activityMessage, describeEventAction, isProgramStaff } from "./activity/renderActivity";
 import { AttachmentGallery, Markdown, referencedAttachmentIds } from "./Markdown";
 import { RelativeTime } from "./RelativeTime";
 import { ReportLink } from "./ReportLink";
@@ -13,6 +13,16 @@ import { ReportLink } from "./ReportLink";
 function scrollRowIntoView(activityId: string) {
 	const row = document.querySelector(`[data-discussion-id="${CSS.escape(activityId)}"]`);
 	if (row instanceof HTMLElement) row.scrollIntoView({ block: "nearest" });
+}
+
+const HIDE_TEAM_STORAGE_KEY = "macaroni.discussion.hideTeam";
+
+function loadHideTeam(): boolean {
+	try {
+		return localStorage.getItem(HIDE_TEAM_STORAGE_KEY) === "true";
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -29,12 +39,29 @@ export function DiscussionTable() {
 	const dispatch = useDispatch();
 	const handle = state.filters.programHandle;
 
+	const [hideTeam, setHideTeam] = useState(loadHideTeam);
+	useEffect(() => {
+		try {
+			localStorage.setItem(HIDE_TEAM_STORAGE_KEY, String(hideTeam));
+		} catch {}
+	}, [hideTeam]);
+
+	const members = handle ? state.teamMembersByProgram[handle] : undefined;
+	const teamMemberIds = useMemo(
+		() => new Set(members?.status === "ready" ? members.data.map((m) => m.id) : []),
+		[members],
+	);
+
 	const ready = state.discussion.status === "ready" ? state.discussion.data : null;
-	const items = ready?.items ?? [];
+	const allItems = ready?.items ?? [];
+	const items = hideTeam
+		? allItems.filter(({ activity: a }) => !isProgramStaff(a.actor, teamMemberIds))
+		: allItems;
 	// Refreshes keep whatever depth "load more" has reached rather than snapping back to one page.
 	const limit = ready?.limit ?? DISCUSSION_PAGE_SIZE;
-	// A full page means there may be more; a short one means the mirror is exhausted.
-	const mayHaveMore = ready !== null && items.length >= limit;
+	// A full page means there may be more; a short one means the mirror is exhausted. Measured
+	// before the team-activity filter, which only hides rows the query already returned.
+	const mayHaveMore = ready !== null && allItems.length >= limit;
 
 	// The feed spans every report, so none of the sidebar's filters apply to it (which is why the
 	// sidebar is hidden here): load it once the view is open, and reload it on a program change or
@@ -78,71 +105,75 @@ export function DiscussionTable() {
 				</div>
 			);
 		}
-		if (items.length === 0) {
+		if (allItems.length === 0) {
 			return <div class="placeholder">No activity.</div>;
 		}
 
 		return (
 			<>
-				<table class="inbox-table discussion-table">
-					<thead>
-						<tr>
-							<th class="th-id">ID</th>
-							<th class="th-comment">Activity</th>
-						</tr>
-					</thead>
-					<tbody>
-						{items.map(({ report_id, activity: a }) => {
-							const selected =
-								state.selectedReportId === report_id && state.focusActivityId === a.id;
-							const message = activityMessage(a);
-							const hasMessage = message.trim().length > 0;
-							// Same split as the detail pane's thread: attachments referenced inline via
-							// {F<id>} render inside the body, the rest are listed beneath it.
-							const attachments = a.type === "comment" ? a.attachments : [];
-							const referencedIds = referencedAttachmentIds(message);
-							const extraAttachments = attachments.filter((x) => !referencedIds.has(x.id));
-							return (
-								<tr
-									key={a.id}
-									data-discussion-id={a.id}
-									class={selected ? "row selected" : "row"}
-									onClick={() => onSelect(report_id, a.id)}
-								>
-									<td class="id">
-										<ReportLink id={report_id} />
-									</td>
-									<td class="comment">
-										<div class="comment-meta">
-											<Avatar user={a.actor} />
-											<span class="comment-author">{a.actor?.username ?? "system"}</span>
-											{a.type === "event" ? describeEventAction(a) : null}
-											{a.internal ? (
-												<span class="icon-padlock" role="img" aria-label="Internal" />
+				{items.length === 0 ? (
+					<div class="placeholder">No activity outside the program team.</div>
+				) : (
+					<table class="inbox-table discussion-table">
+						<thead>
+							<tr>
+								<th class="th-id">ID</th>
+								<th class="th-comment">Activity</th>
+							</tr>
+						</thead>
+						<tbody>
+							{items.map(({ report_id, activity: a }) => {
+								const selected =
+									state.selectedReportId === report_id && state.focusActivityId === a.id;
+								const message = activityMessage(a);
+								const hasMessage = message.trim().length > 0;
+								// Same split as the detail pane's thread: attachments referenced inline via
+								// {F<id>} render inside the body, the rest are listed beneath it.
+								const attachments = a.type === "comment" ? a.attachments : [];
+								const referencedIds = referencedAttachmentIds(message);
+								const extraAttachments = attachments.filter((x) => !referencedIds.has(x.id));
+								return (
+									<tr
+										key={a.id}
+										data-discussion-id={a.id}
+										class={selected ? "row selected" : "row"}
+										onClick={() => onSelect(report_id, a.id)}
+									>
+										<td class="id">
+											<ReportLink id={report_id} />
+										</td>
+										<td class="comment">
+											<div class="comment-meta">
+												<Avatar user={a.actor} />
+												<span class="comment-author">{a.actor?.username ?? "system"}</span>
+												{a.type === "event" ? describeEventAction(a) : null}
+												{a.internal ? (
+													<span class="icon-padlock" role="img" aria-label="Internal" />
+												) : null}
+												<span class="comment-time">
+													<RelativeTime iso={a.created_at} />
+												</span>
+											</div>
+											{hasMessage ? (
+												<Markdown
+													source={message}
+													attachments={attachments}
+													class="comment-body"
+													media={false}
+												/>
 											) : null}
-											<span class="comment-time">
-												<RelativeTime iso={a.created_at} />
-											</span>
-										</div>
-										{hasMessage ? (
-											<Markdown
-												source={message}
-												attachments={attachments}
-												class="comment-body"
+											<AttachmentGallery
+												attachments={extraAttachments}
+												class="comment-attachments"
 												media={false}
 											/>
-										) : null}
-										<AttachmentGallery
-											attachments={extraAttachments}
-											class="comment-attachments"
-											media={false}
-										/>
-									</td>
-								</tr>
-							);
-						})}
-					</tbody>
-				</table>
+										</td>
+									</tr>
+								);
+							})}
+						</tbody>
+					</table>
+				)}
 				{mayHaveMore ? (
 					<div class="load-more">
 						<button
@@ -173,6 +204,15 @@ export function DiscussionTable() {
 					<div class="sync-indicator" role="status">
 						<span>List refresh paused</span>
 					</div>
+					<label class="toolbar-option">
+						<input
+							type="checkbox"
+							class="cb"
+							checked={hideTeam}
+							onChange={(e) => setHideTeam(e.currentTarget.checked)}
+						/>
+						Hide team activity
+					</label>
 				</div>
 				{handle ? (
 					<button

@@ -548,6 +548,15 @@ input[type="radio"] {
 		border-width: 1.5px;
 	}
 }
+.toolbar-option {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: var(--fs-xs);
+	color: var(--text-2);
+	white-space: nowrap;
+	cursor: default;
+}
 .toolbar-total {
 	color: var(--text-3);
 	font-size: var(--fs-xs);
