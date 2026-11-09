@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import { useShortcut } from "../shortcuts";
 import { useAppState, useDispatch } from "../state/context";
 import { DISCUSSION_PAGE_SIZE, loadDiscussion } from "../state/effects";
+import { stateFromBugKind } from "../utils/pill";
 import { Avatar } from "./Avatar";
 import { activityMessage, describeEventAction, isProgramStaff } from "./activity/renderActivity";
 import { AttachmentGallery, Markdown, referencedAttachmentIds } from "./Markdown";
@@ -144,8 +145,16 @@ export function DiscussionTable() {
 										</td>
 										<td class="comment">
 											<div class="comment-meta">
-												<Avatar user={a.actor} />
-												<span class="comment-author">{a.actor?.username ?? "system"}</span>
+												{/* Matches the activity log's one-line tick, which drops the "system" author. */}
+												{a.actor ||
+												a.type === "comment" ||
+												stateFromBugKind(a.kind) ||
+												hasMessage ? (
+													<>
+														<Avatar user={a.actor} />
+														<span class="comment-author">{a.actor?.username ?? "system"}</span>
+													</>
+												) : null}
 												{a.type === "event" ? describeEventAction(a) : null}
 												{a.internal ? (
 													<span class="icon-padlock" role="img" aria-label="Internal" />
