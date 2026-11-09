@@ -136,6 +136,8 @@ export function describeEvent(
 			return <>This report has been disclosed.</>;
 		case "manually-disclosed":
 			return <>disclosed this report</>;
+		case "agreed-on-going-public":
+			return <>requested to disclose this report</>;
 		case "external-user-invited":
 			return activity.invitee ? (
 				<>

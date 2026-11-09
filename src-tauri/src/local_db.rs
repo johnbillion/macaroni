@@ -85,7 +85,8 @@ pub const DISCUSSION_EVENT_KINDS: &[&str] = &[
     "bounty-suggested",
     "bounty-awarded",
     "not-eligible-for-bounty",
-    // Disclosed.
+    // Disclosure requested, then disclosed.
+    "agreed-on-going-public",
     "report-became-public",
     "manually-disclosed",
 ];
