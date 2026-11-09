@@ -757,8 +757,10 @@ input[type="radio"] {
 }
 /* WebKit's line-clamp silently gives up (rendering the whole body) when the clamped lines
    contain an inline-block, which the atomic inline-code spans are. Plain inline is fine in a
-   three-line preview. */
-.comment-body.markdown code {
+   three-line preview. The status pills on report references are inline-block for the same
+   reason. */
+.comment-body.markdown code,
+.comment-body.markdown .pill {
 	display: inline;
 }
 .comment-body + .comment-attachments {
