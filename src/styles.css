@@ -1412,16 +1412,11 @@ a[target="_blank"]::after {
 	gap: 5px;
 	font-size: var(--fs-sm);
 	font-variant-numeric: tabular-nums;
-	margin-left: auto;
 	white-space: nowrap;
 	flex-shrink: 0;
 }
-/* Team-side meta packs to the right; time sits inline at the end of the cluster. */
 .msg.out .msg-meta {
 	justify-content: flex-end;
-}
-.msg.out .msg-time {
-	margin-left: 0;
 }
 .msg-bubble {
 	max-width: 80%;
@@ -1546,11 +1541,13 @@ a[target="_blank"]::after {
 	display: inline-flex;
 	align-items: center;
 	gap: 5px;
-	margin-left: auto;
 	font-size: var(--fs-sm);
 	font-variant-numeric: tabular-nums;
 	white-space: nowrap;
 	flex-shrink: 0;
+}
+.event-tick.out {
+	justify-content: flex-end;
 }
 .event-tick-text {
 	display: inline-flex;

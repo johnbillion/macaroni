@@ -362,10 +362,12 @@ export function renderActivity(
 		<span class="msg-staff-flag">{programHandle.toUpperCase()} STAFF</span>
 	) : null;
 
+	const side = isProgramSide(activity, reporterId, teamMemberIds) ? "out" : "in";
+
 	// Non-state-change events with no message body collapse to a one-line tick.
 	if (activity.type === "event" && !newState && !hasMessage) {
 		const description = describeEvent(activity, currentInboxNames, currentCveIds, referenceUrl);
-		const tickClasses = ["event-tick", activity.internal ? "internal" : ""]
+		const tickClasses = ["event-tick", side, activity.internal ? "internal" : ""]
 			.filter(Boolean)
 			.join(" ");
 		return (
@@ -392,7 +394,6 @@ export function renderActivity(
 
 	const author = activity.actor?.username ?? "system";
 	const isReporter = activity.actor?.id === reporterId;
-	const side = isProgramSide(activity, reporterId, teamMemberIds) ? "out" : "in";
 	const classes = ["msg", side, activity.internal ? "internal" : ""].filter(Boolean).join(" ");
 	const event = activity.type === "event" ? activity : null;
 
