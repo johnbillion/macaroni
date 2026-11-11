@@ -4,7 +4,7 @@ import { useAppState, useDispatch } from "../state/context";
 import { DISCUSSION_PAGE_SIZE, loadDiscussion } from "../state/effects";
 import { stateFromBugKind } from "../utils/pill";
 import { Avatar } from "./Avatar";
-import { activityMessage, describeEventAction, isProgramStaff } from "./activity/renderActivity";
+import { activityMessage, describeEventAction } from "./activity/renderActivity";
 import { AttachmentGallery, Markdown, referencedAttachmentIds } from "./Markdown";
 import { RelativeTime } from "./RelativeTime";
 import { ReportLink } from "./ReportLink";
@@ -52,25 +52,25 @@ export function DiscussionTable() {
 		() => new Set(members?.status === "ready" ? members.data.map((m) => m.id) : []),
 		[members],
 	);
+	// The query leaves team activity out before applying its limit, so a hidden row doesn't cost a
+	// slot in the page. Keyed as a string so a re-fetched but identical member list doesn't reload.
+	const hiddenKey = hideTeam ? [...teamMemberIds].sort().join(",") : "";
+	const hiddenActorIds = useMemo(() => (hiddenKey ? hiddenKey.split(",") : []), [hiddenKey]);
 
 	const ready = state.discussion.status === "ready" ? state.discussion.data : null;
-	const allItems = ready?.items ?? [];
-	const items = hideTeam
-		? allItems.filter(({ activity: a }) => !isProgramStaff(a.actor, teamMemberIds))
-		: allItems;
+	const items = ready?.items ?? [];
 	// Refreshes keep whatever depth "load more" has reached rather than snapping back to one page.
 	const limit = ready?.limit ?? DISCUSSION_PAGE_SIZE;
-	// A full page means there may be more; a short one means the mirror is exhausted. Measured
-	// before the team-activity filter, which only hides rows the query already returned.
-	const mayHaveMore = ready !== null && allItems.length >= limit;
+	// A full page means there may be more; a short one means the mirror is exhausted.
+	const mayHaveMore = ready !== null && items.length >= limit;
 
 	// The feed spans every report, so none of the sidebar's filters apply to it (which is why the
-	// sidebar is hidden here): load it once the view is open, and reload it on a program change or
-	// from the toolbar's refresh button.
+	// sidebar is hidden here): load it once the view is open, and reload it on a program change,
+	// when team activity is hidden or shown, or from the toolbar's refresh button.
 	useEffect(() => {
 		if (!handle) return;
-		loadDiscussion(dispatch, handle);
-	}, [handle, dispatch]);
+		loadDiscussion(dispatch, handle, hiddenActorIds);
+	}, [handle, hiddenActorIds, dispatch]);
 
 	const onSelect = (reportId: string, activityId: string) => {
 		dispatch({ type: "REPORT_SELECTED", reportId, focusActivityId: activityId });
@@ -100,96 +100,99 @@ export function DiscussionTable() {
 			return (
 				<div class="placeholder error">
 					<p>{state.discussion.error.message}</p>
-					<button type="button" class="retry-btn" onClick={() => loadDiscussion(dispatch, handle)}>
+					<button
+						type="button"
+						class="retry-btn"
+						onClick={() => loadDiscussion(dispatch, handle, hiddenActorIds)}
+					>
 						Try again
 					</button>
 				</div>
 			);
 		}
-		if (allItems.length === 0) {
-			return <div class="placeholder">No activity.</div>;
+		if (items.length === 0) {
+			return (
+				<div class="placeholder">
+					{hideTeam ? "No activity outside the program team." : "No activity."}
+				</div>
+			);
 		}
 
 		return (
 			<>
-				{items.length === 0 ? (
-					<div class="placeholder">No activity outside the program team.</div>
-				) : (
-					<table class="inbox-table discussion-table">
-						<thead>
-							<tr>
-								<th class="th-id">ID</th>
-								<th class="th-comment">Activity</th>
-							</tr>
-						</thead>
-						<tbody>
-							{items.map(({ report_id, activity: a }) => {
-								const selected =
-									state.selectedReportId === report_id && state.focusActivityId === a.id;
-								const message = activityMessage(a);
-								const hasMessage = message.trim().length > 0;
-								// Same split as the detail pane's thread: attachments referenced inline via
-								// {F<id>} render inside the body, the rest are listed beneath it.
-								const attachments = a.type === "comment" ? a.attachments : [];
-								const referencedIds = referencedAttachmentIds(message);
-								const extraAttachments = attachments.filter((x) => !referencedIds.has(x.id));
-								return (
-									<tr
-										key={a.id}
-										data-discussion-id={a.id}
-										class={selected ? "row selected" : "row"}
-										onClick={() => onSelect(report_id, a.id)}
-									>
-										<td class="id">
-											<ReportLink id={report_id} />
-										</td>
-										<td class="comment">
-											<div class="comment-meta">
-												{/* Matches the activity log's one-line tick, which drops the "system" author. */}
-												{a.actor ||
-												a.type === "comment" ||
-												stateFromBugKind(a.kind) ||
-												hasMessage ? (
-													<>
-														<Avatar user={a.actor} />
-														<span class="comment-author">{a.actor?.username ?? "system"}</span>
-													</>
-												) : null}
-												{a.type === "event" ? describeEventAction(a) : null}
-												{a.internal ? (
-													<span class="icon-padlock" role="img" aria-label="Internal" />
-												) : null}
-												<span class="comment-time">
-													<RelativeTime iso={a.created_at} />
-												</span>
-											</div>
-											{hasMessage ? (
-												<Markdown
-													source={message}
-													attachments={attachments}
-													class="comment-body"
-													media={false}
-												/>
+				<table class="inbox-table discussion-table">
+					<thead>
+						<tr>
+							<th class="th-id">ID</th>
+							<th class="th-comment">Activity</th>
+						</tr>
+					</thead>
+					<tbody>
+						{items.map(({ report_id, activity: a }) => {
+							const selected =
+								state.selectedReportId === report_id && state.focusActivityId === a.id;
+							const message = activityMessage(a);
+							const hasMessage = message.trim().length > 0;
+							// Same split as the detail pane's thread: attachments referenced inline via
+							// {F<id>} render inside the body, the rest are listed beneath it.
+							const attachments = a.type === "comment" ? a.attachments : [];
+							const referencedIds = referencedAttachmentIds(message);
+							const extraAttachments = attachments.filter((x) => !referencedIds.has(x.id));
+							return (
+								<tr
+									key={a.id}
+									data-discussion-id={a.id}
+									class={selected ? "row selected" : "row"}
+									onClick={() => onSelect(report_id, a.id)}
+								>
+									<td class="id">
+										<ReportLink id={report_id} />
+									</td>
+									<td class="comment">
+										<div class="comment-meta">
+											{/* Matches the activity log's one-line tick, which drops the "system" author. */}
+											{a.actor || a.type === "comment" || stateFromBugKind(a.kind) || hasMessage ? (
+												<>
+													<Avatar user={a.actor} />
+													<span class="comment-author">{a.actor?.username ?? "system"}</span>
+												</>
 											) : null}
-											<AttachmentGallery
-												attachments={extraAttachments}
-												class="comment-attachments"
+											{a.type === "event" ? describeEventAction(a) : null}
+											{a.internal ? (
+												<span class="icon-padlock" role="img" aria-label="Internal" />
+											) : null}
+											<span class="comment-time">
+												<RelativeTime iso={a.created_at} />
+											</span>
+										</div>
+										{hasMessage ? (
+											<Markdown
+												source={message}
+												attachments={attachments}
+												class="comment-body"
 												media={false}
 											/>
-										</td>
-									</tr>
-								);
-							})}
-						</tbody>
-					</table>
-				)}
+										) : null}
+										<AttachmentGallery
+											attachments={extraAttachments}
+											class="comment-attachments"
+											media={false}
+										/>
+									</td>
+								</tr>
+							);
+						})}
+					</tbody>
+				</table>
 				{mayHaveMore ? (
 					<div class="load-more">
 						<button
 							type="button"
 							class="retry-btn"
 							disabled={ready.pending}
-							onClick={() => loadDiscussion(dispatch, handle, limit + DISCUSSION_PAGE_SIZE)}
+							onClick={() =>
+								loadDiscussion(dispatch, handle, hiddenActorIds, limit + DISCUSSION_PAGE_SIZE)
+							}
 						>
 							{ready.pending ? "Loading…" : `Load ${DISCUSSION_PAGE_SIZE} more`}
 						</button>
@@ -228,7 +231,7 @@ export function DiscussionTable() {
 						type="button"
 						class="columns-menu-btn"
 						aria-label="Refresh discussion"
-						onClick={() => loadDiscussion(dispatch, handle, limit)}
+						onClick={() => loadDiscussion(dispatch, handle, hiddenActorIds, limit)}
 					>
 						↻
 					</button>

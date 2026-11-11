@@ -47,9 +47,9 @@ export const api = {
 	}) => call<ReportSummary[]>("query_reports", { query }),
 	// The newest `limit` comments and notable events across a program's synced reports, newest
 	// first. Derived in SQL from the activities already mirrored in each report's detail — nothing
-	// extra is stored.
-	queryDiscussion: (programHandle: string, limit: number) =>
-		call<DiscussionItem[]>("query_discussion", { programHandle, limit }),
+	// extra is stored. Activity by the given program team members is left out before the limit.
+	queryDiscussion: (programHandle: string, limit: number, teamMemberIds: string[]) =>
+		call<DiscussionItem[]>("query_discussion", { programHandle, limit, teamMemberIds }),
 	// Distinct inboxes across all reports synced for a program, for the sidebar inbox filter.
 	listInboxes: (programHandle: string) => call<InboxRef[]>("list_inboxes", { programHandle }),
 	// Distinct asset identifiers across a program's synced reports, for the sidebar asset filter.

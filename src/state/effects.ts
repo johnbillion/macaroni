@@ -375,16 +375,22 @@ export const DISCUSSION_PAGE_SIZE = 100;
 // Deepening re-queries the whole feed at the larger limit rather than fetching an offset page:
 // the query is a cheap local scan, and replacing the list wholesale means the selected report's
 // poll writing new activity into the mirror can't duplicate or skip rows across a page boundary.
+let discussionRequestId = 0;
+
 export async function loadDiscussion(
 	dispatch: Dispatch,
 	programHandle: string,
+	hiddenActorIds: string[],
 	limit = DISCUSSION_PAGE_SIZE,
 ) {
+	const myId = ++discussionRequestId;
 	dispatch({ type: "DISCUSSION_REQUESTED", limit });
 	try {
-		const items = await api.queryDiscussion(programHandle, limit);
+		const items = await api.queryDiscussion(programHandle, limit, hiddenActorIds);
+		if (myId !== discussionRequestId) return;
 		dispatch({ type: "DISCUSSION_SUCCEEDED", items, limit });
 	} catch (e) {
+		if (myId !== discussionRequestId) return;
 		dispatch({ type: "DISCUSSION_FAILED", error: asError(e) });
 	}
 }

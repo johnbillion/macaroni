@@ -186,8 +186,10 @@ pub async fn query_discussion(
     ctx: State<'_, AppContext>,
     program_handle: String,
     limit: i64,
+    team_member_ids: Vec<String>,
 ) -> AppResult<Vec<DiscussionItem>> {
-    ctx.reports.recent_discussion(&program_handle, limit)
+    ctx.reports
+        .recent_discussion(&program_handle, limit, &team_member_ids)
 }
 
 // Distinct inboxes seen across all reports synced for a program, for the sidebar inbox filter.

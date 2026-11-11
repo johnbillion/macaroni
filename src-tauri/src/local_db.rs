@@ -114,9 +114,14 @@ pub trait ReportStore: Send + Sync {
     fn query(&self, q: &LocalQuery) -> AppResult<Vec<ReportListItem>>;
     // The newest `limit` comments across every report stored for a program, regardless of report
     // state. Derived on read by expanding the activities in each report's detail blob — comments
-    // are neither stored nor indexed separately.
-    fn recent_discussion(&self, program_handle: &str, limit: i64)
-    -> AppResult<Vec<DiscussionItem>>;
+    // are neither stored nor indexed separately. Activity by the program team members in
+    // `team_member_ids` is left out before the limit applies, so hiding it doesn't shorten the feed.
+    fn recent_discussion(
+        &self,
+        program_handle: &str,
+        limit: i64,
+        team_member_ids: &[String],
+    ) -> AppResult<Vec<DiscussionItem>>;
     // Distinct inboxes across every report stored for a program, sorted by name. Drives the
     // sidebar inbox filter — HackerOne has no endpoint to enumerate a program's inboxes, so the
     // set is derived from the inboxes seen on synced reports.
@@ -822,7 +827,9 @@ impl ReportStore for SqliteStore {
         &self,
         program_handle: &str,
         limit: i64,
+        team_member_ids: &[String],
     ) -> AppResult<Vec<DiscussionItem>> {
+        let team_member_ids = serde_json::to_string(team_member_ids).map_err(AppError::other)?;
         let c = self.conn.lock().unwrap();
         // The kinds are compile-time constants, so they're spliced into the SQL rather than bound.
         let kinds = DISCUSSION_EVENT_KINDS
@@ -856,12 +863,19 @@ impl ReportStore for SqliteStore {
                        OR json_extract(a.value, '$.kind') LIKE 'bug-%'
                        OR json_extract(a.value, '$.kind') IN ({kinds})
                    )
+                   -- Same test as the frontend's isProgramStaff: HackerOne staff (`h1_` usernames)
+                   -- and automation accounts sit on the member list but aren't the program team.
+                   AND NOT (
+                       coalesce(json_extract(a.value, '$.actor.id'), '') IN (SELECT value FROM json_each(?3))
+                       AND substr(coalesce(json_extract(a.value, '$.actor.username'), ''), 1, 3) <> 'h1_'
+                       AND coalesce(json_extract(a.value, '$.actor.user_type'), '') <> 'automation'
+                   )
                  ORDER BY json_extract(a.value, '$.created_at') DESC
                  LIMIT ?2"
             ))
             .map_err(AppError::other)?;
         let rows = stmt
-            .query_map(params![program_handle, limit], |row| {
+            .query_map(params![program_handle, limit, team_member_ids], |row| {
                 let json: String = row.get(2)?;
                 let activity = serde_json::from_str::<Activity>(&json).map_err(|e| {
                     rusqlite::Error::FromSqlConversionFailure(
@@ -2252,7 +2266,7 @@ mod tests {
         assert_eq!(attachments[0].dimensions, None);
         assert_eq!(attachments[1].dimensions, None);
 
-        let feed = s.recent_discussion("wp", 10).unwrap();
+        let feed = s.recent_discussion("wp", 10, &[]).unwrap();
         let Activity::Comment { attachments, .. } = &feed[0].activity else {
             panic!("expected the comment");
         };
@@ -2274,7 +2288,7 @@ mod tests {
             !raw.contains("dimensions"),
             "image size leaked into detail_json"
         );
-        let feed = s.recent_discussion("wp", 10).unwrap();
+        let feed = s.recent_discussion("wp", 10, &[]).unwrap();
         let Activity::Comment { attachments, .. } = &feed[0].activity else {
             panic!("expected the comment");
         };
@@ -2356,7 +2370,7 @@ mod tests {
         ))
         .unwrap();
 
-        let rows = s.recent_discussion("wp", 100).unwrap();
+        let rows = s.recent_discussion("wp", 100, &[]).unwrap();
         let ids: Vec<&str> = rows.iter().map(|c| activity_id(&c.activity)).collect();
         assert_eq!(ids, ["c2", "c3", "c1"]);
         assert_eq!(rows[0].report_id, "1");
@@ -2376,7 +2390,7 @@ mod tests {
         }
         assert_eq!(rows[1].report_id, "2");
 
-        let capped = s.recent_discussion("wp", 2).unwrap();
+        let capped = s.recent_discussion("wp", 2, &[]).unwrap();
         assert_eq!(capped.len(), 2);
         assert_eq!(activity_id(&capped[0].activity), "c2");
     }
@@ -2403,12 +2417,59 @@ mod tests {
         .unwrap();
 
         let ids: Vec<String> = s
-            .recent_discussion("wp", 100)
+            .recent_discussion("wp", 100, &[])
             .unwrap()
             .into_iter()
             .map(|c| activity_id(&c.activity).to_string())
             .collect();
         assert_eq!(ids, ["b2", "c1"]);
+    }
+
+    #[test]
+    fn recent_discussion_hides_team_activity_before_the_limit() {
+        let s = store();
+        let one = summary("1", "One", "new", None);
+        s.upsert_summaries("wp", std::slice::from_ref(&one))
+            .unwrap();
+        let by = |id: &str, at: &str, user_id: &str, username: &str, user_type: Option<&str>| {
+            let mut a = comment(id, at, "hi", false);
+            if let Activity::Comment { actor, .. } = &mut a {
+                *actor = Some(UserRef {
+                    id: user_id.into(),
+                    username: username.into(),
+                    name: None,
+                    profile_picture_url: None,
+                    user_type: user_type.map(Into::into),
+                });
+            }
+            a
+        };
+        s.upsert_detail(&detail_with_activities(
+            &one,
+            vec![
+                by("team", "2024-03-05T00:00:00.000Z", "t1", "teammate", None),
+                by("h1", "2024-03-04T00:00:00.000Z", "t2", "h1_triager", None),
+                by(
+                    "bot",
+                    "2024-03-03T00:00:00.000Z",
+                    "t3",
+                    "auto-x",
+                    Some("automation"),
+                ),
+                by("hacker", "2024-03-02T00:00:00.000Z", "h", "hacker", None),
+                event_at("system", "bug-triaged", "2024-03-01T00:00:00.000Z"),
+            ],
+        ))
+        .unwrap();
+
+        let team = ["t1", "t2", "t3"].map(String::from);
+        let ids: Vec<String> = s
+            .recent_discussion("wp", 3, &team)
+            .unwrap()
+            .into_iter()
+            .map(|c| activity_id(&c.activity).to_string())
+            .collect();
+        assert_eq!(ids, ["h1", "bot", "hacker"]);
     }
 
     #[test]
@@ -2460,7 +2521,7 @@ mod tests {
         .unwrap();
 
         let ids: Vec<String> = s
-            .recent_discussion("wp", 100)
+            .recent_discussion("wp", 100, &[])
             .unwrap()
             .into_iter()
             .map(|c| activity_id(&c.activity).to_string())
