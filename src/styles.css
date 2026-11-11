@@ -1522,6 +1522,9 @@ a[target="_blank"]::after {
 	display: flex;
 	align-items: center;
 	gap: 10px;
+	/* Shrink-wrapped so the internal background hugs the cluster rather than spanning the log. */
+	width: fit-content;
+	max-width: 100%;
 }
 .event-tick::before {
 	content: "";
@@ -1547,7 +1550,7 @@ a[target="_blank"]::after {
 	flex-shrink: 0;
 }
 .event-tick.out {
-	justify-content: flex-end;
+	margin-left: auto;
 }
 .event-tick-text {
 	display: inline-flex;
