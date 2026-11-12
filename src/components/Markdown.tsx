@@ -256,6 +256,49 @@ function remarkReportRefs() {
 	};
 }
 
+// GitHub issue/PR references (`owner/repo#123`) link to the issue URL, which GitHub redirects
+// to the pull request when it is one. Unlike report refs these are also linked when they make
+// up the whole of an inline code span, which is how they're usually written in comments.
+const GITHUB_REF_SOURCE = "([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)/([\\w.-]+)#(\\d+)";
+const GITHUB_REF_RE = new RegExp(`(?<![\\w/.-])${GITHUB_REF_SOURCE}(?!\\w)`, "g");
+const GITHUB_REF_WHOLE_RE = new RegExp(`^${GITHUB_REF_SOURCE}$`);
+
+function githubRefUrl(owner: string, repo: string, number: string): string {
+	return `https://github.com/${owner}/${repo}/issues/${number}`;
+}
+
+type MdNode = { type: string; value?: string; children?: MdNode[] };
+
+function linkInlineCodeRefs(node: MdNode) {
+	if (!node.children || node.type === "link" || node.type === "linkReference") return;
+	node.children = node.children.map((child) => {
+		const m = child.type === "inlineCode" ? child.value?.match(GITHUB_REF_WHOLE_RE) : null;
+		if (m) return { type: "link", url: githubRefUrl(m[1], m[2], m[3]), children: [child] };
+		linkInlineCodeRefs(child);
+		return child;
+	});
+}
+
+function remarkGitHubRefs() {
+	return (tree: Root) => {
+		linkInlineCodeRefs(tree as MdNode);
+		findAndReplace(
+			tree,
+			[
+				[
+					GITHUB_REF_RE,
+					(match: string, owner: string, repo: string, number: string) => ({
+						type: "link" as const,
+						url: githubRefUrl(owner, repo, number),
+						children: [{ type: "text" as const, value: match }],
+					}),
+				],
+			],
+			{ ignore: ["link", "linkReference"] },
+		);
+	};
+}
+
 // Report id → current state, for the referenced reports the local mirror knows about.
 const ReportStatesContext = createContext<Record<string, string>>({});
 
@@ -381,8 +424,8 @@ export function Markdown({
 	const remarkPlugins = useMemo(
 		() =>
 			media
-				? [remarkGfm, remarkBreaks, remarkReportRefs]
-				: [remarkGfm, remarkBreaks, remarkReportRefs, remarkStripImages],
+				? [remarkGfm, remarkBreaks, remarkGitHubRefs, remarkReportRefs]
+				: [remarkGfm, remarkBreaks, remarkGitHubRefs, remarkReportRefs, remarkStripImages],
 		[media],
 	);
 	const reportStates = useReportStates(rendered);
