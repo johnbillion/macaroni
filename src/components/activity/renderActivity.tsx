@@ -131,6 +131,8 @@ export function describeEvent(
 			return <>locked this report</>;
 		case "hacker-requested-mediation":
 			return <>requested mediation</>;
+		case "code-review-requested":
+			return <>requested a code review</>;
 		// HackerOne records the automatic disclosure with no actor.
 		case "report-became-public":
 			return <>This report has been disclosed.</>;

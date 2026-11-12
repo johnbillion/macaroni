@@ -82,6 +82,7 @@ pub const DISCUSSION_EVENT_KINDS: &[&str] = &[
     // Locked.
     "comments-closed",
     "hacker-requested-mediation",
+    "code-review-requested",
     "bounty-suggested",
     "bounty-awarded",
     "not-eligible-for-bounty",
@@ -2498,6 +2499,11 @@ mod tests {
                     "report-severity-updated",
                     "2024-03-07T00:00:00.000Z",
                 ),
+                event_at(
+                    "review",
+                    "code-review-requested",
+                    "2024-03-07T12:00:00.000Z",
+                ),
                 event_at("suggested", "bounty-suggested", "2024-03-08T00:00:00.000Z"),
                 event_at("awarded", "bounty-awarded", "2024-03-09T00:00:00.000Z"),
                 event_at(
@@ -2534,6 +2540,7 @@ mod tests {
                 "ineligible",
                 "awarded",
                 "suggested",
+                "review",
                 "mediation",
                 "locked",
                 "reopened",

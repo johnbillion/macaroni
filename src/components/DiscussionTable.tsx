@@ -29,7 +29,7 @@ function loadHideTeam(): boolean {
 /**
  * The newest activity across every synced report, whatever state the report is in, newest first:
  * every comment, every state change, plus the events worth following program-wide (lock,
- * mediation, bounties, disclosure — see DISCUSSION_EVENT_KINDS on the Rust side). Entirely
+ * mediation, code review requests, bounties, disclosure — see DISCUSSION_EVENT_KINDS on the Rust side). Entirely
  * derived from the local mirror — the same rows the inbox is built from, expanded by their
  * activities — so there's nothing here to sync or store. Selecting a row opens the report in the
  * shared detail panel, scrolled to the activity that was clicked; that pane stays live, it's only
